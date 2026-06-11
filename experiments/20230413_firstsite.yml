@@ -1,0 +1,93 @@
+name: "20230413_firstsite"
+paradigm: "openephys_multistim"
+good: True
+cntlbarcodes: True
+stream_id: "0"
+threshold: 300
+window_size: 5
+aggregated_path: '\\datanas\family\data_aggregated\20230413_firstsite'
+metadata_csv: '\\datanas\family\data_aggregated\20230413_firstsitemetadata.csv'
+analysis:
+  mag_Q: 80
+  visual_Q: 90
+  WN_Q: 50
+  mag_rec_substring: "Mag"
+  visual_rec_substring: "visual"
+  wn_rec_substring: "WN"
+trials:
+  - folder: '\\datanas\family\data_raw\20230413\first_site\2023-04-13_15-08-42_W25R_Mag2'
+    frequency: 2
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230413\first_site\2023-04-13_15-11-11_W25R_Mag3'
+    frequency: 3
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230413\first_site\2023-04-13_15-13-11_W25R_Mag8'
+    frequency: 8
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230413\first_site\2023-04-13_15-15-40_W25R_Mag5'
+    frequency: 5
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230413\first_site\2023-04-13_15-19-07_W25R_Mag2_inclined'
+    recname: '2023-04-13_15-21-02_W25R_Mag2_inclined_again'
+    frequency: 2
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230413\first_site\2023-04-13_15-22-55_W25R_Mag3_inclined'
+    frequency: 3
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230413\first_site\2023-04-13_15-25-47_W25R_Mag3_inclined_repositioned'
+    frequency: 3
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230413\first_site\2023-04-13_15-27-50_W25R_Mag5_inclined_repositioned_redo'
+    frequency: 5
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230413\first_site\2023-04-13_15-29-41_W25R_Mag8_inclined_repositioned'
+    frequency: 8
+    skips: 0
+auxiliary_stimuli:
+  - recname: '2023-04-13_15-49-48_W25R_visual_3Hz'
+    kind: "visual_gratings"
+    channel: 4
+    thr_on: 12000
+    thr_off: 2500
+    deststream: "Neuropix-PXI-103.0"
+    sourcestream: "NI-DAQmx-100.0"
+    sourcebarcode: "A2"
+    frequency: 3
+    n_orientations: 8
+    trial_gap_samples: 120000
+    orientation_csv: '\\datanas\family\data_raw\20230413\first_site\13-04-2023_11-47-00video_presentation.txt'
+  - recname: '2023-04-13_16-00-46_W25R_visual_2Hz'
+    kind: "visual_gratings"
+    channel: 4
+    thr_on: 12000
+    thr_off: 2500
+    deststream: "Neuropix-PXI-103.0"
+    sourcestream: "NI-DAQmx-100.0"
+    sourcebarcode: "A2"
+    frequency: 2
+    n_orientations: 8
+    trial_gap_samples: 120000
+    iup_min_filter: 30000
+    orientation_csv: '\\datanas\family\data_raw\20230413\first_site\13-04-2023_15-59-36video_presentation.txt'
+  - recname: '2023-04-13_15-39-50_W25R_WN_SameCh'
+    kind: "white_noise"
+    channel: 3
+    thr_on: 12000
+    thr_off: 2500
+    deststream: "Neuropix-PXI-103.0"
+    sourcestream: "NI-DAQmx-100.0"
+    sourcebarcode: "A2"
+    frequency: 0.8
+    duration_s: 300.0
+    wn_period_freq: 8  # original script leaked freq=8 from last mag trial
+  - recname: '2023-04-13_15-34-21_W25R_WN_IndepCh_redo'
+    kind: "white_noise"
+    channel: 3
+    thr_on: 12000
+    thr_off: 2500
+    deststream: "Neuropix-PXI-103.0"
+    sourcestream: "NI-DAQmx-100.0"
+    sourcebarcode: "A2"
+    frequency: 0.8
+    duration_s: 300.0
+    wn_period_freq: 8  # original script leaked freq=8 from last mag trial

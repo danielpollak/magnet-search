@@ -1,0 +1,85 @@
+name: "20230413_secondsite"
+paradigm: "openephys_multistim"
+good: True
+cntlbarcodes: True
+stream_id: "0"
+threshold: 300
+window_size: 5
+aggregated_path: '\\datanas\family\data_aggregated\20230413_secondsite'
+metadata_csv: '\\datanas\family\data_aggregated\20230413_secondsitemetadata.csv'
+analysis:
+  mag_Q: 50
+  visual_Q: 50
+  WN_Q: 50
+  mag_rec_substring: "mag"
+  visual_rec_substring: "visual"
+  wn_rec_substring: "WN"
+trials:
+  - folder: '\\datanas\family\data_raw\20230413\second_site\2023-04-13_17-04-34_W25R_second_site_mag2_inclined'
+    frequency: 2
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230413\second_site\2023-04-13_17-06-27_W25R_second_site_mag3_inclined'
+    frequency: 3
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230413\second_site\2023-04-13_17-10-21_W25R_second_site_mag8_inclined'
+    frequency: 8
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230413\second_site\2023-04-13_17-13-18_W25R_second_site_mag8'
+    frequency: 8
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230413\second_site\2023-04-13_17-15-32_W25R_second_site_mag5'
+    frequency: 5
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230413\second_site\2023-04-13_17-17-14_W25R_second_site_mag3'
+    frequency: 3
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230413\second_site\2023-04-13_17-18-59_W25R_second_site_mag2'
+    frequency: 2
+    skips: 0
+auxiliary_stimuli:
+  - recname: '2023-04-13_17-21-57_W25R_second_site_WN_SamCh'
+    kind: "white_noise"
+    channel: 3
+    thr_on: 12000
+    thr_off: 2500
+    deststream: "auto"
+    sourcestream: "auto"
+    sourcebarcode: "A2"
+    frequency: 0.8
+    duration_s: 300.0
+    wn_period_freq: 2  # original script leaked freq=2 from last mag trial
+  - recname: '2023-04-13_17-42-25_W25R_second_site_WN_IndepChan'
+    kind: "white_noise"
+    channel: 3
+    thr_on: 12000
+    thr_off: 2500
+    deststream: "Neuropix-PXI-103.0"
+    sourcestream: "NI-DAQmx-100.0"
+    sourcebarcode: "A2"
+    frequency: 0.8
+    duration_s: 300.0
+    wn_period_freq: 2  # original script leaked freq=2 from last mag trial
+  - recname: '2023-04-13_17-31-40_W25R_second_site_visual_movinggratings3Hz'
+    kind: "visual_gratings"
+    channel: 4
+    thr_on: 12000
+    thr_off: 2500
+    deststream: "auto"
+    sourcestream: "auto"
+    sourcebarcode: "A2"
+    frequency: 3
+    n_orientations: 8
+    trial_gap_samples: 120000
+    orientation_csv: '\\datanas\family\data_raw\20230413\second_site\13-04-2023_17-41-18video_presentation.txt'
+  - recname: '2023-04-13_17-48-00_W25R_second_site_movinggratings_2Hz'
+    kind: "visual_gratings"
+    channel: 4
+    thr_on: 12000
+    thr_off: 2500
+    deststream: "auto"
+    sourcestream: "auto"
+    sourcebarcode: "A2"
+    frequency: 2
+    n_orientations: 8
+    trial_gap_samples: 120000
+    orientation_csv: '\\datanas\family\data_raw\20230413\second_site\13-04-2023_18-02-11video_presentation.txt'

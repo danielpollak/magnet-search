@@ -1,0 +1,13 @@
+name: "engert_20220914_fish2_no_magneto_2"
+paradigm: "engert"
+
+session_path: "//datanas/family/data_aggregated/Engert/2022_09_14-fish2_cytoGCaMP"
+tiff_name: "2022_09_14_fish2_no_magneto_2.tif"
+sample_period: 1.0
+
+iscell_threshold: 0.6
+npix_threshold: 20
+
+analysis:
+  f: 0.3
+  Q: 70

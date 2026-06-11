@@ -1,0 +1,13 @@
+name: "Q146_20230815_g0"
+paradigm: "spikeglx_direct"
+good: True
+aggregated_path: '\\datanas\family\data_aggregated\Gutfreund\Q146_npxl_2023-08-15_magnet1_g0'
+nidaq_channels: 9
+ap_channels: 385
+mag_channel: 1
+smooth_window: 50
+mag_threshold: -20000
+analysis:
+  Q: 100
+trials:
+  - frequency: 4

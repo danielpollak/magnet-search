@@ -1,0 +1,21 @@
+name: "20220228_firstsite"
+paradigm: "openephys"
+good: True
+cntlbarcodes: False
+stream_id: "2"
+aggregated_path: '\\datanas\family\data_aggregated\20220228_firstsite'
+metadata_csv: '\\datanas\family\data_aggregated\20220228_firstsitemetadata.csv'
+threshold: 300
+window_size: 5
+analysis:
+  Q: 100
+trials:
+  - folder: '\\datanas\family\data_raw\20220228\5Hz_2022-02-28_16-06-03'
+    frequency: 5
+    skips: 4
+  - folder: '\\datanas\family\data_raw\20220228\10 Hz_2022-02-28_16-21-40'
+    frequency: 10
+    skips: 19
+  - folder: '\\datanas\family\data_raw\20220228\2 Hz_2022-02-28_16-25-47'
+    frequency: 2
+    skips: 1

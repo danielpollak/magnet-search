@@ -1,0 +1,13 @@
+name: "Q148_20241219_g0"
+paradigm: "spikeglx_direct"
+good: True
+aggregated_path: '\\datanas\family\data_aggregated\Gutfreund\q148magnet19-12s2_g0'
+nidaq_channels: 9
+ap_channels: 385
+mag_channel: 0
+smooth_window: 50
+mag_threshold: -20000
+analysis:
+  Q: 100
+trials:
+  - frequency: 4

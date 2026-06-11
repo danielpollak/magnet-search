@@ -1,0 +1,22 @@
+name: "20220408"
+paradigm: "openephys"
+good: True
+cntlbarcodes: False
+# per-row stream_ids matching the cat_df rows; null entries skip that row
+streams: ["2","2",null,"2","2","2","2",null,"2","2","2",null,"2","2","2"]
+aggregated_path: '\\datanas\family\data_aggregated\20220408'
+metadata_csv: '\\datanas\family\data_aggregated\20220408metadata.csv'
+threshold: 300
+window_size: 5
+analysis:
+  Q: 100
+trials:
+  - folder: '\\datanas\family\data_raw\20220408\mag10hz_2022-04-08_15-26-22'
+    frequency: 10
+    skips: 2
+  - folder: '\\datanas\family\data_raw\20220408\mag5hz_2022-04-08_15-28-47'
+    frequency: 5
+    skips: 4
+  - folder: '\\datanas\family\data_raw\20220408\mag3hz_2022-04-08_15-31-11'
+    frequency: 3
+    skips: 3

@@ -1,0 +1,27 @@
+name: "20220421"
+paradigm: "openephys"
+good: True
+cntlbarcodes: False
+stream_id: "2"
+aggregated_path: '\\datanas\family\data_aggregated\20220421'
+metadata_csv: '\\datanas\family\data_aggregated\20220421metadata.csv'
+threshold: 300
+window_size: 5
+analysis:
+  Q: 100
+trials:
+  - folder: '\\datanas\family\data_raw\20220421\mag1Hz_2022-04-21_18-06-30'
+    frequency: 1
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20220421\mag5Hz_2022-04-21_18-12-27'
+    frequency: 5
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20220421\mag8Hz_2022-04-21_18-14-58'
+    frequency: 8
+    skips: 9
+  - folder: '\\datanas\family\data_raw\20220421\mag10Hz_2022-04-21_18-17-43'
+    frequency: 10
+    skips: 18
+  - folder: '\\datanas\family\data_raw\20220421\mag3Hz_2022-04-21_18-19-59'
+    frequency: 3
+    skips: 3

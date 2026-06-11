@@ -1,0 +1,54 @@
+name: "20220916"
+paradigm: "openephys_multistim"
+good: True
+cntlbarcodes: True
+stream_id: "0"
+threshold: 300
+window_size: 5
+aggregated_path: '\\datanas\family\data_aggregated\20220916'
+metadata_csv: '\\datanas\family\data_aggregated\20220916metadata.csv'
+analysis:
+  mag_Q: 100
+  visual_Q: 20
+  WN_Q: 40
+  mag_rec_substring: "mag"
+  visual_rec_substring: "bars"
+  wn_rec_substring: "WN"
+trials:
+  - folder: '\\datanas\family\data_raw\mag3_2022-09-16_15-42-31'
+    frequency: 3
+    skips: 35
+  - folder: '\\datanas\family\data_raw\mag5_2022-09-16_15-46-10'
+    frequency: 5
+    skips: 6
+  - folder: '\\datanas\family\data_raw\mag7_2022-09-16_15-48-29'
+    frequency: 7
+    skips: 6
+  - folder: '\\datanas\family\data_raw\mag9_2022-09-16_15-50-36'
+    frequency: 9
+    skips: 1
+  - folder: '\\datanas\family\data_raw\mag10_2022-09-16_15-53-06'
+    frequency: 9
+    skips: 1
+auxiliary_stimuli:
+  - recname: 'bars4_2022-09-16_15-31-32'
+    kind: "visual_bars"
+    channel: 3
+    thr_on: 12000
+    thr_off: 2500
+    deststream: "Neuropix-PXI-102.0"
+    sourcestream: "NI-DAQmx-100.0"
+    sourcebarcode: "A2"
+    frequency: 0.25
+    orientation_csv: '\\datanas\family\data_raw\20220916\16-09-2022_15-39-25.csv'
+  - recname: 'WN_2022-09-16_14-58-30'
+    kind: "white_noise"
+    channel: 3
+    thr_on: 12000
+    thr_off: 2500
+    deststream: "Neuropix-PXI-102.0"
+    sourcestream: "NI-DAQmx-100.0"
+    sourcebarcode: "A2"
+    frequency: 0.8
+    duration_s: 5.0
+    wn_legacy_formula: true

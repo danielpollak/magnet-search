@@ -1,0 +1,94 @@
+name: "20230414_firstsite"
+paradigm: "openephys_multistim"
+good: True
+cntlbarcodes: True
+stream_id: "0"
+threshold: 300
+window_size: 5
+aggregated_path: '\\datanas\family\data_aggregated\20230414_firstsite'
+metadata_csv: '\\datanas\family\data_aggregated\20230414_firstsitemetadata.csv'
+analysis:
+  mag_Q: 90
+  visual_Q: 90
+  WN_Q: 50
+  mag_rec_substring: "mag"
+  visual_rec_substring: "visual"
+  wn_rec_substring: "WN"
+trials:
+  - folder: '\\datanas\family\data_raw\20230413\first_site\2023-04-14_14-28-40_W25R_mag2'
+    frequency: 2
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230413\first_site\2023-04-14_14-30-22_W25R_mag3'
+    frequency: 3
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230413\first_site\2023-04-14_14-32-14_W25R_mag5'
+    frequency: 5
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230413\first_site\2023-04-14_14-34-11_W25R_mag8'
+    frequency: 8
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230413\first_site\2023-04-14_14-37-41_W25R_mag8_inclined_lightson'
+    frequency: 8
+    skips: 5
+  - folder: '\\datanas\family\data_raw\20230413\first_site\2023-04-14_14-42-29_W25R_mag5_inclined_lightson'
+    frequency: 5
+    skips: 5
+  - folder: '\\datanas\family\data_raw\20230413\first_site\2023-04-14_14-44-59_W25R_mag3_inclined_lightson'
+    frequency: 3
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230413\first_site\2023-04-14_14-47-16_W25R_mag2_inclined_lightson'
+    frequency: 2
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230413\first_site\2023-04-14_14-50-42_W25R_mag2_lightson'
+    frequency: 2
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230413\first_site\2023-04-14_14-53-11_W25R_mag3_lightson'
+    frequency: 3
+    skips: 0
+auxiliary_stimuli:
+  - recname: '2023-04-14_14-56-27_W25R_WN_IndepCh'
+    kind: "white_noise"
+    channel: 3
+    thr_on: 12000
+    thr_off: 2500
+    deststream: "auto"
+    sourcestream: "auto"
+    sourcebarcode: "A2"
+    frequency: 0.8
+    duration_s: 300.0
+    wn_period_freq: 3  # original script leaked freq=3 from last mag trial
+  - recname: '2023-04-14_15-01-52_W25R_WN_SameCh'
+    kind: "white_noise"
+    channel: 3
+    thr_on: 12000
+    thr_off: 2500
+    deststream: "auto"
+    sourcestream: "auto"
+    sourcebarcode: "A2"
+    frequency: 0.8
+    duration_s: 300.0
+    wn_period_freq: 3  # original script leaked freq=3 from last mag trial
+  - recname: '2023-04-14_15-20-44_W25R_visual_2Hz'
+    kind: "visual_gratings"
+    channel: 4
+    thr_on: 12000
+    thr_off: 2500
+    deststream: "auto"
+    sourcestream: "auto"
+    sourcebarcode: "A2"
+    frequency: 2
+    n_orientations: 8
+    trial_gap_samples: 120000
+    orientation_csv: '\\datanas\family\data_raw\20230414\first_site\14-04-2023_15-35-05video_presentation.txt'
+  - recname: '2023-04-14_15-10-38_W25R_visual_3Hz'
+    kind: "visual_gratings"
+    channel: 4
+    thr_on: 12000
+    thr_off: 2500
+    deststream: "auto"
+    sourcestream: "auto"
+    sourcebarcode: "A2"
+    frequency: 3
+    n_orientations: 8
+    trial_gap_samples: 120000
+    orientation_csv: '\\datanas\family\data_raw\20230414\first_site\14-04-2023_15-20-24video_presentation.txt'

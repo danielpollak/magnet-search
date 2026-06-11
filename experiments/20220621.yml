@@ -1,0 +1,28 @@
+name: "20220621"
+paradigm: "openephys"
+good: True
+cntlbarcodes: True
+stream_id: "2"
+recording_ldr_cntlbarcodes: True
+aggregated_path: '\\datanas\family\data_aggregated\20220621'
+metadata_csv: '\\datanas\family\data_aggregated\20220621metadata.csv'
+threshold: 300
+window_size: 5
+# One recording has a non-standard path (Taeniopygia specimen, different directory)
+recording_overrides:
+  AV10829_Taeniopygia+guttata_CP_1_1830-1920_U: '\\datanas\family\data_raw\220621\AV10829_Taeniopygia+guttata_CP_1_1830-1920_U'
+analysis:
+  Q: 100
+trials:
+  - folder: '\\datanas\family\data_raw\20220621\3HZ_2022-06-21_15-01-35'
+    frequency: 3
+    skips: 4
+  - folder: '\\datanas\family\data_raw\20220621\4HZ_2022-06-21_15-03-26'
+    frequency: 4
+    skips: 5
+  - folder: '\\datanas\family\data_raw\20220621\5HZ_2022-06-21_15-06-07'
+    frequency: 5
+    skips: 3
+  - folder: '\\datanas\family\data_raw\20220621\7HZ_2022-06-21_15-07-27'
+    frequency: 7
+    skips: 8

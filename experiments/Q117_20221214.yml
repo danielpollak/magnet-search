@@ -1,0 +1,8 @@
+name: "Q117_20221214"
+paradigm: "gutfreund"
+good: True
+aggregated_path: '\\datanas\family\data_aggregated\Gutfreund\Q117_npxl_2022-12-14_s02_magnetD7'
+analysis:
+  Q: 100
+trials:
+  - frequency: 5

@@ -1,0 +1,53 @@
+name: "20230228"
+paradigm: "openephys_multistim"
+good: True
+cntlbarcodes: True
+stream_id: "2"
+threshold: 300
+window_size: 5
+aggregated_path: '\\datanas\family\data_aggregated\20230228'
+metadata_csv: '\\datanas\family\data_aggregated\20230228metadata.csv'
+analysis:
+  mag_Q: 50
+  visual_Q: 50
+  WN_Q: 30
+  mag_rec_substring: "mag"
+  visual_rec_substring: "oddball"
+  wn_rec_substring: "WN"
+trials:
+  - folder: '\\datanas\family\data_raw\20230228\mag2_inclined_2023-02-28_17-12-50'
+    frequency: 2
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230228\mag2_inclined_lightson_2023-02-28_17-14-38'
+    frequency: 2
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230228\mag2_lightson_2023-02-28_17-18-29'
+    frequency: 2
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230228\mag2real_lightson_2023-02-28_17-20-26'
+    frequency: 2
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230228\mag5_inclined_lightson_2023-02-28_17-16-04'
+    frequency: 5
+    skips: 0
+auxiliary_stimuli:
+  - recname: 'WN_2023-02-28_17-39-32'
+    kind: "white_noise"
+    channel: 3
+    thr_on: 12000
+    thr_off: 2500
+    deststream: "Neuropix-PXI-100.0"
+    sourcestream: "NI-DAQmx-103.0"
+    sourcebarcode: "A2"
+    frequency: 0.8
+    duration_s: 5.0
+  - recname: 'oddball_2023-02-28_17-25-32'
+    kind: "oddball"
+    channel: 4
+    thr_on: 12000
+    thr_off: 2500
+    deststream: "Neuropix-PXI-100.0"
+    sourcestream: "NI-DAQmx-103.0"
+    sourcebarcode: "A2"
+    frequency: 1.0
+    max_interval_s: 1.2

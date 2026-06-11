@@ -1,0 +1,13 @@
+name: "engert_20220301_visualmagnet_b"
+paradigm: "engert"
+
+session_path: "//datanas/family/data_aggregated/Engert/2022_03_01"
+tiff_name: "2022-03-01_15-08-54_visual+magnet_z_plane0000_trial000_imaging_roi00_green_channel.tif"
+sample_period: 1.02
+
+iscell_threshold: 0.55
+npix_threshold: 20
+
+analysis:
+  f: 0.4
+  Q: 20

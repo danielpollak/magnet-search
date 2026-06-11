@@ -1,0 +1,70 @@
+name: "20230415"
+paradigm: "openephys_multistim"
+good: True
+cntlbarcodes: True
+stream_id: "2"
+threshold: 300
+window_size: 5
+aggregated_path: '\\datanas\family\data_aggregated\20230415'
+metadata_csv: '\\datanas\family\data_aggregated\20230415metadata.csv'
+analysis:
+  mag_Q: 90
+  visual_Q: 90
+  WN_Q: 50
+  mag_rec_substring: "mag"
+  visual_rec_substring: "visual"
+  wn_rec_substring: "WN"
+trials:
+  - folder: '\\datanas\family\data_raw\20230415\2023-04-15_15-56-12_W1R_mag2'
+    frequency: 2
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230415\2023-04-15_15-57-55_W1R_mag3'
+    frequency: 3
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230415\2023-04-15_15-59-40_W1R_mag8'
+    frequency: 8
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230415\2023-04-15_16-01-59_W1R_mag8_inclined'
+    frequency: 8
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230415\2023-04-15_16-03-43_W1R_mag3_inclined'
+    frequency: 3
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230415\2023-04-15_16-06-20_W1R_mag2_inclined'
+    frequency: 2
+    skips: 0
+auxiliary_stimuli:
+  - recname: '2023-04-15_16-37-23_W1R_3D_WN_Samechan'
+    kind: "white_noise"
+    channel: 3
+    thr_on: 12000
+    thr_off: 2500
+    deststream: "auto"
+    sourcestream: "auto"
+    sourcebarcode: "A2"
+    frequency: 0.8
+    duration_s: 300.0
+  - recname: '2023-04-15_16-08-19_W1R_visual_3Hz'
+    kind: "visual_gratings"
+    channel: 4
+    thr_on: 12000
+    thr_off: 2500
+    deststream: "auto"
+    sourcestream: "auto"
+    sourcebarcode: "A2"
+    frequency: 3
+    n_orientations: 8
+    trial_gap_samples: 120000
+    orientation_csv: '\\datanas\family\data_raw\20230415\15-04-2023_16-18-17video_presentation.txt'
+  - recname: '2023-04-15_16-19-13_W1R_visual_2Hz'
+    kind: "visual_gratings"
+    channel: 4
+    thr_on: 12000
+    thr_off: 2500
+    deststream: "auto"
+    sourcestream: "auto"
+    sourcebarcode: "A2"
+    frequency: 2
+    n_orientations: 8
+    trial_gap_samples: 120000
+    orientation_csv: '\\datanas\family\data_raw\20230415\15-04-2023_16-33-32video_presentation.txt'

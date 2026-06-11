@@ -1,0 +1,8 @@
+name: "Q134_20240111_s01"
+paradigm: "gutfreund"
+good: True
+aggregated_path: '\\datanas\family\data_aggregated\Gutfreund\Q134_11.01.24_s01'
+analysis:
+  Q: 100
+trials:
+  - frequency: 4

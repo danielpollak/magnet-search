@@ -1,0 +1,62 @@
+name: "20230221"
+paradigm: "openephys_multistim"
+good: True
+cntlbarcodes: True
+stream_id: "2"
+threshold: 300
+window_size: 5
+aggregated_path: '\\datanas\family\data_aggregated\20230221'
+metadata_csv: '\\datanas\family\data_aggregated\20230221metadata.csv'
+analysis:
+  mag_Q: 25
+  visual_Q: 50
+  WN_Q: 30
+  mag_rec_substring: "mag"
+  visual_rec_substring: "oddball"
+  wn_rec_substring: "WN"
+trials:
+  - folder: '\\datanas\family\data_raw\20230221\pigeon_CB_Mag1_inclined_2023-02-21_12-12-00'
+    frequency: 1
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230221\pigeon_CB_Mag1_inclined_lightson_2023-02-21_12-19-00'
+    frequency: 1
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230221\pigeon_CB_mag1_upright_2023-02-21_12-33-18'
+    frequency: 1
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230221\pigeon_CB_Mag2_inclined_2023-02-21_12-21-00'
+    frequency: 2
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230221\pigeon_CB_mag2_upright_2023-02-21_12-30-43'
+    frequency: 2
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230221\pigeon_CB_Mag5_inclined_2023-02-21_12-22-00'
+    frequency: 5
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230221\pigeon_CB_Mag7_inclined_2023-02-21_12-24-00'
+    frequency: 7
+    skips: 0
+  - folder: '\\datanas\family\data_raw\20230221\pigeon_CB_Mag7_upright_2023-02-21_12-26-02'
+    frequency: 7
+    skips: 0
+auxiliary_stimuli:
+  - recname: 'pigeon_CB_WN3D_2023-02-21_12-35-40'
+    kind: "white_noise"
+    channel: 3
+    thr_on: 12000
+    thr_off: 2500
+    deststream: "Neuropix-PXI-100.0"
+    sourcestream: "NI-DAQmx-103.0"
+    sourcebarcode: "A2"
+    frequency: 0.8
+    duration_s: 5.0
+  - recname: 'pigeon_CB_oddball_5percent_2023-02-21_13-36-00'
+    kind: "oddball"
+    channel: 4
+    thr_on: 12000
+    thr_off: 2500
+    deststream: "Neuropix-PXI-100.0"
+    sourcestream: "NI-DAQmx-103.0"
+    sourcebarcode: "A2"
+    frequency: 1.0
+    max_interval_s: 1.2
