@@ -24,7 +24,7 @@ def _analyze_one(args):
 
     cfg = load_experiment(yaml_path)
 
-    NO_PROCESSING_PARADIGMS = {"engert", "manual"}
+    NO_PROCESSING_PARADIGMS = {"engert", "medaka", "manual"}
     if cfg.paradigm not in NO_PROCESSING_PARADIGMS and not os.path.exists(cfg.processing_path()):
         print(f"[analysis] {cfg.name}: processing output not found, skipping", flush=True)
         return

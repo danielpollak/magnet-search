@@ -87,12 +87,14 @@ class ExperimentConfig:
     smooth_window: int = 50
     mag_threshold: int = -20000
 
-    # engert / GCaMP
+    # engert / GCaMP / medaka
     session_path: str = ""   # session root dir (parent of suite2p/); tiffs live here too
     tiff_name: str = ""      # filename of the specific tiff to analyze (frames sliced via len_df)
     sample_period: float = 1.0  # seconds per frame (T in fit_Fourier); 1.02 for 2022_03_01
     iscell_threshold: float = 0.7
     npix_threshold: int = 20
+    date: str = ""           # experiment date (YYYY-MM-DD), used by medaka analysis stage
+    subject_id: str = ""     # animal/fish identifier, used by medaka analysis stage
 
     trials: list = field(default_factory=list)
     auxiliary_stimuli: list = field(default_factory=list)
@@ -126,18 +128,18 @@ class ExperimentConfig:
         return os.path.join(self.data_dir, f"{self.name}_analysis.pickle")
 
     def validate(self):
-        valid_paradigms = {"openephys", "openephys_multistim", "gutfreund", "spikeglx_direct", "manual", "engert"}
+        valid_paradigms = {"openephys", "openephys_multistim", "gutfreund", "spikeglx_direct", "manual", "engert", "medaka"}
         if self.paradigm not in valid_paradigms:
             raise ValueError(f"{self.name}: unknown paradigm '{self.paradigm}'")
         if self.paradigm in {"openephys", "openephys_multistim"} and not self.metadata_csv:
             raise ValueError(f"{self.name}: openephys paradigm requires metadata_csv")
         if self.paradigm in {"openephys", "openephys_multistim"} and not self.aggregated_path:
             raise ValueError(f"{self.name}: openephys paradigm requires aggregated_path")
-        if self.paradigm == "engert":
+        if self.paradigm in {"engert", "medaka"}:
             if not self.session_path:
-                raise ValueError(f"{self.name}: engert paradigm requires session_path")
+                raise ValueError(f"{self.name}: {self.paradigm} paradigm requires session_path")
             if self.analysis.f <= 0:
-                raise ValueError(f"{self.name}: engert paradigm requires analysis.f > 0")
+                raise ValueError(f"{self.name}: {self.paradigm} paradigm requires analysis.f > 0")
         if self.paradigm == "openephys_multistim":
             valid_kinds = {"visual_gratings", "white_noise", "oddball", "visual_bars"}
             for aux in self.auxiliary_stimuli:

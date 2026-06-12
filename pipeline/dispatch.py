@@ -7,6 +7,7 @@ PARADIGM_MAP = {
     "gutfreund":           "pipeline.paradigms.gutfreund",
     "spikeglx_direct":     "pipeline.paradigms.spikeglx_direct",
     "engert":              "pipeline.paradigms.engert",
+    "medaka":              "pipeline.paradigms.medaka",
 }
 
 ANALYSIS_MAP = {
@@ -15,6 +16,7 @@ ANALYSIS_MAP = {
     "gutfreund":           "pipeline.analysis_stages.simple",
     "spikeglx_direct":     "pipeline.analysis_stages.simple",
     "engert":              "pipeline.analysis_stages.engert",
+    "medaka":              "pipeline.analysis_stages.medaka",
 }
 
 

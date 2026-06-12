@@ -1,0 +1,11 @@
+name: "medaka_fish3_8dpf_no_magneto_1"
+paradigm: "medaka"
+date: "2023-01-06"
+subject_id: "fish_1"
+session_path: "//datanas/family/data_aggregated/Engert/Medaka Experiments/fish3_8dpf_gcamp_good/fish3_8dpf_no_magneto_1"
+sample_period: 1.0
+iscell_threshold: 0.8
+npix_threshold: 7
+analysis:
+  f: 0.1
+  Q: 60

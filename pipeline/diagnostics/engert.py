@@ -110,7 +110,7 @@ def plot_engert_diagnostics(cfg, F, stat, fourier_df, freq_win,
         pdf.savefig(fig, dpi=150)
         plt.close(fig)
 
-        # ── Page 4: cell mask FOV ─────────────────────────────────────────────
+        # ── Pages 4 & 5: cell mask FOV + P(iscell) ECDF ─────────────────────
         try:
             import os
             suite2p_dir = os.path.join(cfg.session_path, "suite2p", "plane0")
@@ -153,9 +153,61 @@ def plot_engert_diagnostics(cfg, F, stat, fourier_df, freq_win,
             fig.tight_layout()
             pdf.savefig(fig, dpi=150)
             plt.close(fig)
+
+            # ── Page 5: P(iscell) × npix joint histogram with ECDF marginals ──
+            p_iscell  = iscell_all[:, 1]
+            npix_vals = np.array([s["npix"] for s in stat_all])
+            included_mask = (p_iscell >= cfg.iscell_threshold) & (npix_vals >= cfg.npix_threshold)
+            n_included = included_mask.sum()
+
+            fig = plt.figure(figsize=(8, 7))
+            gs  = fig.add_gridspec(2, 2, width_ratios=[3, 1], height_ratios=[1, 3],
+                                   hspace=0.05, wspace=0.05)
+            ax_main  = fig.add_subplot(gs[1, 0])
+            ax_top   = fig.add_subplot(gs[0, 0], sharex=ax_main)
+            ax_right = fig.add_subplot(gs[1, 1], sharey=ax_main)
+            fig.add_subplot(gs[0, 1]).set_visible(False)   # empty corner
+
+            fig.suptitle(
+                f"{cfg.name}  |  P(iscell) × npix  —  "
+                f"{n_included} / {len(p_iscell)} ROIs pass both thresholds",
+                fontsize=9)
+
+            # Main scatter
+            ax_main.scatter(npix_vals[~included_mask], p_iscell[~included_mask],
+                            s=3, alpha=0.35, color="gray", rasterized=True, label="excluded")
+            ax_main.scatter(npix_vals[included_mask], p_iscell[included_mask],
+                            s=3, alpha=0.6, color="steelblue", rasterized=True, label="included")
+            ax_main.axhline(cfg.iscell_threshold, color="crimson",   lw=1.2, ls="--",
+                            label=f"iscell ≥ {cfg.iscell_threshold}")
+            ax_main.axvline(cfg.npix_threshold,   color="darkorange", lw=1.2, ls="--",
+                            label=f"npix ≥ {cfg.npix_threshold}")
+            ax_main.set_xlabel("npix")
+            ax_main.set_ylabel("P(iscell)")
+            ax_main.legend(fontsize=7, markerscale=2)
+
+            # Top marginal: npix ECDF
+            sorted_npix = np.sort(npix_vals)
+            ecdf_npix   = np.arange(1, len(sorted_npix) + 1) / len(sorted_npix)
+            ax_top.plot(sorted_npix, ecdf_npix, color="darkorange", lw=1.2, rasterized=True)
+            ax_top.axvline(cfg.npix_threshold, color="darkorange", lw=1.2, ls="--")
+            ax_top.set_ylabel("ECDF")
+            ax_top.tick_params(labelbottom=False)
+
+            # Right marginal: P(iscell) ECDF (rotated — fraction on x, value on y)
+            sorted_p = np.sort(p_iscell)
+            ecdf_p   = np.arange(1, len(sorted_p) + 1) / len(sorted_p)
+            ax_right.plot(ecdf_p, sorted_p, color="steelblue", lw=1.2, rasterized=True)
+            ax_right.axhline(cfg.iscell_threshold, color="crimson", lw=1.2, ls="--")
+            ax_right.set_xlabel("ECDF")
+            ax_right.tick_params(labelleft=False)
+
+            pdf.savefig(fig, dpi=150)
+            plt.close(fig)
+
         except Exception as exc:
             fig, ax = plt.subplots(figsize=(6, 4))
-            ax.text(0.5, 0.5, f"cell mask error:\n{exc}",
+            ax.text(0.5, 0.5, f"cell mask / iscell error:\n{exc}",
                     ha="center", va="center", transform=ax.transAxes, fontsize=7)
             pdf.savefig(fig, dpi=150)
             plt.close(fig)

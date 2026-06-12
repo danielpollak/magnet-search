@@ -1,6 +1,8 @@
 figs/**/*
 !figs/**/.gitkeep
 data/
+!data/manuscript/
+!data/precomputed/.gitkeep
 logs/
 __pycache__/
 *.pyc

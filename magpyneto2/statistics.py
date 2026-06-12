@@ -1285,7 +1285,7 @@ def inset_hist(ax, vals, bins):
     return axins
 
 
-def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-7, species_line_level=-10,  label_recs=False, ylim=(-12, 20)):
+def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_level=-10,  label_recs=False, ylim=(-12, 20)):
     
     jitter = False
 
@@ -1297,7 +1297,8 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-7, species_line_leve
     CMAP_colors = CMAP(np.arange(len(unique_freqs)))
     color_d = {freq: color for freq, color in zip(unique_freqs, CMAP_colors)}
     
-    desired_order = ['mouse', 'zebra finch', 'Pigeon', 'Owl', 'zebrafish', 'medaka', "Quail"]
+    desired_order = [
+        'Quail', 'Owl','mouse', 'zebra finch','Pigeon',  'zebrafish', 'medaka']
 
     for species in desired_order:
         species_df = bigfig_df.loc[bigfig_df.species == species, :]
@@ -1346,11 +1347,11 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-7, species_line_leve
             conf_ax.hlines(area_line_level, counter_last+0.25, counter-0.25, "black",zorder=2, linewidth=1)
             
             # Annotate area
-            if area == "wholebrain":
+            if area in ("wholebrain", "whole brain"):
                 area = "WB"
             
-            raise_area = ("arcopallium" in area) or ("SC" in area) or ("CB" in area) or ("WB" in area) or (("pallium" in area) and (species=="Owl"))
-            conf_ax.text((counter + counter_last)/2, area_line_level * 0.9 if raise_area else area_line_level * 1.3, area, ha="center", rotation=0)
+            raise_area = ('arcopallium' in area) or (("WB" in area) and (species=='zebrafish')) or ("thalamus" in area) or ("CB" in area)  or ("SC" in area)
+            conf_ax.text((counter + counter_last)/2, area_line_level * 0.8 if raise_area else area_line_level * 1.4, area, ha="center", rotation=0)
         
         # Update species counter
         species_counter = counter
@@ -1359,7 +1360,12 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-7, species_line_leve
         xticks.append((species_counter + species_counter_last) / 2 )
 
         # xticklabels to lowercase
-        xticklabels.append("ZF" if species.lower() == "zebra finch" else species.lower())
+        if species.lower() == "zebra finch":
+            xticklabels.append("zebra\nfinch")
+        elif species.lower() == "medaka":
+            xticklabels.append("\nmedaka")
+        else:
+            xticklabels.append(species.lower())
 
         # Draw species line
         conf_ax.hlines(species_line_level, species_counter_last+0.25, species_counter-0.25, "black",zorder=2, linewidth=1)
