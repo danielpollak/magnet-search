@@ -8,5 +8,7 @@ __pycache__/
 *.pyc
 *.pyo
 .ipynb_checkpoints/
+*.ipynb
 *.egg-info/
 .claude/
+pipeline/manuscript/64c94b448ce6028c013b0143/
