@@ -1,8 +1,6 @@
 figs/**/*
 !figs/**/.gitkeep
-data/
-!data/manuscript/
-!data/precomputed/.gitkeep
+data/*_processing.pickle
 logs/
 *.xlsx
 __pycache__/
