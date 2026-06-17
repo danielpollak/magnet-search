@@ -164,8 +164,11 @@ def plot_fig4(ci_df, c_hat_modulation_FR_df, spks, out_dir: Path):
     sns.scatterplot(data=c_hat_modulation_FR_df, x="FR", y="c_hat", hue="mod",
                     palette="Set1", size=0.5, alpha=0.7, ax=ax_C)
     handles, labels = ax_C.get_legend_handles_labels()
-    ax_C.legend(handles,
-                [f"A={label}" for label in labels if float(label) < 0.5],
+    mod_vals = [0, 0.3, 0.6]
+    pairs = [(h, l) for h, l in zip(handles, labels)
+             if any(abs(float(l) - v) < 1e-9 for v in mod_vals)]
+    ax_C.legend([h for h, _ in pairs],
+                [f"A={l}" for _, l in pairs],
                 title="modulation (5Hz)", ncol=3)
     ax_C.hlines(statistics.inverse_Rayleigh_CDF(0.99), *ax_C.get_xlim(), color="grey")
     ax_C.set_ylabel(r"$\hat{c}$")

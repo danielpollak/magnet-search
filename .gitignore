@@ -4,6 +4,7 @@ data/
 !data/manuscript/
 !data/precomputed/.gitkeep
 logs/
+*.xlsx
 __pycache__/
 *.pyc
 *.pyo
