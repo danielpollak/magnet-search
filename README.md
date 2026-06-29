@@ -2,6 +2,30 @@
 
 A YAML-parameterized analysis pipeline for multispecies neural recording data, designed to identify neural responses to magnetic stimuli across brain regions and species.
 
+## Exploring Manuscript Figures as Notebooks
+
+The manuscript figure scripts (`pipeline/manuscript/fig*.py`) can be converted to Jupyter notebooks using [jupytext](https://jupytext.readthedocs.io/), which lets you run them cell-by-cell and inspect intermediate outputs.
+
+**Install jupytext:**
+```bash
+pip install jupytext
+# or, if using conda:
+conda install -c conda-forge jupytext
+```
+
+**Convert a figure script to a notebook:**
+```bash
+# Single file
+jupytext --to notebook pipeline/manuscript/fig1.py
+
+# All figure scripts at once
+jupytext --to notebook pipeline/manuscript/fig*.py
+```
+
+Each converted `.ipynb` file is placed alongside the source `.py` file. Open it in JupyterLab or VS Code and run cells normally. The notebooks are not committed to the repository; re-run the command if you need to regenerate them after the source scripts change.
+
+---
+
 ## Overview
 
 This repository contains the complete analysis pipeline for the MagnetSearch collaboration, a distributed neurophysiology project searching for magnetic field responses in neural populations. The pipeline processes raw electrophysiology and 2-photon imaging data, performs spectral analysis, and generates publication-quality figures.
@@ -89,6 +113,32 @@ python pipeline/processing.py --all --filter Q         # quail only
 ```
 
 **Output:** `data/{name}_processing.pickle`
+
+#### Processing pickle contents
+
+`data/{name}_processing.pickle` is a pandas DataFrame (`modulation_df`) with one row per spike (electrophysiology) or one row per imaging frame (GCaMP), containing:
+
+| Column | Description |
+|---|---|
+| `period` | Integer index of which stimulus cycle the spike/frame fell in |
+| `spk` | Spike time in seconds |
+| `phase` | Phase within the stimulus cycle (0–2π radians) |
+| `freq` | Stimulus frequency in Hz |
+| `id` | Unit or cluster ID |
+| `rec` | Recording name; in multi-stimulus sessions encodes stimulus type and orientation (e.g. `recname_Mag`, `recname_45` for 45° gratings) |
+
+**Per-paradigm details:**
+
+- **`openephys`** — Standard columns above. One row per spike from Kilosort-sorted units during magnetic stimulation. Only spikes within the concatenated recording window are included; spike times are relative to the start of each recording segment.
+
+- **`openephys_multistim`** — Same as `openephys`, but `modulation_df` is the vertical concatenation of magnetic trials and all auxiliary stimulus blocks (visual gratings, white noise, oddball, visual bars). The `rec` column encodes both the recording name and stimulus identity (e.g. `20230413_Mag_Rec` for magnetic trials, `20230413_visual_90` for 90° gratings, `20230413_WN` for white noise). Each auxiliary block uses its own stimulus frequency in `freq`.
+
+- **`gutfreund`** — Standard columns plus `spk_samples` (spike time in raw AP samples), `label` (Kilosort quality label), and `recname` (basename of the data folder). Only spikes that fall within the last detected magnet-on TTL window are retained.
+
+- **`spikeglx_direct`** — Standard columns. Phase and period are derived by linearly interpolating within each threshold-crossing interval of the smoothed NIDAQ magnetic channel.
+
+- **`engert` / `medaka`** — No processing pickle; these paradigms skip the processing stage entirely because suite2p outputs are pre-computed. Run `pipeline/analysis.py` directly.
+
 
 ### Stage 2: Analysis
 

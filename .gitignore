@@ -1,6 +1,7 @@
 figs/**/*
 !figs/**/.gitkeep
 data/*_processing.pickle
+data/MM_*.pickle
 logs/
 *.xlsx
 __pycache__/
