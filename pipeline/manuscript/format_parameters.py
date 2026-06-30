@@ -3,19 +3,19 @@
 
 # ── Font ───────────────────────────────────────────────────────────────────────
 FONT_FAMILY = "arial"
-FS_BODY     = 6      # default body text (figs 1, 3)
-FS_BODY_LG  = 8      # large body text (fig 2)
+FS_BODY     = 10      # default body text (figs 1, 3)
+FS_BODY_LG  = 10      # large body text (fig 2)
 FS_BODY_XL  = 10     # extra-large body text (fig 4)
 FS_PANEL    = 11     # subfigure label (A, B, C…)
-FS_TITLE    = 8      # axis title
-FS_LEGEND   = 5      # legend text (figs 2, 4)
-FS_LEGEND_LG = 7     # larger legend (fig 1)
+FS_TITLE    = 10      # axis title
+FS_LEGEND   = 10      # legend text (figs 2, 4)
+FS_LEGEND_LG = 10     # larger legend (fig 1)
 
 # ── Figure dimensions (figsize) ────────────────────────────────────────────────
-FIGSIZE_FIG1 = (9, 6)       # composite NPIX + GCaMP + ECDF
-FIGSIZE_FIG2 = (6.5, 6.5)   # excess counts + distributions
-FIGSIZE_FIG3 = (6, 3)       # p/q-value uniformity
-FIGSIZE_FIG4 = (6.5, 4)     # modulation sensitivity
+FIGSIZE_FIG1 = (8.5, 6)       # composite NPIX + GCaMP + ECDF
+FIGSIZE_FIG2 = (8.5, 6.5)   # excess counts + distributions
+FIGSIZE_FIG3 = (8, 4)       # p/q-value uniformity
+FIGSIZE_FIG4 = (8, 4)     # modulation sensitivity
 
 # ── File paths ────────────────────────────────────────────────────────────────────
 OUT_DIR          = "../../figs/paper"

@@ -149,8 +149,8 @@ def plot_fig4(ci_df, c_hat_modulation_FR_df, spks, out_dir: Path):
         else:
             psth_axes[mod_i].set_yticks([])
 
-    [ax.set_ylim((-1, 11)) for ax in spectra_axes]
-    [ax.set_ylim((0, 70))  for ax in psth_axes]
+    [ax.set_ylim((-1, 7)) for ax in spectra_axes]
+    [ax.set_ylim((0, 30))  for ax in psth_axes]
 
     conf_limits = ci_df.ci[0]
     ax_B.fill_between([0, ci_df["mod"].max()], conf_limits[0], conf_limits[1],

@@ -103,10 +103,10 @@ def plot_fig3(all_fourier_df, out_dir: Path):
         axes[:, 3], percentile=90)
 
     [ax.set_xlabel("Neuron") for ax in axes[1, :]]
-    axes[0, 0].set_title("All Neurons")
-    axes[0, 1].set_title("Pigeon Neurons")
-    axes[0, 2].set_title("Pigeon HP Neurons")
-    axes[0, 3].set_title("Pigeon HP Neurons\n> 90%ile sensitivity")
+    axes[0, 0].set_title("All")
+    axes[0, 1].set_title("Pigeon")
+    axes[0, 2].set_title("Pigeon HP")
+    axes[0, 3].set_title("Pigeon HP >90%ile\nsensitivity")
     axes[0, 0].set_ylabel("Sorted p-values")
     axes[1, 0].set_ylabel("Sorted q-values")
 
