@@ -175,9 +175,18 @@ def plot_fig4(ci_df, c_hat_modulation_FR_df, spks, out_dir: Path):
     ax_C.set_xscale("log")
     ax_C.set_xlabel("Firing rate (Hz)")
 
-    ax_A1.annotate("A", xy=(-0.3,  1.1),  xycoords="axes fraction", fontfamily="arial", fontsize=12)
-    ax_B.annotate( "B", xy=(-0.1,  1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
-    ax_C.annotate( "C", xy=(-0.05, 1),    xycoords="axes fraction", fontfamily="arial", fontsize=12)
+    fig.canvas.draw()
+
+    # A and B: align on the same horizontal line using figure coordinates.
+    # ax_A1 is one row tall; ax_B spans two rows, so axes-fraction y offsets
+    # produce different figure-level positions without this correction.
+    _label_y = max(ax_A1.get_position().y1, ax_B.get_position().y1) + 0.03
+    for _ax, _lbl, _xoff in [(ax_A1, "A", -0.3), (ax_B, "B", -0.1)]:
+        _pos = _ax.get_position()
+        fig.text(_pos.x0 + _xoff * _pos.width, _label_y, _lbl,
+                 fontfamily="arial", fontsize=12)
+
+    ax_C.annotate("C", xy=(-0.05, 1), xycoords="axes fraction", fontfamily="arial", fontsize=12)
 
     statistics.boundarize_and_nestle(ax_A1, y=False, x_offset=-0.1)
     statistics.boundarize_and_nestle(ax_A3, y=False, x_offset=-0.1)
@@ -238,5 +247,15 @@ def main():
     plot_fig4(ci_df, c_hat_modulation_FR_df, spks, out_dir)
 
 
+try:
+    from IPython import get_ipython
+    in_notebook = get_ipython() is not None
+except ImportError:
+    in_notebook = False
+
 if __name__ == "__main__":
-    main()
+    if in_notebook:
+        print("Running in Jupyter notebook.")
+        print("Call plot_fig4() with your own args, or use: main()")
+    else:
+        main()

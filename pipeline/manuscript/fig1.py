@@ -15,6 +15,7 @@ Usage:
     python pipeline/manuscript/fig1.py
     python pipeline/manuscript/fig1.py --out-dir figs/paper
 """
+#%%
 import argparse
 import pickle
 from pathlib import Path
@@ -32,7 +33,7 @@ from ephysio import openEphysIO
 from magpyneto2 import statistics, engert_helpers
 from magpyneto2.statistics import normalized_Fourier_CDF
 from magpyneto2.utils import get_cluster_info
-
+#%%
 # ── NAS paths ────────────────────────────────────────────────────────────────
 DATA_PATH = r"\\datanas\family\data_aggregated\20230413_firstsite"
 
@@ -49,6 +50,7 @@ VIS_CLUSTER_ID  = 2296
 MAG_CELL_IND    = 36
 VIS_CELL_IND    = 45
 
+#%%
 
 def load_data(data_dir: str):
     data_dir = Path(data_dir)
@@ -220,11 +222,23 @@ def plot_fig1_composite(modulation_df, fourier_df, udf, out_dir: Path):
     statistics.boundary_ticks(ecdf_ax)
     statistics.nestle_labels(ecdf_ax, y=True, x_offset=-0.05)
 
+    fig.subplots_adjust(bottom=0, top=1, left=0, right=1)
+    fig.canvas.draw()
+
     # ── Panel labels ──────────────────────────────────────────────────────────
-    cartoon_ax.annotate("A", xy=(-0.15, 1.1), xycoords="axes fraction", fontfamily="arial", fontsize=11, weight="bold")
-    mag_raw_ax.annotate("B", xy=(-0.05, 1.1), xycoords="axes fraction", fontfamily="arial", fontsize=11, weight="bold")
-    anatomy_ax.annotate("C", xy=(-0.15, 1.1), xycoords="axes fraction", fontfamily="arial", fontsize=11, weight="bold")
-    vis_calcium_ax.annotate("D", xy=(-0.15, 1.1), xycoords="axes fraction", fontfamily="arial", fontsize=11, weight="bold")
+    # A-D: place at a shared figure-level y so they sit on the same horizontal
+    # line despite the anatomy image forcing a smaller axis height.
+    _row0 = [
+        (cartoon_ax,     "A", -0.15),
+        (mag_raw_ax,     "B", -0.05),
+        (anatomy_ax,     "C", -0.15),
+        (vis_calcium_ax, "D", -0.15),
+    ]
+    _label_y = max(ax.get_position().y1 for ax, _, _ in _row0) + 0.01
+    for _ax, _lbl, _xoff in _row0:
+        _pos = _ax.get_position()
+        fig.text(_pos.x0 + _xoff * _pos.width, _label_y, _lbl,
+                 fontfamily="arial", fontsize=11, weight="bold")
 
     mag_spectra_ax.annotate("E", xy=(-0.15, 1.1), xycoords="axes fraction", fontfamily="arial", fontsize=11, weight="bold")
     mag_dist_ax.annotate("F", xy=(-0.15, 1.1), xycoords="axes fraction", fontfamily="arial", fontsize=11, weight="bold")
@@ -232,8 +246,6 @@ def plot_fig1_composite(modulation_df, fourier_df, udf, out_dir: Path):
 
     vis_spectra_ax.annotate("H", xy=(-0.15, 1.1), xycoords="axes fraction", fontfamily="arial", fontsize=11, weight="bold")
     vis_dist_ax.annotate("I", xy=(-0.15, 1.1), xycoords="axes fraction", fontfamily="arial", fontsize=11, weight="bold")
-
-    fig.subplots_adjust(bottom=0, top=1, left=0, right=1)
     out_path = out_dir / "Fig1.pdf"
     fig.savefig(out_path, bbox_inches="tight", dpi=300)
     print(f"Saved {out_path}")
@@ -255,5 +267,15 @@ def main():
     plot_fig1_composite(modulation_df, fourier_df, udf, out_dir)
 
 
+try:
+    from IPython import get_ipython
+    in_notebook = get_ipython() is not None
+except ImportError:
+    in_notebook = False
+
 if __name__ == "__main__":
-    main()
+    if in_notebook:
+        print("Running in Jupyter notebook.")
+        print("Call plot_fig1_composite() with your own args, or use: main()")
+    else:
+        main()

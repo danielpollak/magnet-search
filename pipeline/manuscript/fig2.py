@@ -192,5 +192,15 @@ def main():
     plot_fig2(all_fourier_df, out_dir)
 
 
+try:
+    from IPython import get_ipython
+    in_notebook = get_ipython() is not None
+except ImportError:
+    in_notebook = False
+
 if __name__ == "__main__":
-    main()
+    if in_notebook:
+        print("Running in Jupyter notebook.")
+        print("Call plot_fig2() with your own args, or use: main()")
+    else:
+        main()

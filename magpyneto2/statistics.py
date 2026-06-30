@@ -1648,25 +1648,6 @@ def normalize_timeseries(arr):
     return (arr - np.min(arr)) / (np.max(arr) - np.min(arr))
 
 
-def raw_GECI(raw_GECI_ax, F, cell_ind):
-    """Plots raw timeseries of GCaMP data
-    Parameters
-    ----------
-    raw_GECI_ax : (matplotlib.axes) Axis to plot on
-    F : (np.ndarray)     Fluorescence data
-    cell_inds : (list) Indices of cells to plot
-    """
-    raw_GECI_ax.plot(normalize_timeseries(F[cell_ind,:]), "k", linewidth=0.5)
-    
-    raw_GECI_ax.plot([0, 200], [1, 1], "k")
-    raw_GECI_ax.annotate("200 s",(0, .80))
-    print(raw_GECI_ax.get_ylim())
-    # Set labels
-    raw_GECI_ax.set_xlabel("time (s)")
-    raw_GECI_ax.set_ylabel(r"$\frac{\Delta F}{F}$ ")
-    raw_GECI_ax.axis("off")
-
-
 def raw_NPIX(raw_NPIX_ax, ldr, spks, unitrow, window, freq, label=0.100, DX=1000, DY=.1):
     """GENERATE RAW DATA VISUALIZATION WITH PERIODS AND PHASORS
     Parameters
@@ -1732,10 +1713,9 @@ def raw_GECI(raw_GECI_ax, F, cell_ind):
     cell_inds : (list) Indices of cells to plot
     """
     raw_GECI_ax.plot(normalize_timeseries(F[cell_ind,:]), "k", linewidth=0.5)
-    
+
     raw_GECI_ax.plot([0, 200], [1, 1], "k")
-    raw_GECI_ax.annotate("200 s",(0, .80))
-    print(raw_GECI_ax.get_ylim())
+    raw_GECI_ax.annotate("200 s", (0, 1.05))
     # Set labels
     raw_GECI_ax.set_xlabel("time (s)")
     raw_GECI_ax.set_ylabel(r"$\frac{\Delta F}{F}$ ")
