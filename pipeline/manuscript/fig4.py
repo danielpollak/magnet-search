@@ -39,6 +39,8 @@ import tqdm.auto as tqdm
 
 from magpyneto2 import statistics
 
+import format_parameters as FP
+
 CI_DF_CACHE = "data/manuscript/modulation_strength_vs_excess_count.pkl"
 FR_DF_CACHE = "data/manuscript/modulation_strength_vs_FR.pkl"
 
@@ -108,10 +110,10 @@ def compute_fr_df(spks):
 def plot_fig4(ci_df, c_hat_modulation_FR_df, spks, out_dir: Path):
     example_spk = spks[len(spks) // 2]
 
-    font = {"family": "arial", "size": 10}
+    font = {"family": FP.FONT_FAMILY, "size": FP.FS_BODY_XL}
     matplotlib.rc("font", **font)
 
-    fig = plt.figure(figsize=(6.5, 4))
+    fig = plt.figure(figsize=FP.FIGSIZE_FIG4)
     gs = gridspec.GridSpec(3, 5, left=0, bottom=0, right=1, top=1, wspace=0.4, hspace=0.4)
 
     ax_A1 = fig.add_subplot(gs[0, 0])
@@ -170,7 +172,7 @@ def plot_fig4(ci_df, c_hat_modulation_FR_df, spks, out_dir: Path):
     ax_B.set_ylabel("Excess suspects")
 
     sns.scatterplot(data=c_hat_modulation_FR_df, x="FR", y="c_hat", hue="mod",
-                    palette="Set1", size=0.5, alpha=0.7, ax=ax_C)
+                    palette="Set1", size=0.5, alpha=FP.ALPHA_SCATTER, ax=ax_C)
     handles, labels = ax_C.get_legend_handles_labels()
     mod_vals = [0, 0.3, 0.6]
     pairs = [(h, l) for h, l in zip(handles, labels)
@@ -210,22 +212,23 @@ def plot_fig4(ci_df, c_hat_modulation_FR_df, spks, out_dir: Path):
     statistics.nestle_labels(ax_B, x_offset=-0.05, y_offset=-0.05)
 
     out_path = out_dir / "Fig4.pdf"
-    fig.savefig(out_path, bbox_inches="tight")
+    fig.savefig(out_path, bbox_inches="tight", dpi=FP.DPI)
     print(f"Saved {out_path}")
-    plt.close(fig)
+    if not in_notebook:
+        plt.close(fig)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Generate Fig 4 (modulation sensitivity simulation)")
-    parser.add_argument("--out-dir", default="../../figs/paper", help="Output directory for PDFs")
-    parser.add_argument("--data-dir", default="../../data", help="Directory containing pipeline output pickles")
+    parser.add_argument("--out-dir", default=FP.OUT_DIR, help="Output directory for PDFs")
+    parser.add_argument("--data-dir", default=FP.DATA_DIR, help="Directory containing pipeline output pickles")
     parser.add_argument("--experiment", default=DEFAULT_EXPERIMENT,
                         help=f"Experiment name to load processing pickle from (default: {DEFAULT_EXPERIMENT})")
     parser.add_argument("--rec", default=DEFAULT_REC,
                         help=f"Recording name (rec column value) to use as spike source (default: {DEFAULT_REC!r})")
     parser.add_argument("--recompute", action="store_true",
                         help="Recompute simulation even if cached pickles exist")
-    args = parser.parse_args()
+    args = parser.parse_args([] if in_notebook else None)
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -257,7 +260,5 @@ def main():
 
 if __name__ == "__main__":
     if in_notebook:
-        print("Running in Jupyter notebook.")
-        print("Call plot_fig4() with your own args, or use: main()")
-    else:
-        main()
+        %config InlineBackend.figure_format = 'retina'
+    main()

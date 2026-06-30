@@ -28,7 +28,8 @@ from ecdfbounds import ecdf, bootstrap_ecdf_band
 
 from magpyneto2 import statistics
 
-DEFAULT_PARQUET = "../../data/manuscript/all_fourier_df.parquet"
+import format_parameters as FP
+
 
 
 def compute_waves(all_fourier_df):
@@ -71,9 +72,9 @@ def plot_uniform_p(waves, axes, u=0, percentile=None):
         qval, pi0 = statistics.storey_qvalues(pval, lambda_=0.5)
         last_n = len(qval)
 
-        axes[0].plot(np.sort(pval), ".", alpha=0.5, markersize=4, rasterized=True)
+        axes[0].plot(np.sort(pval), ".", alpha=FP.ALPHA_TRACE, markersize=FP.MS_DATA, rasterized=True)
         x, lower, upper = bootstrap_ecdf_band(pval)
-        axes[1].plot(np.sort(qval), ".", alpha=0.5, markersize=4, rasterized=True)
+        axes[1].plot(np.sort(qval), ".", alpha=FP.ALPHA_TRACE, markersize=FP.MS_DATA, rasterized=True)
 
     statistics.nestle_labels(axes[0], x_offset=-0.05, y=False)
     statistics.nestle_labels(axes[1], x_offset=-0.05, y=False)
@@ -87,10 +88,10 @@ def plot_uniform_p(waves, axes, u=0, percentile=None):
 def plot_fig3(all_fourier_df, out_dir: Path):
     waves, wave_df_l = compute_waves(all_fourier_df)
 
-    font = {"family": "arial", "size": 6}
+    font = {"family": FP.FONT_FAMILY, "size": FP.FS_BODY}
     matplotlib.rc("font", **font)
 
-    fig, axes = plt.subplots(2, 4, figsize=(6, 3), sharey="row", sharex="col")
+    fig, axes = plt.subplots(2, 4, figsize=FP.FIGSIZE_FIG3, sharey="row", sharex="col")
 
     plot_uniform_p(waves, axes[:, 0])
     plot_uniform_p(
@@ -115,17 +116,18 @@ def plot_fig3(all_fourier_df, out_dir: Path):
     axes[0, 3].annotate("D", xy=(-0.1, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
 
     out_path = out_dir / "Fig3.pdf"
-    fig.savefig(out_path, bbox_inches="tight", dpi=300)
+    fig.savefig(out_path, bbox_inches="tight", dpi=FP.DPI)
     print(f"Saved {out_path}")
-    plt.close(fig)
+    if not in_notebook:
+        plt.close(fig)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Generate Fig 3 (p/q-value uniformity)")
-    parser.add_argument("--out-dir", default="../../figs/paper", help="Output directory for PDFs")
-    parser.add_argument("--parquet", default=DEFAULT_PARQUET,
-                        help=f"Path to all_fourier_df.parquet (default: {DEFAULT_PARQUET})")
-    args = parser.parse_args()
+    parser.add_argument("--out-dir", default=FP.OUT_DIR, help="Output directory for PDFs")
+    parser.add_argument("--parquet", default=FP.PARQUET_PATH,
+                        help=f"Path to all_fourier_df.parquet (default: {FP.PARQUET_PATH})")
+    args = parser.parse_args([] if in_notebook else None)
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -137,7 +139,5 @@ def main():
 
 if __name__ == "__main__":
     if in_notebook:
-        print("Running in Jupyter notebook.")
-        print("Call plot_fig3() with your own args, or use: main()")
-    else:
-        main()
+        %config InlineBackend.figure_format = 'retina'
+    main()

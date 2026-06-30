@@ -27,7 +27,8 @@ import pandas as pd
 
 from magpyneto2 import statistics
 
-DEFAULT_PARQUET = r"../../data\manuscript\all_fourier_df.parquet"
+import format_parameters as FP
+
 
 
 def _fix_excess_legend(ax):
@@ -84,11 +85,11 @@ def plot_fig2(all_fourier_df, out_dir: Path):
     all_unique_pos_control = all_pos_control.drop_duplicates(
         subset=["species", "date", "id"], keep="first")
 
-    font = {"family": "arial", "size": 8}
+    font = {"family": FP.FONT_FAMILY, "size": FP.FS_BODY_LG}
     matplotlib.rc("font", **font)
 
-    fig = plt.figure(figsize=(6.5, 6.5), tight_layout=True)
-    gs = gridspec.GridSpec(3, 4, left=0, bottom=0, right=1, top=1, wspace=0.3, hspace=0.3)
+    fig = plt.figure(figsize=FP.FIGSIZE_FIG2, tight_layout=True)
+    gs = gridspec.GridSpec(3, 4, left=0, bottom=0, right=1, top=1, wspace=FP.WSPACE_DEFAULT, hspace=FP.HSPACE_DEFAULT)
 
     ax_A = fig.add_subplot(gs[0, :])
     ax_B = fig.add_subplot(gs[1, :])
@@ -150,9 +151,10 @@ def plot_fig2(all_fourier_df, out_dir: Path):
     statistics.boundary_ticks(axins_D, yprec=2, x=False)
 
     out_path = out_dir / "Fig2.pdf"
-    fig.savefig(out_path, bbox_inches="tight")
+    fig.savefig(out_path, bbox_inches="tight", dpi=FP.DPI)
     print(f"Saved {out_path}")
-    plt.close(fig)
+    if not in_notebook:
+        plt.close(fig)
 
     # Stats summary printed to stdout
     # Separate F and 2F analyses
@@ -187,10 +189,10 @@ def plot_fig2(all_fourier_df, out_dir: Path):
 
 def main():
     parser = argparse.ArgumentParser(description="Generate Fig 2 (excess-count barplots + distributions)")
-    parser.add_argument("--out-dir", default="../../figs/paper", help="Output directory for PDFs")
-    parser.add_argument("--parquet", default=DEFAULT_PARQUET,
-                        help=f"Path to all_fourier_df.parquet (default: {DEFAULT_PARQUET})")
-    args = parser.parse_args()
+    parser.add_argument("--out-dir", default=FP.OUT_DIR, help="Output directory for PDFs")
+    parser.add_argument("--parquet", default=FP.PARQUET_PATH,
+                        help=f"Path to all_fourier_df.parquet (default: {FP.PARQUET_PATH})")
+    args = parser.parse_args([] if in_notebook else None)
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -202,7 +204,5 @@ def main():
 
 if __name__ == "__main__":
     if in_notebook:
-        print("Running in Jupyter notebook.")
-        print("Call plot_fig2() with your own args, or use: main()")
-    else:
-        main()
+        %config InlineBackend.figure_format = 'retina'
+    main()

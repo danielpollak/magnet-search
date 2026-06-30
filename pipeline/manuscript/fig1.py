@@ -41,6 +41,8 @@ from ephysio import openEphysIO
 from magpyneto2 import statistics, engert_helpers
 from magpyneto2.statistics import normalized_Fourier_CDF
 from magpyneto2.utils import get_cluster_info
+
+import format_parameters as FP
 #%%
 # ── NAS paths ────────────────────────────────────────────────────────────────
 DATA_PATH = r"\\datanas\family\data_aggregated\20230413_firstsite"
@@ -92,10 +94,10 @@ def plot_fig1_composite(modulation_df, fourier_df, udf, out_dir: Path):
     mag_GECI_spectra = engert_helpers.fit_Fourier(mag_F, 1, f=0.4, Q=50)
     vis_GECI_spectra = engert_helpers.fit_Fourier(vis_F, 1, f=1/60, Q=6)
 
-    font = {"family": "arial", "size": 6}
+    font = {"family": FP.FONT_FAMILY, "size": FP.FS_BODY}
     matplotlib.rc("font", **font)
 
-    fig = plt.figure(figsize=(9, 6), tight_layout=True)
+    fig = plt.figure(figsize=FP.FIGSIZE_FIG1, tight_layout=True)
     gs = gridspec.GridSpec(3, 6, left=0, bottom=0, right=1, top=1, wspace=0.35, hspace=0.4)
 
     # ── Row 1: Cartoon + Mag raw NPIX + Anatomy + Vis calcium ────────────────
@@ -148,11 +150,11 @@ def plot_fig1_composite(modulation_df, fourier_df, udf, out_dir: Path):
         mask[cell_y, cell_x] = True
 
         if i == MAG_CELL_IND:
-            # Exemplar cell: draw filled region in red
-            anatomy_ax.contourf(mask, levels=[0.5, 1.5], colors=['red'], alpha=0.5)
+            # Exemplar cell: draw filled region
+            anatomy_ax.contourf(mask, levels=[0.5, 1.5], colors=[FP.COLOR_CELL_EX], alpha=FP.ALPHA_CELL_EXEMPLAR)
         else:
-            # Other cells: draw outline in cyan
-            anatomy_ax.contour(mask, levels=[0.5], colors=['cyan'], linewidths=0.5, alpha=0.6)
+            # Other cells: draw outline
+            anatomy_ax.contour(mask, levels=[0.5], colors=[FP.COLOR_CELL_BG], linewidths=FP.LW_CONTOUR, alpha=FP.ALPHA_CELL_OTHER)
 
     anatomy_ax.axis("off")
 
@@ -204,8 +206,8 @@ def plot_fig1_composite(modulation_df, fourier_df, udf, out_dir: Path):
     mag_ks_dev = mag_ecdf - mag_x
     mag_ks_lower = mag_lower - mag_x
     mag_ks_upper = mag_upper - mag_x
-    ecdf_ax.plot(mag_x, mag_ks_dev, color="steelblue", linewidth=1, label="5 Hz (mag)")
-    ecdf_ax.fill_between(mag_x, mag_ks_lower, mag_ks_upper, color="steelblue", alpha=0.2)
+    ecdf_ax.plot(mag_x, mag_ks_dev, color=FP.COLOR_MAG, linewidth=FP.LW_TRACE, label="5 Hz (mag)")
+    ecdf_ax.fill_between(mag_x, mag_ks_lower, mag_ks_upper, color=FP.COLOR_MAG, alpha=FP.ALPHA_CONFIDENCE)
 
     # Plot vis K-S diagnostic: ECDF(x) - x with 95% CI
     vis_x, vis_lower, vis_upper = bootstrap_ecdf_band(vis_pvals)
@@ -215,11 +217,11 @@ def plot_fig1_composite(modulation_df, fourier_df, udf, out_dir: Path):
     vis_ks_dev = vis_ecdf - vis_x
     vis_ks_lower = vis_lower - vis_x
     vis_ks_upper = vis_upper - vis_x
-    ecdf_ax.plot(vis_x, vis_ks_dev, color="coral", linewidth=1, label="3 Hz (vis)")
-    ecdf_ax.fill_between(vis_x, vis_ks_lower, vis_ks_upper, color="coral", alpha=0.2)
+    ecdf_ax.plot(vis_x, vis_ks_dev, color=FP.COLOR_VIS, linewidth=FP.LW_TRACE, label="3 Hz (vis)")
+    ecdf_ax.fill_between(vis_x, vis_ks_lower, vis_ks_upper, color=FP.COLOR_VIS, alpha=FP.ALPHA_CONFIDENCE)
 
     # Plot null line (y=0, representing perfect agreement with uniform distribution)
-    ecdf_ax.axhline(0, color="gray", linestyle="--", linewidth=0.8, alpha=0.6)
+    ecdf_ax.axhline(0, color=FP.COLOR_NULL, linestyle="--", linewidth=FP.LW_REFERENCE, alpha=0.6)
 
     ecdf_ax.set_xlabel("p-value")
     ecdf_ax.set_ylabel("ECDF deviation from null")
@@ -255,16 +257,17 @@ def plot_fig1_composite(modulation_df, fourier_df, udf, out_dir: Path):
     vis_spectra_ax.annotate("H", xy=(-0.15, 1.1), xycoords="axes fraction", fontfamily="arial", fontsize=11, weight="bold")
     vis_dist_ax.annotate("I", xy=(-0.15, 1.1), xycoords="axes fraction", fontfamily="arial", fontsize=11, weight="bold")
     out_path = out_dir / "Fig1.pdf"
-    fig.savefig(out_path, bbox_inches="tight", dpi=300)
+    fig.savefig(out_path, bbox_inches="tight", dpi=FP.DPI)
     print(f"Saved {out_path}")
-    plt.close(fig)
+    if not in_notebook:
+        plt.close(fig)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Generate Fig 1 (composite NPIX + GCaMP + ECDFs)")
-    parser.add_argument("--out-dir", default="../../figs/paper", help="Output directory for PDFs")
-    parser.add_argument("--data-dir", default="../../data", help="Directory containing pipeline output pickles")
-    args = parser.parse_args()
+    parser.add_argument("--out-dir", default=FP.OUT_DIR, help="Output directory for PDFs")
+    parser.add_argument("--data-dir", default=FP.DATA_DIR, help="Directory containing pipeline output pickles")
+    args = parser.parse_args([] if in_notebook else None)
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -277,7 +280,5 @@ def main():
 
 if __name__ == "__main__":
     if in_notebook:
-        print("Running in Jupyter notebook.")
-        print("Call plot_fig1_composite() with your own args, or use: main()")
-    else:
-        main()
+        %config InlineBackend.figure_format = 'retina'
+    main()
