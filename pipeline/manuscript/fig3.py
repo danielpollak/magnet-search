@@ -11,8 +11,16 @@ Usage:
 import argparse
 from pathlib import Path
 
+# Detect if running in Jupyter notebook (must do this before matplotlib.use)
+try:
+    from IPython import get_ipython
+    in_notebook = get_ipython() is not None
+except ImportError:
+    in_notebook = False
+
 import matplotlib
-matplotlib.use("Agg")
+if not in_notebook:
+    matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -126,12 +134,6 @@ def main():
     all_fourier_df = pd.read_parquet(args.parquet)
     plot_fig3(all_fourier_df, out_dir)
 
-
-try:
-    from IPython import get_ipython
-    in_notebook = get_ipython() is not None
-except ImportError:
-    in_notebook = False
 
 if __name__ == "__main__":
     if in_notebook:

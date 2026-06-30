@@ -20,8 +20,16 @@ import argparse
 import pickle
 from pathlib import Path
 
+# Detect if running in Jupyter notebook (must do this before matplotlib.use)
+try:
+    from IPython import get_ipython
+    in_notebook = get_ipython() is not None
+except ImportError:
+    in_notebook = False
+
 import matplotlib
-matplotlib.use("Agg")
+if not in_notebook:
+    matplotlib.use("Agg")
 import matplotlib.gridspec as gridspec
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
@@ -266,12 +274,6 @@ def main():
     print("Loading GCaMP data (requires NAS)...")
     plot_fig1_composite(modulation_df, fourier_df, udf, out_dir)
 
-
-try:
-    from IPython import get_ipython
-    in_notebook = get_ipython() is not None
-except ImportError:
-    in_notebook = False
 
 if __name__ == "__main__":
     if in_notebook:
