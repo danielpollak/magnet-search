@@ -582,36 +582,6 @@ def update_MM_d_mag(MM_d, data, cat_df):
     return MM_d
 
 
-def save_MM_d_pickle(MM_d, filename, sr=30_000):
-    """Saves data to a pickle file.
-
-    Parameters
-    ----------
-    data: dict
-        The data to save.
-    filename: str
-        The name of the file to save to.
-    """
-    # First, convert everything to seconds. Build a new dict rather than
-    # mutating the caller's MM_d in place, since callers may keep using
-    # MM_d (still in samples) after this function returns.
-    # Spikes
-    spks_int32 = MM_d["spikes"] # has np.int32 for keys instead of int
-    spks = {} # New spks dict
-    for cluster, st in spks_int32.items():
-        spks[int(cluster)] = st / sr
-
-    # Aux
-    aux = {}
-    for recname, (period, freq) in MM_d["aux"].items():
-        aux[recname] = (period / sr, freq)
-
-    MM_d_seconds = {**MM_d, "spikes": spks, "aux": aux}
-
-    # save
-    with open(filename, 'wb') as f:
-        pickle.dump(MM_d_seconds, f, protocol=pickle.HIGHEST_PROTOCOL)
-
 def load_MM_d_pickle(filename):
     """Loads data from a pickle file.
     
