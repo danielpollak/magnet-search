@@ -41,12 +41,17 @@ def run_processing(cfg):
     if cfg.good:
         udf = udf.loc[udf.KSLabel == "good", :]
 
-    # Unfiltered variants for the NWB Units table: store every cluster with
-    # a kilosort_label column so `cfg.good` filtering happens at analysis
-    # time instead of being baked in permanently — `all_sts`/`udf` above
-    # (used for the in-memory MM_d diagnostics only) are left untouched.
-    all_sts_full = ksr.spikesbycluster(label=None)
-    udf_full = get_cluster_info(data_path)
+    # NWB Units table gets these SAME cfg.good-filtered spike trains --
+    # only `good` units are written by default. To recover MUA later, set
+    # `good: False` in the YAML and reprocess (label becomes None above, so
+    # all_sts/udf include everything) -- see .claude/plans, NWB replatform
+    # "good-only" cutover. (Previously this always wrote every cluster
+    # regardless of cfg.good, deferring the good/mua split to analysis time
+    # via build_modulation_frame's good_only filter -- confirmed unused:
+    # no experiment YAML has ever set good: False, so MUA was read,
+    # decompressed, and loaded on every analysis run only to be discarded.)
+    all_sts_nwb = all_sts
+    udf_nwb = udf
 
     # per-row stream_ids: cfg.streams overrides cfg.stream_id when provided
     row_streams = cfg.streams if cfg.streams else [cfg.stream_id] * len(cat_df)
@@ -128,7 +133,7 @@ def run_processing(cfg):
     # label_column docstring for why this must be stated explicitly rather
     # than auto-detected.
     nwb_io.write_units_and_spikes(
-        nwbfile, all_sts_full, udf_full, sampling_rate=AP_SR, label_column="KSLabel")
+        nwbfile, all_sts_nwb, udf_nwb, sampling_rate=AP_SR, label_column="KSLabel")
 
     epochs = []
     for freq in data.keys():
@@ -146,7 +151,7 @@ def run_processing(cfg):
                 "stop_time": float(full_crossings[-1]) / AP_SR,
                 "period_crossings": full_crossings,
                 "skips": trial_skips,
-                # Units.spike_times (all_sts_full) are in the aggregated
+                # Units.spike_times (all_sts_nwb) are in the aggregated
                 # multi-recording catalog domain, same as full_crossings
                 # above (both offset by `offset`) -- but legacy
                 # modulation_df.spk is recording-local (all_sts - offset).

@@ -485,13 +485,16 @@ def run_processing(cfg):
     if cfg.good:
         udf = udf.loc[udf.KSLabel == "good", :]
 
-    # Unfiltered variants for the NWB Units table (see bottom of this
-    # function) -- same reasoning as openephys.py: every cluster, not just
-    # `good`, so cfg.good filtering happens at analysis time.
-    all_sts_full = ksr.spikesbycluster(label=None)
-    udf_full = get_cluster_info(cfg.aggregated_path)
-
     all_sts, contingency_d, aux_d = _build_contingency(cfg, ksr, udf, cat_df)  # noqa
+
+    # NWB Units table gets these SAME cfg.good-filtered spike trains (same
+    # reasoning as openephys.py) -- only `good` units are written by
+    # default; set `good: False` and reprocess to recover MUA. `all_sts`
+    # here is already good-filtered (_build_contingency's own `label`
+    # matches cfg.good identically), so no separate unfiltered computation
+    # is needed -- see .claude/plans, NWB replatform "good-only" cutover.
+    all_sts_nwb = all_sts
+    udf_nwb = udf
 
     # --- Magnetic trials ---
     folder_locations_freq_skips = []
@@ -570,7 +573,7 @@ def run_processing(cfg):
     # label_column docstring for why this must be stated explicitly rather
     # than auto-detected.
     nwb_io.write_units_and_spikes(
-        nwbfile, all_sts_full, udf_full, sampling_rate=AP_SR, label_column="KSLabel")
+        nwbfile, all_sts_nwb, udf_nwb, sampling_rate=AP_SR, label_column="KSLabel")
     nwb_io.write_epochs_table(nwbfile, nwb_epochs, sampling_rate=AP_SR)
     nwb_io.write_nwbfile(nwbfile, cfg.nwb_path())
 

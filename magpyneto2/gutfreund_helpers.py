@@ -291,10 +291,13 @@ def get_Gutfreund_files(data_path: str):
 
 
 def get_all_spiketrains(reader, sorting_path, label="good"):
-    """`label=None` returns every cluster, unfiltered (no experiment YAML
-    currently sets `good: False` for a gutfreund session, so this path was
-    previously dead code and effectively untested; NWB dual-write is the
-    first real caller -- see pipeline/paradigms/gutfreund.py)."""
+    """`label=None` returns every cluster, unfiltered -- reachable by
+    setting `good: False` in an experiment's YAML (`unpack_Gutfreund_data`'s
+    own `label` param becomes None and is passed straight through here).
+    No experiment YAML currently does this, so this path is effectively
+    untested on real data; it exists so reprocessing with `good: False`
+    can recover MUA units if ever needed -- see pipeline/paradigms/
+    gutfreund.py and .claude/plans (NWB replatform "good-only" cutover)."""
     unit_df = get_cluster_info(sorting_path)
 
     if "cluster_id" in unit_df.columns:
@@ -362,10 +365,16 @@ def unpack_Gutfreund_data(data_path: str, label="good",):
     reader = ksr.Reader(sorting_path)
     all_sts_d, all_sts, unit_df = get_all_spiketrains(reader, sorting_path, label=label)
 
-    # Unfiltered variant (every cluster, not just `label`) for the NWB Units
-    # table -- see pipeline/paradigms/gutfreund.py's dual-write. Cheap: reuses
-    # the same reader/cluster_info.tsv read, just without the group filter.
-    all_sts_d_full, _, unit_df_full = get_all_spiketrains(reader, sorting_path, label=None)
+    # NWB Units table gets the SAME label-filtered spike trains as the
+    # legacy modulation_df computation above -- i.e. only `good` units by
+    # default (label="good"), matching cfg.good's semantics exactly. No
+    # experiment YAML currently sets `good: False` for a gutfreund session;
+    # if one ever does, this call (and the NWB write) picks up MUA/all
+    # units too, since it's the same `label` this whole function received.
+    # (Previously this called get_all_spiketrains a second time with
+    # label=None unconditionally, writing every cluster to NWB regardless
+    # of cfg.good -- see .claude/plans, NWB replatform "good-only" cutover.)
+    all_sts_d_full, unit_df_full = all_sts_d, unit_df
 
 
     

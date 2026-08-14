@@ -38,6 +38,7 @@ import numpy as np
 import pandas as pd
 from dateutil.tz import tzlocal
 
+from hdmf.backends.hdf5.h5_utils import H5DataIO
 from hdmf.common import DynamicTable
 from pynwb import NWBFile, NWBHDF5IO
 from pynwb.epoch import TimeIntervals
@@ -45,6 +46,11 @@ from pynwb.file import Subject
 from pynwb.ophys import ImagingPlane, ImageSegmentation, PlaneSegmentation, OpticalChannel, Fluorescence, RoiResponseSeries
 
 AP_SR = 30_000  # default NPIX/spike sampling rate (matches find_outliers's sr=30_000 default)
+
+GZIP_LEVEL = 4  # empirically: level 4 vs 9 made no measurable difference on
+                # real spike_times/fluorescence data (both float64/float32
+                # arrays with little byte-level redundancy for gzip to
+                # exploit) -- 4 is the cheaper choice for identical output.
 
 
 # ---------------------------------------------------------------------------
@@ -1240,6 +1246,14 @@ def write_roi_response_series(nwbfile, F, plane_segmentation, sampling_rate):
     `F` : np.ndarray, shape (n_rois, n_frames) -- suite2p's own convention
     (roi-major). NWB's `TimeSeries.data` convention is time-major, so this
     is transposed before writing.
+
+    Stores ALL ROIs regardless of p_iscell/npix -- unlike Units'
+    good-only cutover, iscell_threshold/npix_threshold tuning is an
+    actively-used workflow (see CLAUDE.md's tutorial), so trimming
+    non-passing ROIs here would break "retune the threshold without
+    reprocessing." Compression (see GZIP_LEVEL) is applied instead, for a
+    smaller but still free and lossless size reduction (~24% measured on
+    real data).
     """
     rois_region = plane_segmentation.create_roi_table_region(
         description="all suite2p ROIs (see PlaneSegmentation's p_iscell/npix "
@@ -1248,7 +1262,9 @@ def write_roi_response_series(nwbfile, F, plane_segmentation, sampling_rate):
     )
     roi_series = RoiResponseSeries(
         name="RoiResponseSeries",
-        data=np.asarray(F, dtype=np.float32).T,  # (n_frames, n_rois)
+        data=H5DataIO(
+            data=np.asarray(F, dtype=np.float32).T,  # (n_frames, n_rois)
+            compression="gzip", compression_opts=GZIP_LEVEL, chunks=True),
         unit="a.u.",
         rois=rois_region,
         rate=float(sampling_rate),
@@ -1445,8 +1461,47 @@ def write_imaging_fourier_results(nwbfile, rec, freq, Q, T_duration, fourier_df_
 # File-level I/O helpers
 # ---------------------------------------------------------------------------
 
+def _compress_units_spike_times(nwbfile):
+    """Wrap Units.spike_times' underlying flattened data array in gzip
+    compression before writing. `spike_times` is built incrementally across
+    many `add_unit()` calls (one per unit, sometimes across multiple
+    write_units_and_spikes calls for gutfreund's per-recording sortings),
+    so there's no single array to wrap until every unit has been added --
+    this must run once, right before the final write, not inside
+    write_units_and_spikes itself.
+
+    Empirically measured ~33% size reduction on real data (spike times
+    don't have much byte-level redundancy for gzip to exploit, but it's
+    free and fully lossless/transparent -- pynwb decompresses
+    automatically on read, no changes needed anywhere else).
+
+    Uses the private `_Data__data` attribute because hdmf's VectorData.data
+    property has no public setter (confirmed directly: "AttributeError:
+    property 'data' of 'VectorData' object has no setter"). This is the
+    same workaround hdmf's own internal code uses for exactly this
+    situation -- see hdmf/common/table.py's ElementIdentifiers class,
+    which does the identical `self._Data__data = ...` reassignment with a
+    comment citing the same restriction.
+    """
+    if nwbfile.units is None:
+        return
+    vd = nwbfile.units["spike_times"].target
+    if isinstance(vd.data, H5DataIO):
+        return  # already wrapped (e.g. re-entering on an already-prepped file)
+    vd._Data__data = H5DataIO(
+        data=vd.data, compression="gzip", compression_opts=GZIP_LEVEL, chunks=True)
+
+
 def write_nwbfile(nwbfile, nwb_path):
-    """Write a freshly-built NWBFile to disk (overwrites any existing file)."""
+    """Write a freshly-built NWBFile to disk (overwrites any existing file).
+
+    Applies gzip compression to Units.spike_times (the dominant cost in
+    every ephys NWB file's size -- see _compress_units_spike_times) right
+    before writing. RoiResponseSeries.data is compressed at construction
+    time instead (see write_roi_response_series), since it's set once
+    rather than built incrementally.
+    """
+    _compress_units_spike_times(nwbfile)
     with NWBHDF5IO(nwb_path, mode="w") as io:
         io.write(nwbfile)
 

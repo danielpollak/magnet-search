@@ -39,13 +39,17 @@ def run_processing(cfg):
         for cluster_id, spikes in reader.spikesbycluster(ks_label).items()
     }
 
-    # Unfiltered variant for the NWB Units table (dual-write, below): every
-    # cluster (not just `good`) plus cluster_info, so `cfg.good` filtering
-    # happens at analysis time instead of being baked in permanently. Raw
-    # sample values (not seconds) — matches write_units_and_spikes's expected
-    # input, same convention as openephys.py.
-    all_sts_full_samples = reader.spikesbycluster(label=None)
-    udf_full = get_cluster_info(ks_path)
+    # NWB Units table gets these SAME cfg.good-filtered (via `ks_label`)
+    # spike trains -- only `good` units are written by default; set
+    # `good: False` and reprocess to recover MUA (see .claude/plans, NWB
+    # replatform "good-only" cutover). Raw sample values (not seconds) --
+    # matches write_units_and_spikes's expected input, same convention as
+    # openephys.py. `udf_nwb` below is left comprehensive (every cluster's
+    # metadata, unconditionally) since write_units_and_spikes only ever
+    # looks up a row for a cluster_id that's actually a key in
+    # all_sts_nwb -- extra unused metadata rows are harmless.
+    all_sts_nwb_samples = reader.spikesbycluster(label=ks_label)
+    udf_nwb = get_cluster_info(ks_path)
     # `reader.kslabel` is the label dict `spikesbycluster(ks_label)` above
     # ACTUALLY filtered on -- built from cluster_KSLabel.tsv, overridden by
     # cluster_group.tsv when present (see ephysio.kilosortIO.Reader.__init__).
@@ -53,18 +57,18 @@ def run_processing(cfg):
     # were confirmed on real data to NOT always agree with this (neither
     # column alone matched the actual `good` population) -- worse, some real
     # cluster ids present in cluster_KSLabel.tsv/spike_clusters.npy (and
-    # therefore in `all_sts_full_samples`) are simply ABSENT from
+    # therefore in `all_sts_nwb_samples`) are simply ABSENT from
     # cluster_info.tsv's own id numbering entirely (a real numbering
     # mismatch between the two exports, confirmed on real magnerNPX2_g0
     # data). Build the label table directly from reader.kslabel (covers
     # every cluster reader.spikesbycluster can return) and left-join
     # cluster_info.tsv's channel/position columns on top, best-effort.
-    id_col = "cluster_id" if "cluster_id" in udf_full.columns else "id"
+    id_col = "cluster_id" if "cluster_id" in udf_nwb.columns else "id"
     label_df = pd.DataFrame({
         id_col: list(reader.kslabel.keys()),
         "resolved_label": list(reader.kslabel.values()),
     })
-    udf_full = label_df.merge(udf_full, on=id_col, how="left")
+    udf_nwb = label_df.merge(udf_nwb, on=id_col, how="left")
 
     # Detect magnet periods via threshold crossing on smoothed NIDAQ channel
     mag_trace = recording.get_traces(channel_ids=[cfg.mag_channel]).flatten()
@@ -122,7 +126,7 @@ def run_processing(cfg):
     # matched `ks_label="good"`'s actual selection on real data, so use
     # Reader's own resolved label directly instead of guessing a column.
     nwb_io.write_units_and_spikes(
-        nwbfile, all_sts_full_samples, udf_full, sampling_rate=AP_sr, label_column="resolved_label")
+        nwbfile, all_sts_nwb_samples, udf_nwb, sampling_rate=AP_sr, label_column="resolved_label")
     epochs = [{
         "rec": rec_name,
         "stim_type": "magnetic",

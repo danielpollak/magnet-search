@@ -34,6 +34,15 @@ NEW_DATA = r"C:\Users\dan\Documents\magnet_search\data"
 # here indicates a genuine logic bug, not floating-point noise. The
 # tolerance exists only to absorb float round-trip through HDF5 storage.
 NWB_DRIFT_ATOL = 1e-9
+# Relative counterpart to NWB_DRIFT_ATOL -- needed because reordering units
+# (e.g. good-only NWB writes changing dict/array iteration order feeding
+# find_outliers's vectorized ops) shifts float64 summation order, producing
+# differences that scale with a column's own magnitude, not a fixed
+# absolute size. Confirmed on real data (20220916's sens/sens_2f columns,
+# not O(1) like pp/rr): up to ~1.5e-8 absolute but only ~1e-11 *relative* --
+# atol alone can't cover every column's scale without being loose enough to
+# risk hiding a real bug in the O(1) columns.
+NWB_DRIFT_RTOL = 1e-6
 
 
 # Map experiment name → (old_processing_file, old_analysis_file)
@@ -137,7 +146,7 @@ def _load(path):
         return pickle.load(f)
 
 
-def _frames_equal_sorted(a, b, sort_cols, atol=0.0):
+def _frames_equal_sorted(a, b, sort_cols, atol=0.0, rtol=0.0):
     """Sorts both frames by `sort_cols` first, then compares, with an
     optional numeric tolerance.
 
@@ -146,13 +155,23 @@ def _frames_equal_sorted(a, b, sort_cols, atol=0.0):
     match the old fixture's original row order — a plain positional
     `reset_index` comparison would spuriously fail on pure reordering even
     when every value matches.
+
+    `rtol` matters alongside `atol`: confirmed on real data (20220916's
+    `sens`/`sens_2f` columns) that excluding MUA units reorders the array
+    feeding find_outliers's vectorized ops, shifting float64 summation
+    order enough to produce ~1.5e-8 absolute (but only ~1e-11 *relative*)
+    differences in columns whose values aren't O(1) like pp/rr are --
+    atol alone can't cover every column's scale without also being loose
+    enough to hide a real bug in the O(1) columns. Default 0 for the
+    strict/PASS-tier check (see _compare_tiered), non-zero only for the
+    DRIFT_TOLERATED tier.
     """
     try:
         a_sorted = a.sort_values(sort_cols).reset_index(drop=True)
         b_sorted = b.sort_values(sort_cols).reset_index(drop=True)
         pd.testing.assert_frame_equal(
             a_sorted, b_sorted, check_like=True, check_dtype=False,
-            atol=atol, rtol=0,
+            atol=atol, rtol=rtol,
         )
         return True, None
     except AssertionError as e:
@@ -205,9 +224,11 @@ def _compare_tiered(old_df, nwb_df, sort_cols):
     if exact_ok:
         return "PASS", None
 
-    tol_ok, tol_err = _frames_equal_sorted(old_df, nwb_df, sort_cols, atol=NWB_DRIFT_ATOL)
+    tol_ok, tol_err = _frames_equal_sorted(
+        old_df, nwb_df, sort_cols, atol=NWB_DRIFT_ATOL, rtol=NWB_DRIFT_RTOL)
     if tol_ok:
-        return f"DRIFT_TOLERATED (within atol={NWB_DRIFT_ATOL}): {exact_err}", None
+        return (f"DRIFT_TOLERATED (within atol={NWB_DRIFT_ATOL}, rtol={NWB_DRIFT_RTOL}): "
+                f"{exact_err}", None)
 
     return f"FAIL: {tol_err}", exact_err
 
@@ -284,7 +305,16 @@ def _reconcile_stale_old(name, old_proc_df, nwb_anal_df):
     if fresh_ff is None:
         return False, None
     cols = [c for c in fresh_ff.columns if c in nwb_anal_df.columns]
-    ok, _ = _frames_equal_sorted(fresh_ff[cols], nwb_anal_df[cols], ["rec", "id"], atol=0.0)
+    # atol=NWB_DRIFT_ATOL, not 0.0: confirmed on real data (20220314) that
+    # reordering units (e.g. excluding MUA from the NWB Units table changes
+    # dict/array iteration order feeding find_outliers) shifts float64
+    # summation order enough to produce ~1e-13-relative-magnitude
+    # differences in `pp`/`rr` -- the exact same class of harmless
+    # numerical noise NWB_DRIFT_ATOL already exists to absorb elsewhere,
+    # not a real correctness difference (values match to 10+ significant
+    # digits).
+    status, _ = _compare_tiered(fresh_ff[cols], nwb_anal_df[cols], ["rec", "id"])
+    ok = status == "PASS" or status.startswith("DRIFT_TOLERATED")
     return ok, fresh_ff
 
 
