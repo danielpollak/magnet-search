@@ -1,4 +1,3 @@
-import pickle
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -581,18 +580,6 @@ def update_MM_d_mag(MM_d, data, cat_df):
 
     return MM_d
 
-
-def load_MM_d_pickle(filename):
-    """Loads data from a pickle file.
-    
-    Parameters
-    ----------
-    filename: str
-        The name of the file to load from.
-    """
-    with open(filename, 'rb') as f:
-        MM_d = pickle.load(f)
-    return MM_d
 
 def sanity_check_raw_data(θ, period_crossings, sts, n_representative_units=7, sampling_rate=30_000):
     """

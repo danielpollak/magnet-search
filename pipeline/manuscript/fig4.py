@@ -42,8 +42,16 @@ from pipeline.schema import load_experiment
 
 import format_parameters as FP
 
-CI_DF_CACHE = "data/manuscript/modulation_strength_vs_excess_count.pkl"
-FR_DF_CACHE = "data/manuscript/modulation_strength_vs_FR.pkl"
+# Anchored to this file's own location (repo_root/pipeline/manuscript/fig4.py
+# -> repo_root), not the process's CWD -- previously these were plain
+# CWD-relative strings ("data/manuscript/..."), which silently wrote (and
+# once got committed) a stray duplicate cache under
+# pipeline/manuscript/data/manuscript/ when this script was run with CWD set
+# to its own directory (e.g. from a Jupyter notebook there) instead of the
+# repo root the docstring's own usage examples assume.
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+CI_DF_CACHE = _REPO_ROOT / "data" / "manuscript" / "modulation_strength_vs_excess_count.pkl"
+FR_DF_CACHE = _REPO_ROOT / "data" / "manuscript" / "modulation_strength_vs_FR.pkl"
 
 DEFAULT_EXPERIMENT = "20220228_firstsite"
 DEFAULT_REC        = "10 Hz_2022-02-28_16-21-40"
@@ -251,7 +259,7 @@ def main():
         print("Computing modulation strength vs excess count (slow)...")
         ci_df = compute_ci_df(spks)
         ci_df.to_pickle(CI_DF_CACHE)
-        print(f"Cached → {CI_DF_CACHE}")
+        print(f"Cached -> {CI_DF_CACHE}")
 
     if not args.recompute and Path(FR_DF_CACHE).exists():
         print(f"Loading cached FR df from {FR_DF_CACHE}")
@@ -260,7 +268,7 @@ def main():
         print("Computing FR vs c_hat...")
         c_hat_modulation_FR_df = compute_fr_df(spks)
         c_hat_modulation_FR_df.to_pickle(FR_DF_CACHE)
-        print(f"Cached → {FR_DF_CACHE}")
+        print(f"Cached -> {FR_DF_CACHE}")
 
     plot_fig4(ci_df, c_hat_modulation_FR_df, spks, out_dir)
 
