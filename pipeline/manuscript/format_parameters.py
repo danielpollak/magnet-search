@@ -18,9 +18,20 @@ FIGSIZE_FIG3 = (8, 4)       # p/q-value uniformity
 FIGSIZE_FIG4 = (8, 4)     # modulation sensitivity
 
 # ── File paths ────────────────────────────────────────────────────────────────────
-OUT_DIR          = "../../figs/paper"
-DATA_DIR         = "../../data"
-PARQUET_PATH     = "../../data/manuscript/all_fourier_df.parquet"
+# Anchored to this file's own location (repo_root/pipeline/manuscript/
+# format_parameters.py -> repo_root), not the process's CWD -- these used to
+# be plain relative strings ("../../data"), which only resolved correctly
+# when the script was run with pipeline/manuscript/ as the working
+# directory. Running a figure script the way its own docstring says to
+# (`python pipeline/manuscript/fig4.py` from the repo root) resolved
+# "../../data" to two directories *above* the repo instead, which doesn't
+# exist -- confirmed via a real FileNotFoundError on data/*.nwb.
+from pathlib import Path as _Path
+_REPO_ROOT = _Path(__file__).resolve().parent.parent.parent
+
+OUT_DIR          = str(_REPO_ROOT / "figs" / "paper")
+DATA_DIR         = str(_REPO_ROOT / "data")
+PARQUET_PATH     = str(_REPO_ROOT / "data" / "manuscript" / "all_fourier_df.parquet")
 
 # ── Save settings ──────────────────────────────────────────────────────────────
 DPI = 300

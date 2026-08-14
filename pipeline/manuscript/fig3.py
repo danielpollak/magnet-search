@@ -139,5 +139,5 @@ def main():
 
 if __name__ == "__main__":
     if in_notebook:
-        %config InlineBackend.figure_format = 'retina'
+        get_ipython().run_line_magic("config", "InlineBackend.figure_format = 'retina'")
     main()
