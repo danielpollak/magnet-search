@@ -1,10 +1,10 @@
 """Fig 4 — modulation strength vs excess suspects and firing rate.
 
-Loads spike trains from a *_processing.pickle produced by the pipeline,
-then synthetically modulates them to show detection thresholds.
+Loads spike trains from the pipeline's own {experiment}.nwb, then
+synthetically modulates them to show detection thresholds.
 
 Requires:
-  data/{experiment}_processing.pickle  (default: 20220228_firstsite)
+  data/{experiment}.nwb  (default: 20220228_firstsite)
   seaborn
 
 Cached simulation results are saved to data/manuscript/ on first run and
@@ -17,7 +17,6 @@ Usage:
 """
 import argparse
 import glob
-import pickle
 from pathlib import Path
 
 # Detect if running in Jupyter notebook (must do this before matplotlib.use)
@@ -38,6 +37,8 @@ import seaborn as sns
 import tqdm.auto as tqdm
 
 from magpyneto2 import statistics
+from pipeline import nwb_io
+from pipeline.schema import load_experiment
 
 import format_parameters as FP
 
@@ -52,15 +53,21 @@ PERCENTAGES        = np.linspace(0, 1, num=5)
 
 
 def load_spks(data_dir: str, experiment: str, rec_name: str):
-    pkl_path = Path(data_dir) / f"{experiment}_processing.pickle"
-    with open(pkl_path, "rb") as f:
-        modulation_df = pickle.load(f)
+    # Reads the pipeline's own {experiment}.nwb (Phase 7 cutover -- no
+    # paradigm writes the legacy {experiment}_processing.pickle anymore),
+    # same reproducible-from-NWB principle applied to fig1.py.
+    experiments_dir = Path(__file__).parent.parent.parent / "experiments"
+    cfg = load_experiment(experiments_dir / f"{experiment}.yml")
+    nwb_path = Path(data_dir) / f"{experiment}.nwb"
+    io_r, nwbfile = nwb_io.read_nwbfile(str(nwb_path))
+    modulation_df = nwb_io.build_modulation_frame(nwbfile, good_only=cfg.good)
+    io_r.close()
 
     rec_df = modulation_df.loc[modulation_df.rec == rec_name]
     if rec_df.empty:
         available = modulation_df.rec.unique().tolist()
         raise ValueError(
-            f"rec {rec_name!r} not found in {pkl_path.name}. "
+            f"rec {rec_name!r} not found in {nwb_path.name}. "
             f"Available: {available}"
         )
 
@@ -221,9 +228,9 @@ def plot_fig4(ci_df, c_hat_modulation_FR_df, spks, out_dir: Path):
 def main():
     parser = argparse.ArgumentParser(description="Generate Fig 4 (modulation sensitivity simulation)")
     parser.add_argument("--out-dir", default=FP.OUT_DIR, help="Output directory for PDFs")
-    parser.add_argument("--data-dir", default=FP.DATA_DIR, help="Directory containing pipeline output pickles")
+    parser.add_argument("--data-dir", default=FP.DATA_DIR, help="Directory containing pipeline output .nwb files")
     parser.add_argument("--experiment", default=DEFAULT_EXPERIMENT,
-                        help=f"Experiment name to load processing pickle from (default: {DEFAULT_EXPERIMENT})")
+                        help=f"Experiment name to load spike trains from (default: {DEFAULT_EXPERIMENT})")
     parser.add_argument("--rec", default=DEFAULT_REC,
                         help=f"Recording name (rec column value) to use as spike source (default: {DEFAULT_REC!r})")
     parser.add_argument("--recompute", action="store_true",
@@ -260,5 +267,5 @@ def main():
 
 if __name__ == "__main__":
     if in_notebook:
-        %config InlineBackend.figure_format = 'retina'
+        get_ipython().run_line_magic("config", "InlineBackend.figure_format = 'retina'")
     main()

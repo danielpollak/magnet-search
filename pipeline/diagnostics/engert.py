@@ -15,25 +15,44 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.backends.backend_pdf import PdfPages
 
-from magpyneto2.statistics import draw_hist, inset_hist
+from magpyneto2.statistics import draw_hist, inset_hist, get_epsilon
 from pipeline.diagnostics.analysis import _subsample_units, _rasterize_ax
 
 
-def plot_engert_diagnostics(cfg, F, stat, fourier_df, freq_win,
-                             onfreq_pow_l, offfreq_pow_l, save_dir):
+def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
+                             onfreq_pow_l, offfreq_pow_l, save_dir,
+                             roi_df=None, included_mask=None, imaging_dims=None):
     """Write a multi-page PDF of GCaMP analysis diagnostics.
 
     Parameters
     ----------
     cfg            : ExperimentConfig
     F              : np.ndarray  (n_cells, n_frames) fluorescence traces
-    stat           : np.ndarray  suite2p stat array (filtered)
+                     -- already filtered to this analysis run's population
+                     (iscell/npix threshold + flatline removal)
     fourier_df     : pd.DataFrame  with columns [rr, freq, rec, ...]
     freq_win       : np.ndarray  off-frequencies (Hz)
     onfreq_pow_l   : np.ndarray  (n_cells,) complex on-frequency coefficients
     offfreq_pow_l  : list of np.ndarray  per-cell off-frequency complex coefficients
-    log_dict       : dict  {(rec, freq): {...}}  (same format as NPIX)
     save_dir       : Path-like
+    roi_df         : pd.DataFrame, optional -- ALL suite2p ROIs (unfiltered),
+                     from `nwb_io.read_roi_data` (columns p_iscell, npix, x,
+                     y, pixel_mask), in original suite2p row order. Pages 4/5
+                     (cell-mask FOV + P(iscell)xnpix ECDF) are skipped if not
+                     given.
+    included_mask  : np.ndarray of bool, optional, same length as `roi_df` --
+                     True for ROIs that survived BOTH the iscell_threshold/
+                     npix_threshold mask AND flatline removal (i.e. the exact
+                     population behind `F`/`fourier_df` in THIS run). Replaces
+                     the old fragile centroid-matching workaround (matching
+                     ROIs across a filtered/unfiltered pair by hashing
+                     `stat["med"]`, which breaks silently on centroid
+                     collisions) with direct index alignment -- also unifies
+                     what were two inconsistent thresholds (page 4 implicitly
+                     used the flatline-filtered set; page 5 recomputed a
+                     separate iscell/npix-only mask with `>=` instead of the
+                     analysis stage's own `>`).
+    imaging_dims   : (Ly, Lx) tuple, optional, from `nwb_io.get_imaging_dims`.
     """
     save_dir = Path(save_dir)
     out_path = save_dir / f"{cfg.name}_analysis_diagnostics.pdf"
@@ -46,8 +65,10 @@ def plot_engert_diagnostics(cfg, F, stat, fourier_df, freq_win,
         fig, ax = plt.subplots(figsize=(7, 5))
         fig.suptitle(f"{cfg.name}  |  {freq} Hz  —  c-hat distribution", fontsize=9)
         if len(rr) >= 2:
-            vals, bins = draw_hist(rr, ax, xlim=9, inset=False)
-            inset_hist(ax, vals, bins)
+            Q = fourier_df["Q"].iloc[0] if "Q" in fourier_df.columns else None
+            eps = get_epsilon(Q) if Q else None
+            vals, bins = draw_hist(rr, ax, xlim=9, inset=False, eps=eps)
+            inset_hist(ax, vals, bins, eps=eps)
             ax.set_title(f"N = {len(rr)} cells")
         else:
             ax.text(0.5, 0.5, "insufficient data", ha="center", va="center",
@@ -111,36 +132,49 @@ def plot_engert_diagnostics(cfg, F, stat, fourier_df, freq_win,
         plt.close(fig)
 
         # ── Pages 4 & 5: cell mask FOV + P(iscell) ECDF ─────────────────────
+        # Both pages now read directly from the NWB-backed roi_df +
+        # included_mask (one consistent population: iscell/npix threshold
+        # AND flatline removal, both using the analysis stage's own strict
+        # `>` -- previously page 4 used a fragile stat["med"]-centroid-hash
+        # match against a freshly re-read stat.npy, and page 5 recomputed a
+        # SEPARATE, inconsistent `>=` mask that also didn't account for
+        # flatline removal at all) -- see this function's docstring.
         try:
-            import os
-            suite2p_dir = os.path.join(cfg.session_path, "suite2p", "plane0")
-            stat_all   = np.load(os.path.join(suite2p_dir, "stat.npy"),   allow_pickle=True)
-            iscell_all = np.load(os.path.join(suite2p_dir, "iscell.npy"), allow_pickle=True)
-            ops        = np.load(os.path.join(suite2p_dir, "ops.npy"),    allow_pickle=True).item()
-            Ly, Lx     = ops["Ly"], ops["Lx"]
+            if roi_df is None or included_mask is None or imaging_dims is None:
+                raise ValueError("roi_df/included_mask/imaging_dims not provided")
+            Ly, Lx = imaging_dims
+            included_mask = np.asarray(included_mask, dtype=bool)
+            n_included = int(included_mask.sum())
+            n_excl = len(roi_df) - n_included
 
-            # stat (filtered + flatline-removed) matches rr 1:1.
-            # Match back to stat_all by centroid to identify excluded cells.
-            included_meds = {tuple(s["med"]) for s in stat}
-            rr_norm    = (rr - rr.min()) / max(rr.max() - rr.min(), 1e-10)
+            rr_norm = (rr - rr.min()) / max(rr.max() - rr.min(), 1e-10)
             cmap_cells = plt.cm.plasma
 
             img = np.zeros((Ly, Lx, 3), dtype=np.float32)
 
-            # All cells not in the final included set → dim gray
-            for s in stat_all:
-                if tuple(s["med"]) not in included_meds:
-                    img[s["ypix"], s["xpix"], :] = 0.25
+            def _pixels(mask_entries):
+                # NWB pixel_mask convention: (x, y, weight) triples.
+                arr = np.asarray(mask_entries)
+                return arr[:, 1].astype(int), arr[:, 0].astype(int)  # (ypix, xpix)
 
-            # Included cells colored by c-hat (stat order == rr order)
-            for rank, s in enumerate(stat):
+            # All excluded ROIs → dim gray
+            for pixel_mask in roi_df.loc[~included_mask, "pixel_mask"]:
+                ypix, xpix = _pixels(pixel_mask)
+                img[ypix, xpix, :] = 0.25
+
+            # Included ROIs colored by c-hat -- roi_df[included_mask]'s row
+            # order matches rr's order exactly: both the iscell/npix mask
+            # and remove_flatlines's inclusion_inds preserve relative order,
+            # and included_mask was built by composing the two the same way
+            # the analysis stage itself did.
+            for rank, pixel_mask in enumerate(roi_df.loc[included_mask, "pixel_mask"]):
+                ypix, xpix = _pixels(pixel_mask)
                 color = np.array(cmap_cells(rr_norm[rank])[:3], dtype=np.float32)
-                img[s["ypix"], s["xpix"], :] = color
+                img[ypix, xpix, :] = color
 
             fig, ax = plt.subplots(figsize=(8, 8 * Ly / Lx))
-            n_excl = len(stat_all) - len(stat)
             fig.suptitle(
-                f"{cfg.name}  |  cell masks  —  {len(stat)} included, "
+                f"{cfg.name}  |  cell masks  —  {n_included} included, "
                 f"{n_excl} excluded (gray)  |  iscell_threshold={cfg.iscell_threshold}",
                 fontsize=8)
             ax.imshow(img, aspect="equal", interpolation="none", rasterized=True)
@@ -155,10 +189,8 @@ def plot_engert_diagnostics(cfg, F, stat, fourier_df, freq_win,
             plt.close(fig)
 
             # ── Page 5: P(iscell) × npix joint histogram with ECDF marginals ──
-            p_iscell  = iscell_all[:, 1]
-            npix_vals = np.array([s["npix"] for s in stat_all])
-            included_mask = (p_iscell >= cfg.iscell_threshold) & (npix_vals >= cfg.npix_threshold)
-            n_included = included_mask.sum()
+            p_iscell  = roi_df["p_iscell"].values
+            npix_vals = roi_df["npix"].values
 
             fig = plt.figure(figsize=(8, 7))
             gs  = fig.add_gridspec(2, 2, width_ratios=[3, 1], height_ratios=[1, 3],
@@ -170,7 +202,8 @@ def plot_engert_diagnostics(cfg, F, stat, fourier_df, freq_win,
 
             fig.suptitle(
                 f"{cfg.name}  |  P(iscell) × npix  —  "
-                f"{n_included} / {len(p_iscell)} ROIs pass both thresholds",
+                f"{n_included} / {len(p_iscell)} ROIs included "
+                f"(thresholds + flatline removal)",
                 fontsize=9)
 
             # Main scatter
@@ -179,9 +212,9 @@ def plot_engert_diagnostics(cfg, F, stat, fourier_df, freq_win,
             ax_main.scatter(npix_vals[included_mask], p_iscell[included_mask],
                             s=3, alpha=0.6, color="steelblue", rasterized=True, label="included")
             ax_main.axhline(cfg.iscell_threshold, color="crimson",   lw=1.2, ls="--",
-                            label=f"iscell ≥ {cfg.iscell_threshold}")
+                            label=f"iscell > {cfg.iscell_threshold}")
             ax_main.axvline(cfg.npix_threshold,   color="darkorange", lw=1.2, ls="--",
-                            label=f"npix ≥ {cfg.npix_threshold}")
+                            label=f"npix > {cfg.npix_threshold}")
             ax_main.set_xlabel("npix")
             ax_main.set_ylabel("P(iscell)")
             ax_main.legend(fontsize=7, markerscale=2)

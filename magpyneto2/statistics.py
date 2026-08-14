@@ -129,6 +129,16 @@ def normalized_Fourier_CDF_corrected(PDF_vals, r_vals):
     return np.cumsum(PDF_vals[1:]* np.diff(r_vals))
 
 
+def corrected_pvalues(rr, Q):
+    """P-value for each c-hat in `rr`, using the null distribution corrected
+    for finite-Q reference-frequency sampling (see get_epsilon)."""
+    eps = get_epsilon(Q)
+    R, YY = normalized_Fourier_PDF()
+    PDF = normalized_Fourier_PDF_corrected(R[1:], R[1:], YY[1:], eps)
+    CDF = normalized_Fourier_CDF_corrected(PDF, R[1:])
+    return 1 - np.interp(rr, R[2:], CDF)
+
+
 def interpolate_corrected_CDF(R, CDF, points):
     """
     Evaluate CDF at a specific point (ie, c-hat value)
@@ -1236,18 +1246,40 @@ def visualize_detectability(mod_rr, nn, T):
     return fig
 
 
-def draw_hist(c_hat, ax, xlim=12.5, title=False, inset=True, invert=False):
+def draw_hist(c_hat, ax, xlim=12.5, title=False, inset=True, invert=False, eps=None):
+    """
+    eps: (float, optional) If given, also overlay the eps-corrected null
+        distribution (see get_epsilon/normalized_Fourier_PDF_corrected)
+        alongside the uncorrected one, for comparison.
+    """
     # Histogram
     XX, YY = normalized_Fourier_PDF()
+    YY_corrected = normalized_Fourier_PDF_corrected(XX, XX, YY, eps) if eps else None
     vals, bins = np.histogram(c_hat, bins=np.arange(0, 12, 0.2), density=True)
     if not invert:
         ax.bar(bins[:-1], vals, width=np.diff(bins)[0], align="edge")
-        ax.plot(XX, YY, label="theoretical", color="k", linewidth=1)
-        ax.axvline(inverse_Rayleigh_CDF(0.99), color="r")
+        ax.plot(XX, YY, label="uncorrected null", color="k", linewidth=1)
+        ax.axvline(inverse_Rayleigh_CDF(0.99), color="r", label="uncorrected 99%")
+        if YY_corrected is not None:
+            ax.plot(XX, YY_corrected, label="corrected null", color="tab:orange",
+                    linewidth=1, linestyle="--")
+            corrected_99 = np.atleast_1d(inverse_Rayleigh_CDF(0.99, eps=eps))
+            if len(corrected_99):
+                ax.axvline(corrected_99[0], color="tab:orange", linestyle="--",
+                           label="corrected 99%")
+            ax.legend(fontsize=6)
     else:
         ax.barh(bins[:-1], vals, height=np.diff(bins)[0], align="edge")
-        ax.plot(YY, XX,  label="theoretical", color="k", linewidth=1)
-        ax.axhline(inverse_Rayleigh_CDF(0.99), color="r")
+        ax.plot(YY, XX,  label="uncorrected null", color="k", linewidth=1)
+        ax.axhline(inverse_Rayleigh_CDF(0.99), color="r", label="uncorrected 99%")
+        if YY_corrected is not None:
+            ax.plot(YY_corrected, XX, label="corrected null", color="tab:orange",
+                    linewidth=1, linestyle="--")
+            corrected_99 = np.atleast_1d(inverse_Rayleigh_CDF(0.99, eps=eps))
+            if len(corrected_99):
+                ax.axhline(corrected_99[0], color="tab:orange", linestyle="--",
+                           label="corrected 99%")
+            ax.legend(fontsize=6)
 
     # Tidy x and y labels
     ax.set_xlabel("$\hat{c}$")
@@ -1269,15 +1301,23 @@ def draw_hist(c_hat, ax, xlim=12.5, title=False, inset=True, invert=False):
     return vals, bins
 
 
-def inset_hist(ax, vals, bins):
+def inset_hist(ax, vals, bins, eps=None):
     x1, x2, y1, y2 = 2.5, 10, 0, .01
     axins = ax.inset_axes([0.5, 0.5, 0.47, 0.47], xlim=(x1, x2), ylim=(y1, y2))
     ax.indicate_inset_zoom(axins, edgecolor="black")
-    
+
     axins.bar(bins[:-1], vals, width=np.diff(bins)[0], align="edge")
     XX, YY = normalized_Fourier_PDF()
-    axins.plot(XX, YY, label="theoretical", color="k", linewidth=1)
+    axins.plot(XX, YY, label="uncorrected null", color="k", linewidth=1)
     axins.vlines(inverse_Rayleigh_CDF(0.99), *axins.get_ylim(), 'r')
+    if eps:
+        YY_corrected = normalized_Fourier_PDF_corrected(XX, XX, YY, eps)
+        axins.plot(XX, YY_corrected, label="corrected null", color="tab:orange",
+                   linewidth=1, linestyle="--")
+        corrected_99 = np.atleast_1d(inverse_Rayleigh_CDF(0.99, eps=eps))
+        if len(corrected_99):
+            axins.vlines(corrected_99[0], *axins.get_ylim(), color="tab:orange",
+                        linestyle="--")
     axins.set_xlim((x1, x2))
     axins.set_ylim((y1, y2))
     axins.set_xticks([x1, x2])
@@ -1336,9 +1376,9 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
                     # conf_ax.arrow(counter - 0.5, ylim[1] - 3, 0, 2, length_includes_head=True, head_width=.1)
                     conf_ax.annotate("", xytext=(counter - 0.5, ylim[1] - 3), xy=(counter - 0.5, ylim[1] - 1), arrowprops=dict(arrowstyle="-|>", color="k", edgecolor=None))
                     
-                    jit = 5 if jitter else 5.5
+                    jit = 7 if jitter else 7.5
                     jitter = not jitter
-                    conf_ax.text(counter - 0.5, ylim[1] - jit, n_empirical, ha="center", rotation=90, fontsize=4)
+                    conf_ax.text(counter - 0.5, ylim[1] - jit, n_empirical, ha="center", rotation=90, fontsize=8)
                 
                 if label_recs:
                     conf_ax.text(counter, 10, rec.split('\\')[-1].split('/')[-1], ha="center", rotation=90)

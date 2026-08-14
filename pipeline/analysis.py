@@ -24,15 +24,18 @@ def _analyze_one(args):
 
     cfg = load_experiment(yaml_path)
 
-    NO_PROCESSING_PARADIGMS = {"engert", "medaka", "manual"}
-    if cfg.paradigm not in NO_PROCESSING_PARADIGMS and not os.path.exists(cfg.processing_path()):
-        print(f"[analysis] {cfg.name}: processing output not found, skipping", flush=True)
+    # `manual` paradigms have no processing stage at all (dispatch.py skips
+    # them with its own message); every other paradigm now writes
+    # cfg.nwb_path() during processing -- engert/medaka included, since
+    # Phase 4 gave them a real processing stage.
+    if cfg.paradigm != "manual" and not os.path.exists(cfg.nwb_path()):
+        print(f"[analysis] {cfg.name}: processing output ({cfg.nwb_path()}) not found, skipping", flush=True)
         return
 
     def _run():
         print(f"[analysis] {cfg.name} ({cfg.paradigm})")
         run_analysis(cfg)
-        print(f"[analysis] {cfg.name} done -> {cfg.analysis_path()}")
+        print(f"[analysis] {cfg.name} done -> {cfg.nwb_path()}")
 
     run_with_logging(_run, cfg.name, Path(log_path), quiet=quiet)
 

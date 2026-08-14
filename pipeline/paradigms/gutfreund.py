@@ -7,7 +7,6 @@ The TTL schmitt trigger defines the magnet-on window; only spikes within
 that window are included.
 """
 import os
-import pickle
 import matplotlib
 matplotlib.use("Agg")  # non-interactive backend for server use
 
@@ -16,6 +15,7 @@ import pandas as pd
 
 from magpyneto2 import schmitt
 from magpyneto2.gutfreund_helpers import Gutfreund_generator
+from pipeline import nwb_io
 
 
 def run_processing(cfg):
@@ -25,12 +25,15 @@ def run_processing(cfg):
     get_phase = lambda times, period: (times % period) / period * np.pi * 2
 
     modulation_df_l = []
+    nwb_epochs = []  # one entry per (data_path, freq) -- see NWB dual-write below
+    nwbfile = nwb_io.create_nwbfile(cfg)
 
     for (data_path, freq, gutfreund_files, gutfreund_data,
          relevant_measures, conversion_rates) in Gutfreund_generator(locations_freqs, label):
 
         (TTL_trace, AP_last_trace, AP_sr, all_sts_d, all_sts,
-         unit_df, NIDAQ_recording, cap, ttl_df_unfilt, timestamp_df) = gutfreund_data
+         unit_df, NIDAQ_recording, cap, ttl_df_unfilt, timestamp_df,
+         all_sts_d_full, unit_df_full) = gutfreund_data
 
         (result, bins, fps, NIDAQ_to_AP, AP_to_NIDAQ, AP_sr, NIDAQ_sr) = conversion_rates
 
@@ -40,6 +43,7 @@ def run_processing(cfg):
         off = offs[-1] * NIDAQ_to_AP   # AP samples
 
         period_s = 1 / freq  # seconds per stimulation cycle
+        rec_name = os.path.basename(data_path)
 
         for unit_id, st in all_sts_d.items():
             if len(st) <= 50:
@@ -57,15 +61,65 @@ def run_processing(cfg):
                 "spk_samples": st_samples,
                 "freq":        freq,
                 "id":          unit_id,
-                "rec":         os.path.basename(data_path),
+                "rec":         rec_name,
                 "label":       label,
-                "recname":     os.path.basename(data_path),
+                "recname":     rec_name,
             }))
+
+        # --- NWB dual-write prep (see .claude/plans — NWB replatform, Phase 3) ---
+        # Each (data_path, freq) has its OWN independent Kilosort sorting
+        # (unlike openephys's single concatenated catalog), so Units are
+        # written per-recording with rec-scoping (see nwb_io.write_units_and
+        # _spikes's `rec` param). `period`/`phase` here are computed
+        # arithmetically on continuous float seconds (`t // period_s`, `t`
+        # measured from absolute zero, not from `on`) rather than from real
+        # Schmitt-trigger sample crossings, so `phase_method="arithmetic"`
+        # tells build_modulation_frame to reproduce that formula directly
+        # instead of routing it through the (sample-quantized)
+        # period_crossings machinery every other paradigm uses -- see
+        # write_epochs_table's phase_method docstring.
+        nwb_io.write_units_and_spikes(
+            nwbfile, all_sts_d_full, unit_df_full, sampling_rate=AP_sr, rec=rec_name,
+            # gutfreund's own good-filter (get_all_spiketrains) matches on
+            # unit_df.group, not KSLabel -- see write_units_and_spikes's
+            # label_column docstring. These sessions went through phy
+            # curation, so group can genuinely differ from KSLabel per
+            # cluster; using the wrong column silently changes which units
+            # count as "good" downstream.
+            label_column="group")
+
+        nwb_epochs.append({
+            "rec": rec_name,
+            "stim_type": "magnetic",
+            "frequency": float(freq),
+            "start_time": float(on) / AP_sr,
+            "stop_time": float(off) / AP_sr,
+            "period_crossings": np.array([int(round(on)), int(round(off))], dtype=np.int64),
+            "phase_method": "arithmetic",
+            # min_spikes (>50) is checked against the unit's FULL-SESSION
+            # spike count above (`if len(st) <= 50: continue`, on
+            # all_sts_d[unit_id] before windowing), not the windowed count
+            # -- the windowed count only needs to be non-empty (`if
+            # len(st_samples) == 0: continue`). See build_modulation_frame's
+            # min_spikes_on_full_session docstring.
+            "min_spikes_on_full_session": True,
+            "_sampling_rate": AP_sr,
+        })
 
     modulation_df = pd.concat(modulation_df_l).dropna()
 
-    with open(cfg.processing_path(), "wb") as f:
-        pickle.dump(modulation_df, f, protocol=pickle.HIGHEST_PROTOCOL)
+    # Every gutfreund recording in practice shares the same AP_sr, but each
+    # epoch computed its own above rather than assuming it -- guard against
+    # silently mixing sample domains if that ever isn't true.
+    sampling_rates = {ep.pop("_sampling_rate") for ep in nwb_epochs}
+    if len(sampling_rates) > 1:
+        raise ValueError(
+            f"gutfreund recordings in {cfg.name} have different AP sampling "
+            f"rates ({sampling_rates}) -- write_epochs_table needs one "
+            f"consistent sampling_rate for the whole file.")
+    if sampling_rates:
+        nwb_io.write_epochs_table(nwbfile, nwb_epochs, sampling_rate=sampling_rates.pop())
+        nwb_io.write_nwbfile(nwbfile, cfg.nwb_path())
 
     from pathlib import Path
     from pipeline.diagnostics.processing import plot_recording_timeline

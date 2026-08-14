@@ -291,15 +291,19 @@ def get_Gutfreund_files(data_path: str):
 
 
 def get_all_spiketrains(reader, sorting_path, label="good"):
-    """"""
+    """`label=None` returns every cluster, unfiltered (no experiment YAML
+    currently sets `good: False` for a gutfreund session, so this path was
+    previously dead code and effectively untested; NWB dual-write is the
+    first real caller -- see pipeline/paradigms/gutfreund.py)."""
     unit_df = get_cluster_info(sorting_path)
 
     if "cluster_id" in unit_df.columns:
         unit_df["id"] = unit_df["cluster_id"]
         del unit_df["cluster_id"]
-        
-    unit_df = unit_df.loc[unit_df.group==label, :]
-    label_units = unit_df.loc[unit_df.group==label, "id"].values.tolist()
+
+    if label is not None:
+        unit_df = unit_df.loc[unit_df.group==label, :]
+    label_units = unit_df["id"].values.tolist()
     all_sts_d = {
         cluster_id:sts for cluster_id, sts in reader.spikesbycluster().items() if cluster_id in label_units
     }
@@ -357,7 +361,12 @@ def unpack_Gutfreund_data(data_path: str, label="good",):
     # sorting = se.KiloSortSortingExtractor(sorting_path)
     reader = ksr.Reader(sorting_path)
     all_sts_d, all_sts, unit_df = get_all_spiketrains(reader, sorting_path, label=label)
-    
+
+    # Unfiltered variant (every cluster, not just `label`) for the NWB Units
+    # table -- see pipeline/paradigms/gutfreund.py's dual-write. Cheap: reuses
+    # the same reader/cluster_info.tsv read, just without the group filter.
+    all_sts_d_full, _, unit_df_full = get_all_spiketrains(reader, sorting_path, label=None)
+
 
     
     # Spikeglx binary
@@ -368,7 +377,8 @@ def unpack_Gutfreund_data(data_path: str, label="good",):
     cap = cv2.VideoCapture(avi_path)
     ttl_df_unfilt = pd.read_csv(ttl_path)
     timestamp_df = pd.read_csv(timestamp_path)
-    return TTL_trace, AP_last_trace, AP_sr, all_sts_d, all_sts, unit_df, NIDAQ_recording, cap, ttl_df_unfilt, timestamp_df
+    return (TTL_trace, AP_last_trace, AP_sr, all_sts_d, all_sts, unit_df, NIDAQ_recording,
+            cap, ttl_df_unfilt, timestamp_df, all_sts_d_full, unit_df_full)
 
 
 
@@ -578,8 +588,9 @@ def Gutfreund_generator(locations_freqs, label):
     for data_path, freq, gutfreund_files, gutfreund_data, relevant_measures, conversion_rates in Gutfreund_generator(locations_freqs):
         (AP_recording_path, NIDAQ_path, avi_path, timestamp_path, ttl_path) = gutfreund_files
 
-        (TTL_trace, AP_last_trace, AP_sr, all_sts_d, all_sts, unit_df, 
-        NIDAQ_recording, cap, ttl_df_unfilt, timestamp_df) = gutfreund_data
+        (TTL_trace, AP_last_trace, AP_sr, all_sts_d, all_sts, unit_df,
+        NIDAQ_recording, cap, ttl_df_unfilt, timestamp_df,
+        all_sts_d_full, unit_df_full) = gutfreund_data
 
         (
             mag_vector, head_vector, body_vector, ego_theta, mag_theta, 
@@ -597,7 +608,8 @@ def Gutfreund_generator(locations_freqs, label):
 
         AP_sr, NIDAQ_sr = get_sampling_rates(data_path)
         NIDAQ_to_AP, AP_to_NIDAQ,  = convert_AP_NIDAQ(AP_sr, NIDAQ_sr) 
-        (TTL_trace, AP_last_trace, AP_sr, all_sts_d, all_sts, unit_df, NIDAQ_recording, cap, ttl_df_unfilt, timestamp_df)= gutfreund_data
+        (TTL_trace, AP_last_trace, AP_sr, all_sts_d, all_sts, unit_df, NIDAQ_recording, cap, ttl_df_unfilt, timestamp_df,
+         all_sts_d_full, unit_df_full) = gutfreund_data
 
         pulse_samples, ttl_df = get_pulses_and_TTLs(AP_last_trace, ttl_df_unfilt)
         

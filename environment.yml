@@ -1,0 +1,54 @@
+# Conda environment for magnet_search (the "magneto2" env referenced throughout
+# .claude/CLAUDE.md and the pipeline scripts).
+#
+# Generated via `conda env export -n magneto2` on 2026-08-10, as part of the NWB
+# replatform (see .claude/plans — "Replace pickle-based processing/analysis
+# outputs with per-experiment NWB files"). This is the first committed
+# environment file for magnet_search itself; the only prior exports
+# (MagnetSearch/magneto.yml, MagnetSearch/relaxed_magneto2.yml) live in the
+# sibling frozen archive repo and are stale (predate this file, tagged to old
+# Python 3.7 builds) — do not use them as a source of truth.
+#
+# IMPORTANT — two editable/local packages are NOT captured by `conda env
+# export` and must be installed separately after creating this env:
+#   pip install -e C:\Users\dan\Documents\magnet_search      # magpyneto2 (this repo)
+#   pip install -e C:\Users\dan\git\peakx                    # peakx
+#
+# To recreate:
+#   conda env create -n magneto2 -f environment.yml
+#   conda run -n magneto2 pip install -e .
+#   conda run -n magneto2 pip install -e C:\Users\dan\git\peakx
+name: magneto2
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.11.13
+  - matplotlib-base=3.10.6
+  - numpy
+  - pandas=2.3.2
+  - scipy=1.16.1
+  - scikit-learn=1.7.1
+  - seaborn=0.13.2
+  - python-dateutil=2.9.0post0
+  - pip
+  - ipython
+  - ipywidgets
+  - ipykernel
+  - pip:
+      - opencv-python==4.12.0.88
+      - tifffile==2025.9.20
+      - tqdm==4.67.1
+      - pyyaml==6.0.2
+      - spikeinterface==0.90.0
+      - neo==0.14.3
+      - probeinterface==0.3.0
+      # lab-internal packages (Wagenaar lab / Pollak), not on public PyPI index
+      - ephysio==1.0.11
+      - ecdfbounds @ git+https://github.com/danielpollak/ecdfbounds.git
+      # NWB replatform (see pipeline/nwb_io.py)
+      - pynwb==3.1.2
+      - hdmf==4.1.0
+      - h5py==3.14.0
+      # notebook/dev tooling used by pipeline/manuscript notebooks
+      - jupytext==1.19.3

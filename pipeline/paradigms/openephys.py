@@ -3,10 +3,10 @@ Paradigm: openephys
 
 Pure-magnetic OpenEphys recordings.
 Loads spike times from Kilosort via Reader, builds contingency_d from
-metadata CSV, calls process_raw_data_NPIX, saves modulation_df and MM_d diagnostics.
+metadata CSV, calls process_raw_data_NPIX, writes Units/epochs to
+`{name}.nwb` (see pipeline/nwb_io.py), and saves MM_d diagnostics.
 """
 import os
-import pickle
 import matplotlib
 matplotlib.use("Agg")
 
@@ -19,8 +19,12 @@ from ephysio import openEphysIO
 from ephysio.kilosortIO import Reader
 from magpyneto2 import (
     get_cluster_info, process_raw_data_NPIX, update_MM_d_mag,
-    save_MM_d_pickle, save_diagnostics_MM,
+    save_diagnostics_MM,
 )
+from magpyneto2.utils import get_MM_offset
+from pipeline import nwb_io
+
+AP_SR = 30_000
 
 
 def run_processing(cfg):
@@ -36,6 +40,13 @@ def run_processing(cfg):
     udf = get_cluster_info(data_path)
     if cfg.good:
         udf = udf.loc[udf.KSLabel == "good", :]
+
+    # Unfiltered variants for the NWB Units table: store every cluster with
+    # a kilosort_label column so `cfg.good` filtering happens at analysis
+    # time instead of being baked in permanently — `all_sts`/`udf` above
+    # (used for the in-memory MM_d diagnostics only) are left untouched.
+    all_sts_full = ksr.spikesbycluster(label=None)
+    udf_full = get_cluster_info(data_path)
 
     # per-row stream_ids: cfg.streams overrides cfg.stream_id when provided
     row_streams = cfg.streams if cfg.streams else [cfg.stream_id] * len(cat_df)
@@ -102,16 +113,66 @@ def run_processing(cfg):
 
     MM_d = {"spikes": all_sts, "aux": {}}
     MM_d = update_MM_d_mag(MM_d, data, cat_df)
-
-    with open(cfg.processing_path(), "wb") as f:
-        pickle.dump(modulation_df, f, protocol=pickle.HIGHEST_PROTOCOL)
-
-    mm_path = os.path.join(cfg.data_dir, f"MM_{cfg.name}.pickle")
-    save_MM_d_pickle(MM_d, mm_path)
     save_diagnostics_MM(MM_d, cfg.name)
+
+    # --- NWB write (see .claude/plans — NWB replatform; Phase 7 cutover: the
+    # legacy modulation_df/MM_d pickles this paradigm used to also write are
+    # retired now that verify_outputs.py confirms NWB parity -- see
+    # cfg.processing_path()'s docstring for the frozen-fixture history this
+    # replaces). MM_d/modulation_df above stay purely in-memory: they're
+    # still needed as inputs to build the epochs/Units below and for
+    # save_diagnostics_MM's plot.
+    nwbfile = nwb_io.create_nwbfile(cfg)
+    # label_column="KSLabel": matches this paradigm's own good-filter
+    # (`udf.KSLabel == "good"` above) -- see write_units_and_spikes's
+    # label_column docstring for why this must be stated explicitly rather
+    # than auto-detected.
+    nwb_io.write_units_and_spikes(
+        nwbfile, all_sts_full, udf_full, sampling_rate=AP_SR, label_column="KSLabel")
+
+    epochs = []
+    for freq in data.keys():
+        for folder in data[freq].keys():
+            recname = os.path.basename(folder)
+            offset = get_MM_offset(cat_df, recname)
+            _, period_crossings = data[freq][folder]
+            full_crossings = (np.asarray(period_crossings) + offset).astype(np.int64)
+            trial_skips = next((t.skips for t in cfg.trials if t.recname == recname), 0)
+            epochs.append({
+                "rec": recname,
+                "stim_type": "magnetic",
+                "frequency": float(freq),
+                "start_time": float(full_crossings[0]) / AP_SR,
+                "stop_time": float(full_crossings[-1]) / AP_SR,
+                "period_crossings": full_crossings,
+                "skips": trial_skips,
+                # Units.spike_times (all_sts_full) are in the aggregated
+                # multi-recording catalog domain, same as full_crossings
+                # above (both offset by `offset`) -- but legacy
+                # modulation_df.spk is recording-local (all_sts - offset).
+                # Persist `offset` so build_modulation_frame can undo it.
+                "local_offset_samples": int(offset),
+            })
+    nwb_io.write_epochs_table(nwbfile, epochs, sampling_rate=AP_SR)
+    nwb_io.write_nwbfile(nwbfile, cfg.nwb_path())
 
     from pathlib import Path
     from pipeline.diagnostics.processing import plot_recording_timeline
     diag_dir = Path(cfg.data_dir).parent / "figs" / "processing"
     diag_dir.mkdir(parents=True, exist_ok=True)
-    plot_recording_timeline(cfg, MM_d, modulation_df, diag_dir)
+
+    # Read diagnostics input back from the just-written NWB file rather than
+    # the in-memory MM_d/modulation_df above — proves read-back fidelity
+    # ("traceability without recomputation"). Falls back to the in-memory
+    # objects if anything about the NWB round-trip goes wrong, so a
+    # diagnostics-plotting bug can never block the processing stage itself.
+    try:
+        io_r, nwbfile_r = nwb_io.read_nwbfile(cfg.nwb_path())
+        MM_d_nwb = nwb_io.read_mm_d_equivalent(nwbfile_r)
+        modulation_df_nwb = nwb_io.build_modulation_frame(nwbfile_r, good_only=cfg.good)
+        plot_recording_timeline(cfg, MM_d_nwb, modulation_df_nwb, diag_dir)
+        io_r.close()
+    except Exception as exc:
+        print(f"  WARNING: NWB-sourced diagnostics failed ({exc}); "
+              f"falling back to in-memory MM_d/modulation_df")
+        plot_recording_timeline(cfg, MM_d, modulation_df, diag_dir)

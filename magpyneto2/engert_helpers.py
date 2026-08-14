@@ -421,16 +421,25 @@ def GCaMP_power_spectrum_diagnostic(
     return fig, axes
 
 
-def remove_flatlines(F,spks, stat, rtol=0.01, f=0.2):
+def remove_flatlines(F, spks=None, stat=None, rtol=0.01, f=0.2):
     """In the noisier recordings, some traces are just
-    delta functions, which result in sqrt(2) values which 
+    delta functions, which result in sqrt(2) values which
     must be cleaned from the raw data. This strategy identies
     these traces by running a fourier transform at a separate frequency,
-    and removes traces with a c_hat value of sqrt(2)."""
-    
+    and removes traces with a c_hat value of sqrt(2).
+
+    `spks`/`stat` are optional (NWB-backed callers don't load `spks.npy` at
+    all -- it's never used analytically downstream -- and may not have
+    `stat` in the original suite2p object-array form). Also returns
+    `inclusion_inds`, the original row positions that survived, so callers
+    can map back to their own full-ROI-set index (e.g. a PlaneSegmentation
+    row) without the fragile centroid-matching this used to require."""
+
     """Note: if there are nans, that means that the trace is all zeros"""
     chat_l, onfreq_pow_l, offfreq_pow_l, xf = fit_Fourier(F, T=1, f=f, Q=100)
     inclusion_inds = np.where(
         np.logical_not(np.isclose(chat_l, np.sqrt(2), rtol=rtol))
         & np.logical_not(np.isnan(chat_l)))[0]
-    return F[inclusion_inds,:], spks[inclusion_inds], stat[inclusion_inds]
+    spks_out = spks[inclusion_inds] if spks is not None else None
+    stat_out = stat[inclusion_inds] if stat is not None else None
+    return F[inclusion_inds, :], spks_out, stat_out, inclusion_inds

@@ -23,6 +23,7 @@ from magpyneto2.statistics import (
     plot_magnitude_pdf,
     plot_power_by_freq,
     Moments_vs_FR,
+    get_epsilon,
 )
 
 
@@ -63,7 +64,8 @@ def plot_analysis_diagnostics(cfg, modulation_df, fourier_df, log_dict, save_dir
 
             # ── c-hat histogram ──────────────────────────────────────────────
             rr = fdf_group["rr"].values
-            _fill_chat_hist(ax_hist, rr)
+            Q = fdf_group["Q"].iloc[0] if "Q" in fdf_group.columns and len(fdf_group) else None
+            _fill_chat_hist(ax_hist, rr, Q=Q)
             ax_hist.set_title(f"c-hat distribution  (N={len(rr)})")
 
             # ── Coefficient CDF and magnitude PDF ────────────────────────────
@@ -181,13 +183,14 @@ def _fill_power_spectra(ax, spks, freq, f_lo=0.3, f_hi=20, df=0.3):
     ax.set_ylabel("Power (a.u.)")
 
 
-def _fill_chat_hist(ax, rr):
+def _fill_chat_hist(ax, rr, Q=None):
     if len(rr) < 2:
         ax.text(0.5, 0.5, "insufficient data", ha="center", va="center",
                 transform=ax.transAxes, fontsize=8)
         return
-    vals, bins = draw_hist(rr, ax, xlim=9, inset=False)
-    inset_hist(ax, vals, bins)
+    eps = get_epsilon(Q) if Q else None
+    vals, bins = draw_hist(rr, ax, xlim=9, inset=False, eps=eps)
+    inset_hist(ax, vals, bins, eps=eps)
 
 
 def _subsample_units(n_units, max_units=20, seed=0):

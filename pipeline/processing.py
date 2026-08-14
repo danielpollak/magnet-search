@@ -27,7 +27,7 @@ def _process_one(args):
     def _run():
         print(f"[processing] {cfg.name} ({cfg.paradigm})")
         run_processing(cfg)
-        print(f"[processing] {cfg.name} done -> {cfg.processing_path()}")
+        print(f"[processing] {cfg.name} done -> {cfg.nwb_path()}")
 
     run_with_logging(_run, cfg.name, Path(log_path), quiet=quiet)
 

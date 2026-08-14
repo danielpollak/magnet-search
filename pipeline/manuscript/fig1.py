@@ -8,8 +8,7 @@ Requires NAS access to:
   \\datanas\family\data_aggregated\Engert\2022_02_21\...
 
 Requires pipeline outputs:
-  data/20230413_firstsite_processing.pickle
-  data/20230413_firstsite_analysis.pickle
+  data/20230413_firstsite.nwb
 
 Usage:
     python pipeline/manuscript/fig1.py
@@ -17,7 +16,6 @@ Usage:
 """
 #%%
 import argparse
-import pickle
 from pathlib import Path
 
 # Detect if running in Jupyter notebook (must do this before matplotlib.use)
@@ -36,37 +34,60 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+import tifffile
+
 from ecdfbounds import bootstrap_ecdf_band
 from ephysio import openEphysIO
-from magpyneto2 import statistics, engert_helpers
+from magpyneto2 import statistics
 from magpyneto2.statistics import normalized_Fourier_CDF
 from magpyneto2.utils import get_cluster_info
+from pipeline import nwb_io
+from pipeline.schema import load_experiment
 
 import format_parameters as FP
 #%%
 # ── NAS paths ────────────────────────────────────────────────────────────────
 DATA_PATH = r"\\datanas\family\data_aggregated\20230413_firstsite"
 
-ENGERT_MAG_SUITE2P = r"\\datanas\family\data_aggregated\Engert\2022_02_21\2022-02-21_17-54-26_magnet\rawdata\suite2p\plane0"
-ENGERT_MAG_TIFF    = r"\\datanas\family\data_aggregated\Engert\2022_02_21\2022-02-21_17-54-26_magnet\rawdata\z_plane0000_trial000_imaging_roi00_green_channel.tif"
-ENGERT_VIS_SUITE2P = r"\\datanas\family\data_aggregated\Engert\2022_02_21\2022-02-21_17-33-14_visual\rawdata\suite2p\plane0"
-ENGERT_VIS_TIFF    = r"\\datanas\family\data_aggregated\Engert\2022_02_21\2022-02-21_17-33-14_visual\rawdata\z_plane0000_trial000_imaging_roi00_green_channel.tif"
+# GCaMP exemplar cells are read from the pipeline's own NWB files (engert
+# paradigm), not a separate hand-rolled suite2p path -- see .claude/plans
+# (NWB replatform, Phase 5). The pipeline's own suite2p run is PER-SESSION
+# (all recordings sharing session_path segmented together), whereas an
+# earlier version of this figure read from a separate PER-RECORDING suite2p
+# run at "...\2022-02-21_17-54-26_magnet\rawdata\suite2p\plane0" -- a
+# different segmentation with different ROI ordering. The raw anatomy tiff
+# still has to be read directly (NWB deliberately never stores raw imaging).
+ENGERT_MAG_EXPERIMENT = "engert_20220221_magnet"
+ENGERT_VIS_EXPERIMENT = "engert_20220221_visual"
 
 # ── Exemplar unit / cell indices ──────────────────────────────────────────────
 MAG_CONTINGENCY = "2023-04-13_15-15-40_W25R_Mag5"
 VIS_CONTINGENCY = "2023-04-13_15-49-48_W25R_visual_3Hz"
 MAG_CLUSTER_ID  = 186
 VIS_CLUSTER_ID  = 2296
-MAG_CELL_IND    = 36
-VIS_CELL_IND    = 45
+# Indices into ENGERT_{MAG,VIS}_EXPERIMENT's NWB PlaneSegmentation (all ROIs,
+# suite2p's own order) -- re-identified by centroid position + pixel-mask
+# overlap against the cells originally shown from the old per-recording
+# suite2p run (mag: centroid dist 2.2px, 76.8% IoU; vis: centroid dist
+# 4.5px, 46.4% IoU -- both clear best matches vs. every other ROI in frame,
+# though the visual one is a softer match; re-verify visually if the
+# resulting figure panel looks off).
+MAG_CELL_IND    = 38
+VIS_CELL_IND    = 105
 
 #%%
 
 def load_data(data_dir: str):
-    data_dir = Path(data_dir)
-    with open(data_dir / "20230413_firstsite_processing.pickle", "rb") as f:
-        modulation_df = pickle.load(f)
-    fourier_df = pd.read_pickle(data_dir / "20230413_firstsite_analysis.pickle")
+    # NPIX modulation_df/fourier_df come from the pipeline's own NWB file
+    # now (Phase 7 cutover -- no paradigm writes the legacy
+    # {name}_processing.pickle/{name}_analysis.pickle anymore), same
+    # reproducible-from-NWB principle already applied to the GCaMP loading
+    # above.
+    cfg = load_experiment(Path(__file__).parent.parent.parent / "experiments" / "20230413_firstsite.yml")
+    io_r, nwbfile = nwb_io.read_nwbfile(str(Path(data_dir) / "20230413_firstsite.nwb"))
+    modulation_df = nwb_io.build_modulation_frame(nwbfile, good_only=cfg.good)
+    fourier_df = nwb_io.read_fourier_results_as_full_fourier_df(nwbfile)
+    io_r.close()
     udf = get_cluster_info(DATA_PATH)
     udf = udf.loc[udf.KSLabel == "good", :]
     return modulation_df, fourier_df, udf
@@ -82,17 +103,28 @@ def plot_fig1_composite(modulation_df, fourier_df, udf, out_dir: Path):
     vis_allspks, vis_spks, vis_exemplar_fourier, vis_contingency_path = \
         statistics.Fig1_NPIX_data(modulation_df, VIS_CONTINGENCY, vis_unitrow, 3)
 
-    # Load GCaMP data with cell filtering
-    mag_tiff, mag_F, mag_stat = engert_helpers.load_GEVI(ENGERT_MAG_SUITE2P, ENGERT_MAG_TIFF, length=20)
-    vis_tiff, vis_F, vis_stat = engert_helpers.load_GEVI(ENGERT_VIS_SUITE2P, ENGERT_VIS_TIFF, length=20)
+    # Load GCaMP data from the pipeline's own NWB files (all ROIs, unfiltered
+    # -- iscell_threshold/npix_threshold applied below via cfg, matching how
+    # the pipeline itself filters, rather than fig1's own bespoke 0.6/30).
+    experiments_dir = Path(__file__).resolve().parents[2] / "experiments"
+    cfg_mag = load_experiment(experiments_dir / f"{ENGERT_MAG_EXPERIMENT}.yml")
+    cfg_vis = load_experiment(experiments_dir / f"{ENGERT_VIS_EXPERIMENT}.yml")
 
-    # Load iscell probabilities for filtering
-    iscell_threshold = 0.6
-    npix_threshold = 30
-    mag_iscell = np.load(ENGERT_MAG_SUITE2P.replace("plane0", "plane0") + "/iscell.npy")
+    io_mag, nwbfile_mag = nwb_io.read_nwbfile(cfg_mag.nwb_path())
+    mag_F, mag_roi_df = nwb_io.read_roi_data(nwbfile_mag)
+    io_mag.close()
+    io_vis, nwbfile_vis = nwb_io.read_nwbfile(cfg_vis.nwb_path())
+    vis_F, vis_roi_df = nwb_io.read_roi_data(nwbfile_vis)
+    io_vis.close()
 
-    mag_GECI_spectra = engert_helpers.fit_Fourier(mag_F, 1, f=0.4, Q=50)
-    vis_GECI_spectra = engert_helpers.fit_Fourier(vis_F, 1, f=1/60, Q=6)
+    # Raw anatomy tiff: NWB deliberately never stores raw imaging (see
+    # .claude/plans, "NWB holds derived data only") -- read the first 20
+    # frames directly, same as the old engert_helpers.load_GEVI(length=20).
+    mag_tiff_path = Path(cfg_mag.session_path) / cfg_mag.tiff_name
+    mag_tiff = np.empty((20, 700, 700))
+    with tifffile.TiffFile(mag_tiff_path) as tf:
+        for frame_ind in range(20):
+            mag_tiff[frame_ind] = tf.pages[frame_ind].asarray()
 
     font = {"family": FP.FONT_FAMILY, "size": FP.FS_BODY}
     matplotlib.rc("font", **font)
@@ -137,13 +169,18 @@ def plot_fig1_composite(modulation_df, fourier_df, udf, out_dir: Path):
 
     # Plot all qualifying cell masks
     h, w = anatomy_img.shape
-    for i, cell in enumerate(mag_stat):
-        # Only plot if cell passes filtering thresholds
-        if mag_iscell[i, 0] < iscell_threshold or len(cell['xpix']) < npix_threshold:
+    for i, pixel_mask in enumerate(mag_roi_df["pixel_mask"]):
+        # Only plot if cell passes the pipeline's own filtering thresholds
+        # (cfg_mag.iscell_threshold/npix_threshold, not a bespoke value) --
+        # p_iscell is suite2p's classifier probability, matching how
+        # analysis_stages/engert.py itself filters.
+        row = mag_roi_df.iloc[i]
+        if row["p_iscell"] <= cfg_mag.iscell_threshold or row["npix"] <= cfg_mag.npix_threshold:
             continue
 
-        cell_y = cell['ypix']
-        cell_x = cell['xpix']
+        # pixel_mask entries are (x, y, weight) triples (NWB convention).
+        cell_x = np.array([p[0] for p in pixel_mask], dtype=int)
+        cell_y = np.array([p[1] for p in pixel_mask], dtype=int)
 
         # Create binary mask for this cell
         mask = np.zeros((h, w), dtype=bool)
@@ -280,5 +317,10 @@ def main():
 
 if __name__ == "__main__":
     if in_notebook:
-        %config InlineBackend.figure_format = 'retina'
+        # Programmatic equivalent of the `%config` IPython magic -- same
+        # effect (retina figure format for inline display), but doesn't
+        # require IPython's magic-command preprocessing, so this file stays
+        # runnable via plain `python fig1.py` too, not just `%run` inside a
+        # live IPython/Jupyter session.
+        get_ipython().run_line_magic("config", "InlineBackend.figure_format = 'retina'")
     main()

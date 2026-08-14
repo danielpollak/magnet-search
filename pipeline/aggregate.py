@@ -1,4 +1,7 @@
-"""Aggregate all *_analysis.pickle files into data/manuscript/all_fourier_df.parquet.
+"""Aggregate every experiment's {name}.nwb into data/manuscript/all_fourier_df.parquet.
+
+Legacy *_analysis.pickle files are also picked up if any are still on disk
+(pre-Phase-7-cutover leftovers) — see _read_nwb_fallback's docstring.
 
 Usage:
     python pipeline/aggregate.py
@@ -232,13 +235,58 @@ for _fish_tag, _date in [
         ANNOT_D[f"engert_{_fish_tag}_no-magneto_{_i}"] = [_date, _fish_tag, "whole brain", "zebrafish", "positive control"]
 
 
+def _read_nwb_analysis_df(nwb_path):
+    """Reconstruct an analysis-pickle-shaped DataFrame directly from an NWB
+    file -- the primary read path for every experiment as of the Phase 7
+    cutover (no paradigm writes `_analysis.pickle` anymore). Any columns
+    the shared Fourier-results tables don't persist (e.g. medaka's
+    date/area/ID/species/contingency, which are per-cfg constants re-
+    derived at analysis time rather than stored per-row -- see
+    analysis_stages/medaka.py) come out missing here; the ANNOT_D fallback
+    in build_all_fourier_df fills them in afterwards exactly as it already
+    does for any other experiment lacking those columns.
+    """
+    from pipeline import nwb_io
+    io_r, nwbfile = nwb_io.read_nwbfile(nwb_path)
+    try:
+        return nwb_io.read_fourier_results_as_full_fourier_df(nwbfile)
+    finally:
+        io_r.close()
+
+
 def build_all_fourier_df(data_dir: str) -> pd.DataFrame:
+    # NWB is the primary, authoritative source as of the Phase 7 cutover --
+    # read from {name}.nwb whenever one exists, regardless of whether a
+    # stale {name}_analysis.pickle also happens to still be sitting on disk
+    # (no paradigm writes that pickle anymore, so any such file predates
+    # the cutover and could silently be out of date; preferring it over the
+    # freshly-reconstructed NWB frame would be a real correctness hazard,
+    # not just redundant). The legacy pickle is read only as a last-resort
+    # fallback for an experiment that has NO .nwb at all.
+    nwb_paths = sorted(glob.glob(os.path.join(data_dir, "*.nwb")))
+    nwb_names = {os.path.basename(p)[:-len(".nwb")] for p in nwb_paths}
+
     files = sorted(glob.glob(os.path.join(data_dir, "*_analysis.pickle")))
-    if not files:
-        raise FileNotFoundError(f"No *_analysis.pickle files found in {data_dir}")
+    pickle_only_files = [
+        f for f in files
+        if os.path.basename(f)[:-len("_analysis.pickle")] not in nwb_names
+    ]
+
+    if not files and not nwb_paths:
+        raise FileNotFoundError(f"No *_analysis.pickle or *.nwb files found in {data_dir}")
 
     dfs = []
-    for f in files:
+    n_nwb = 0
+    for nwb_path in nwb_paths:
+        try:
+            df = _read_nwb_analysis_df(nwb_path)
+            dfs.append(df)
+            n_nwb += 1
+        except Exception as exc:
+            print(f"  skip {os.path.basename(nwb_path)} (.nwb): {exc}")
+    print(f"Loaded {n_nwb} / {len(nwb_paths)} experiments from .nwb")
+
+    for f in pickle_only_files:
         try:
             df = pd.read_pickle(f)
             if not isinstance(df, pd.DataFrame):
@@ -247,7 +295,9 @@ def build_all_fourier_df(data_dir: str) -> pd.DataFrame:
             dfs.append(df)
         except Exception as exc:
             print(f"  skip {os.path.basename(f)}: {exc}")
-    print(f"Loaded {len(dfs)} / {len(files)} pipeline pickles")
+    if pickle_only_files:
+        print(f"Loaded {len(pickle_only_files)} additional experiment(s) from legacy "
+              f"_analysis.pickle (no .nwb found for these)")
 
     # Also load pre-computed species pickles (mouse, owl — formats not portable to YAML pipeline)
     precomputed_dir = os.path.join(data_dir, "precomputed")
@@ -319,7 +369,7 @@ def build_all_fourier_df(data_dir: str) -> pd.DataFrame:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Aggregate analysis pickles → parquet")
+    parser = argparse.ArgumentParser(description="Aggregate analysis pickles -> parquet")
     parser.add_argument("--out", default=DEFAULT_OUT,
                         help=f"Output path (default: {DEFAULT_OUT})")
     parser.add_argument("--data-dir", default=DATA_DIR,
@@ -332,7 +382,7 @@ def main():
 
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     df.to_parquet(args.out, index=False)
-    print(f"Saved → {args.out}")
+    print(f"Saved -> {args.out}")
 
 
 if __name__ == "__main__":

@@ -93,8 +93,15 @@ class ExperimentConfig:
     sample_period: float = 1.0  # seconds per frame (T in fit_Fourier); 1.02 for 2022_03_01
     iscell_threshold: float = 0.7
     npix_threshold: int = 20
-    date: str = ""           # experiment date (YYYY-MM-DD), used by medaka analysis stage
-    subject_id: str = ""     # animal/fish identifier, used by medaka analysis stage
+    # subject/session metadata — historically medaka-only, promoted to a
+    # universal field for the NWB replatform (NWBFile.session_start_time /
+    # Subject.subject_id / Subject.species). Optional: create_nwbfile()
+    # falls back to inferring session_start_time from settings.xml and
+    # omits Subject entirely when subject_id is blank, so leaving these
+    # unset does not block processing/analysis.
+    date: str = ""           # experiment date (YYYY-MM-DD)
+    subject_id: str = ""     # animal/fish/subject identifier
+    species: str = ""        # e.g. "zebra finch", "Pigeon", "medaka"
 
     trials: list = field(default_factory=list)
     auxiliary_stimuli: list = field(default_factory=list)
@@ -122,10 +129,24 @@ class ExperimentConfig:
             )
 
     def processing_path(self) -> str:
+        """Legacy naming convention, retired as of the NWB replatform's
+        Phase 7 cutover -- no paradigm writes this file anymore (see
+        nwb_path() below). Kept only so old, frozen fixtures under
+        MagnetSearch/data/ and one-off debugging scripts can still name the
+        pre-migration shape by convention."""
         return os.path.join(self.data_dir, f"{self.name}_processing.pickle")
 
     def analysis_path(self) -> str:
+        """See processing_path()'s docstring -- same retirement, same
+        reason."""
         return os.path.join(self.data_dir, f"{self.name}_analysis.pickle")
+
+    def nwb_path(self) -> str:
+        """Single-file NWB replacement for the processing/MM_d/analysis
+        pickle trio (see pipeline/nwb_io.py). Every paradigm's processing
+        stage writes this file; analysis reads it back and appends results
+        to it -- this is now the only per-experiment output artifact."""
+        return os.path.join(self.data_dir, f"{self.name}.nwb")
 
     def validate(self):
         valid_paradigms = {"openephys", "openephys_multistim", "gutfreund", "spikeglx_direct", "manual", "engert", "medaka"}

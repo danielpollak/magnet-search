@@ -6,7 +6,6 @@ Extends the openephys paradigm: runs process_raw_data_NPIX for magnetic trials,
 then dispatches each auxiliary_stimuli entry to a kind-specific handler.
 """
 import os
-import pickle
 
 import numpy as np
 import pandas as pd
@@ -19,10 +18,13 @@ from ephysio import openEphysIO
 from ephysio.kilosortIO import Reader
 from magpyneto2 import (
     get_cluster_info, process_raw_data_NPIX, update_MM_d_mag,
-    save_MM_d_pickle, save_diagnostics_MM,
+    save_diagnostics_MM,
     schmitt, correct_theta, get_condition_array, get_MM_offset,
     get_concat_spks_consistent_period,
 )
+from pipeline import nwb_io
+
+AP_SR = 30_000
 
 
 def _build_contingency(cfg, ksr, udf, cat_df):
@@ -72,7 +74,7 @@ def _build_contingency(cfg, ksr, udf, cat_df):
     return all_sts, contingency_d, aux_d
 
 
-def _handle_visual_gratings(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM_d):
+def _handle_visual_gratings(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM_d, nwb_epochs):
     recname = aux_cfg.recname
     st_d = contingency_d[recname]
     recording, ldr = aux_d[recname]
@@ -130,6 +132,12 @@ def _handle_visual_gratings(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM
 
     ap_sr = ldr.samplingrate(ldr.spikestream())
     offset = get_MM_offset(cat_df, recname)
+    # "gratings" NWB reconstruction needs TWO marker arrays in the aggregated
+    # domain: the global t_up (rounded, matching legacy's own rounding
+    # before building `theta`) for phase, and each trial's own unrounded
+    # period_markers subset (get_condition_array is sensitive to sub-sample
+    # precision) for period -- see nwb_io.write_epochs_table's docstring.
+    phase_crossings_agg = np.round(t_up).astype(np.int64) + offset
     for trial in range(aux_cfg.n_orientations):
         period_markers = t_up[trials == trial]
         if len(period_markers) == 0:
@@ -138,9 +146,26 @@ def _handle_visual_gratings(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM
             np.array([np.min(period_markers), np.max(period_markers)]) + offset,
             aux_cfg.frequency,
         )
+        period_markers_agg = period_markers + offset
+        nwb_epochs.append({
+            "rec": recname + "_" + str(orientation_d[trial]),
+            "stim_type": "visual_gratings",
+            "frequency": float(aux_cfg.frequency),
+            "start_time": float(period_markers_agg[0]) / 30_000,
+            "stop_time": float(period_markers_agg[-1]) / 30_000,
+            "period_crossings": period_markers_agg,
+            "phase_crossings": phase_crossings_agg,
+            "phase_method": "gratings",
+            "local_offset_samples": int(offset),
+            # Legacy only includes a unit's data for ANY orientation of this
+            # recname if it passes min_spikes in EVERY orientation (`if
+            # len(trial_df_l) == aux_cfg.n_orientations: df_l.extend(...)`
+            # above) -- see nwb_io._gratings_group_exclusions.
+            "gratings_group": recname,
+        })
 
 
-def _handle_white_noise(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM_d):
+def _handle_white_noise(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM_d, nwb_epochs):
     """White-noise handler.
 
     Two modes, controlled by duration_s:
@@ -182,6 +207,22 @@ def _handle_white_noise(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM_d):
             np.vstack([t_down - duration_samples, t_down]).T + offset,
             freq,
         )
+        window_starts = t_down - duration_samples + offset
+        window_stops = t_down + offset
+        window_offsets = np.arange(len(t_down)) * duration_samples
+        nwb_epochs.append({
+            "rec": recname,
+            "stim_type": "white_noise",
+            "frequency": float(freq),
+            "start_time": float(window_starts.min()) / ap_sr,
+            "stop_time": float(window_stops.max()) / ap_sr,
+            "period_crossings": np.array([window_starts.min(), window_stops.max()]),
+            "phase_method": "stitched_floor" if legacy else "stitched_crossings_unnorm",
+            "window_starts": window_starts,
+            "window_stops": window_stops,
+            "window_offsets": window_offsets,
+            **({} if legacy else {"synthetic_period_markers": np.concatenate(periods_qs)}),
+        })
         for unit_id, spks in st_d.items():
             concat_l = []
             for i in np.arange(len(t_down)):
@@ -213,6 +254,23 @@ def _handle_white_noise(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM_d):
             freq,
         )
         period_freq = aux_cfg.wn_period_freq if aux_cfg.wn_period_freq > 0 else freq
+        nwb_epochs.append({
+            "rec": recname,
+            "stim_type": "white_noise",
+            "frequency": float(freq),
+            "start_time": (float(t_down) - duration_samples + offset) / ap_sr,
+            "stop_time": (float(t_down) + offset) / ap_sr,
+            # float(t_down): t_down is a 1-element array here (same as the
+            # start_time/stop_time casts above) -- without it, this produces
+            # a (2, 1)-shaped array instead of (2,), which breaks the
+            # period_crossings ragged column's homogeneity once concatenated
+            # against other epochs' plain 1-D arrays (confirmed on real data:
+            # HDMF's "inhomogeneous shape" write error).
+            "period_crossings": np.array([float(t_down) - duration_samples, float(t_down)]),
+            "phase_method": "arithmetic",
+            "period_frequency": float(period_freq),
+            "local_offset_samples": int(offset),
+        })
         for unit_id, unit_st in tqdm.tqdm(sorted(st_d.items()), total=len(st_d)):
             concat_spks = unit_st[
                 (unit_st > (t_down - duration_samples)) & (unit_st < t_down)
@@ -230,7 +288,7 @@ def _handle_white_noise(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM_d):
                 }))
 
 
-def _handle_oddball(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM_d):
+def _handle_oddball(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM_d, nwb_epochs):
     """Oddball: inter-event intervals where t_down[i] - t_down[i-1] < max_interval_s."""
     recname = aux_cfg.recname
     st_d = contingency_d[recname]
@@ -273,6 +331,24 @@ def _handle_oddball(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM_d):
 
     MM_d["aux"][recname] = (np.array(intervals) + offset, freq)
 
+    intervals_arr = np.array(intervals)  # columns: (curr, prev)
+    window_starts = intervals_arr[:, 1] + offset  # prev
+    window_stops = intervals_arr[:, 0] + offset   # curr
+    window_offsets = np.arange(len(intervals)) * period * ap_sr
+    nwb_epochs.append({
+        "rec": recname,
+        "stim_type": "oddball",
+        "frequency": float(freq),
+        "start_time": float(window_starts.min()) / ap_sr,
+        "stop_time": float(window_stops.max()) / ap_sr,
+        "period_crossings": np.array([window_starts.min(), window_stops.max()]),
+        "phase_method": "stitched_crossings_unnorm",
+        "window_starts": window_starts,
+        "window_stops": window_stops,
+        "window_offsets": window_offsets,
+        "synthetic_period_markers": periods_arr,
+    })
+
     trial_df_l = []
     for unit_id, st in tqdm.tqdm(st_d.items()):
         ball_spks = []
@@ -295,7 +371,7 @@ def _handle_oddball(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM_d):
         df_l.append(pd.concat(trial_df_l))
 
 
-def _handle_visual_bars(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM_d):
+def _handle_visual_bars(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM_d, nwb_epochs):
     """20220916-style visual bars.
 
     Orientation CSV has 'trial' and 'deg' columns.
@@ -344,6 +420,38 @@ def _handle_visual_bars(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM_d):
         )
 
         freq = 1 / 4  # fixed 4-second period
+
+        # Reproduce get_concat_spks_consistent_period's own windowing
+        # exactly. Its `last_off` is NOT a simple i*period_samples running
+        # offset (confirmed wrong on real data -- every window past the
+        # first landed at the wrong synthetic position): each window's
+        # shift is the RAW absolute `off + BL` of the *previous* window
+        # (0 for the first window), i.e. window i's shift is
+        # `offs[i-1] + BL[i-1]` for i>=1, NOT `i * period_samples`. Each
+        # window's own span still has length == period_samples (by
+        # construction of BL), so this only differs from i*period_samples
+        # when consecutive windows aren't perfectly back-to-back in real
+        # time -- which is the normal case.
+        ons_arr = np.asarray(ons, dtype=np.float64)
+        offs_arr = np.asarray(offs, dtype=np.float64)
+        BL = (period_samples - (offs_arr - ons_arr)) / 2
+        window_starts = ons_arr - BL + offset
+        window_stops = offs_arr + BL + offset
+        window_offsets = np.zeros(len(ons_arr))
+        window_offsets[1:] = offs_arr[:-1] + BL[:-1]
+        nwb_epochs.append({
+            "rec": recname + "_" + str(deg),
+            "stim_type": "visual_bars",
+            "frequency": float(freq),
+            "start_time": float(window_starts.min()) / ap_sr,
+            "stop_time": float(window_stops.max()) / ap_sr,
+            "period_crossings": np.array([window_starts.min(), window_stops.max()]),
+            "phase_method": "stitched_floor",
+            "window_starts": window_starts,
+            "window_stops": window_stops,
+            "window_offsets": window_offsets,
+        })
+
         for unit_id, sts in st_d.items():
             concat_spks = get_concat_spks_consistent_period(
                 sts, ons, offs, period_samples) / ap_sr
@@ -377,6 +485,12 @@ def run_processing(cfg):
     if cfg.good:
         udf = udf.loc[udf.KSLabel == "good", :]
 
+    # Unfiltered variants for the NWB Units table (see bottom of this
+    # function) -- same reasoning as openephys.py: every cluster, not just
+    # `good`, so cfg.good filtering happens at analysis time.
+    all_sts_full = ksr.spikesbycluster(label=None)
+    udf_full = get_cluster_info(cfg.aggregated_path)
+
     all_sts, contingency_d, aux_d = _build_contingency(cfg, ksr, udf, cat_df)  # noqa
 
     # --- Magnetic trials ---
@@ -401,6 +515,42 @@ def run_processing(cfg):
 
     df_l = [modulation_df]
 
+    # --- NWB dual-write prep (see .claude/plans — NWB replatform, Phase 3) ---
+    # Units are a single shared/concatenated catalog across every rec in this
+    # file (rec="", same as openephys) -- unlike gutfreund's per-recording
+    # independent sortings.
+    nwb_epochs = []
+    # `folder`'s own basename is what process_raw_data_NPIX itself uses for
+    # modulation_df's "rec" column (confirmed on real data -- legacy's own
+    # rec label does NOT reflect a trial's `recname:` override), but
+    # `cat_df`/metadata-CSV lookups (get_MM_offset, skips) key on the
+    # metadata CSV's own recname column, which for a trial with an explicit
+    # override is DIFFERENT from the folder's basename (that mismatch is
+    # exactly why the override field exists -- e.g. 20230413_firstsite's
+    # Mag2_inclined trial). Using the folder-basename for those lookups
+    # instead of `trial.recname` silently fetched the wrong/default
+    # offset, shifting this epoch's window and both dropping and admitting
+    # the wrong units (confirmed on real data).
+    folder_to_trial_recname = {t.folder: t.recname for t in cfg.trials}
+    for freq in data.keys():
+        for folder in data[freq].keys():
+            rec_label = os.path.basename(folder)
+            metadata_recname = folder_to_trial_recname.get(folder, rec_label)
+            offset = get_MM_offset(cat_df, metadata_recname)
+            _, period_crossings = data[freq][folder]
+            full_crossings = (np.asarray(period_crossings) + offset).astype(np.int64)
+            trial_skips = next((t.skips for t in cfg.trials if t.recname == metadata_recname), 0)
+            nwb_epochs.append({
+                "rec": rec_label,
+                "stim_type": "magnetic",
+                "frequency": float(freq),
+                "start_time": float(full_crossings[0]) / AP_SR,
+                "stop_time": float(full_crossings[-1]) / AP_SR,
+                "period_crossings": full_crossings,
+                "skips": trial_skips,
+                "local_offset_samples": int(offset),
+            })
+
     # --- Auxiliary stimuli ---
     for aux_cfg in cfg.auxiliary_stimuli:
         handler = _HANDLERS.get(aux_cfg.kind)
@@ -409,19 +559,38 @@ def run_processing(cfg):
         if aux_cfg.recname not in contingency_d:
             print(f"  WARNING: aux recname '{aux_cfg.recname}' not in contingency_d, skipping")
             continue
-        handler(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM_d)
+        handler(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM_d, nwb_epochs)
 
     modulation_df = pd.concat(df_l).reset_index(drop=True)
-
-    with open(cfg.processing_path(), "wb") as f:
-        pickle.dump(modulation_df, f, protocol=pickle.HIGHEST_PROTOCOL)
-
-    mm_path = os.path.join(cfg.data_dir, f"MM_{cfg.name}.pickle")
-    save_MM_d_pickle(MM_d, mm_path)
     save_diagnostics_MM(MM_d, cfg.name)
+
+    nwbfile = nwb_io.create_nwbfile(cfg)
+    # label_column="KSLabel": matches this paradigm's own good-filter
+    # (`udf.KSLabel == "good"` above) -- see write_units_and_spikes's
+    # label_column docstring for why this must be stated explicitly rather
+    # than auto-detected.
+    nwb_io.write_units_and_spikes(
+        nwbfile, all_sts_full, udf_full, sampling_rate=AP_SR, label_column="KSLabel")
+    nwb_io.write_epochs_table(nwbfile, nwb_epochs, sampling_rate=AP_SR)
+    nwb_io.write_nwbfile(nwbfile, cfg.nwb_path())
 
     from pathlib import Path
     from pipeline.diagnostics.processing import plot_recording_timeline
     diag_dir = Path(cfg.data_dir).parent / "figs" / "processing"
     diag_dir.mkdir(parents=True, exist_ok=True)
-    plot_recording_timeline(cfg, MM_d, modulation_df, diag_dir)
+
+    # Read diagnostics input back from the just-written NWB file rather than
+    # the in-memory MM_d/modulation_df above -- same "traceability without
+    # recomputation" check as openephys.py. Falls back to in-memory objects
+    # on any failure so a diagnostics-plotting bug can never block the
+    # processing stage itself.
+    try:
+        io_r, nwbfile_r = nwb_io.read_nwbfile(cfg.nwb_path())
+        MM_d_nwb = nwb_io.read_mm_d_equivalent(nwbfile_r)
+        modulation_df_nwb = nwb_io.build_modulation_frame(nwbfile_r, good_only=cfg.good)
+        plot_recording_timeline(cfg, MM_d_nwb, modulation_df_nwb, diag_dir)
+        io_r.close()
+    except Exception as exc:
+        print(f"  WARNING: NWB-sourced diagnostics failed ({exc}); "
+              f"falling back to in-memory MM_d/modulation_df")
+        plot_recording_timeline(cfg, MM_d, modulation_df, diag_dir)
