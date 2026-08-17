@@ -84,7 +84,7 @@ def get_epsilon(M):
     -------
     eps: (float) Correction factor
     """
-    return 1 / (2 * np.sqrt(M))
+    return 1 / (2 * np.sqrt(2 * M))
 
 
 def normalized_Fourier_PDF_corrected(q_vals, r_vals, p_r_vals, eps):
