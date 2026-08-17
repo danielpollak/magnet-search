@@ -1233,7 +1233,7 @@ def find_outliers(df, Q_frac, sr=30_000, method="ideal", diagnostics=True):
         fourier_l.append(pd.DataFrame({
             "id": ids, "pp":pp, "nn":nn, "rr":c_hat,
             "freq":frq, "rec":rec, "2f_rr":twoF_c_hat, "2f_pp":twof_pp,
-            "sens":nn/2/sigma_1F, "sens_2f":nn/2/sigma_2F,
+            "sens":nn/T/2/sigma_1F, "sens_2f":nn/T/2/sigma_2F,
             "Q": M_1f}))  # bin count behind THIS row's rr/pp (1F)
 
     fourier_df = pd.concat(fourier_l)
