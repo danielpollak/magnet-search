@@ -6,8 +6,12 @@ data/MM_*.pickle
 # pipeline/analysis.py from raw NAS data), not source -- tracking every
 # re-run in git permanently bloats history (HDF5/NWB binaries don't delta-
 # compress between versions). Untracked deliberately; disseminated via a
-# GitHub Release when ready rather than committed directly.
+# GitHub Release when ready rather than committed directly. Same reasoning
+# for all_fourier_df.parquet -- it's derived entirely from data/*.nwb +
+# data/precomputed/*.pickle via pipeline/aggregate.py, so keeping it
+# tracked while its inputs aren't would be inconsistent.
 data/*.nwb
+data/manuscript/all_fourier_df.parquet
 logs/
 *.xlsx
 __pycache__/
