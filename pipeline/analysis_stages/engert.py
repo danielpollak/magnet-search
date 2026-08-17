@@ -58,12 +58,12 @@ def compute_fourier_results(cfg, verbose=True):
     round-trip this exactly?) that doesn't depend on any legacy pickle.
 
     Returns a dict with everything run_analysis needs to write/plot:
-    F, roi_df, included_mask, imaging_dims, fourier_df, freq, Q, T,
+    F, roi_df, included_mask, imaging_dims, fourier_df, freq, Q, Q_2f, T,
     freq_win, onfreq_pow_l, offfreq_pow_l, onfreq_2f_l, offfreq_2f_l.
     """
-    freq   = cfg.analysis.f
-    Q      = cfg.analysis.Q
-    T      = cfg.sample_period
+    freq    = cfg.analysis.f
+    Q_frac  = cfg.analysis.Q_frac
+    T       = cfg.sample_period
     nyquist = 0.5 / T
 
     def _p(msg):
@@ -76,35 +76,46 @@ def compute_fourier_results(cfg, verbose=True):
     _p(f"[engert] {cfg.name}: {int((roi_df['p_iscell'].values > cfg.iscell_threshold).sum())} "
        f"cells after iscell filter (npix filter combined), {len(F)} after flatline removal")
 
-    # ── Fourier 1F ──────────────────────────────────────────────────────────
-    _p(f"[engert] {cfg.name}: fit_Fourier at {freq} Hz  (T={T})")
-    chat_l, onfreq_pow_l, offfreq_pow_l, freq_win = fit_Fourier(
-        F, T=T, f=freq, Q=Q)
-
-    rr        = np.array(chat_l)
-    pp        = corrected_pvalues(rr, Q)
-    fou_alt   = np.array(offfreq_pow_l)                              # (C, 2Q-1) complex
-    sigma_1f  = np.sqrt(0.5 * np.mean(np.abs(fou_alt) ** 2, axis=1))
-    sens      = np.abs(onfreq_pow_l) / np.where(sigma_1f > 0, sigma_1f, np.nan)
-
-    # ── Fourier 2F (skip if above Nyquist) ──────────────────────────────────
-    do_2f = (2 * freq) < nyquist
-    if do_2f:
-        _p(f"[engert] {cfg.name}: fit_Fourier at {freq*2} Hz (2F)")
-        chat_2f_l, onfreq_2f_l, offfreq_2f_l, _ = fit_Fourier(
-            F, T=T, f=freq * 2, Q=Q)
-        rr_2f      = np.array(chat_2f_l)
-        pp_2f      = corrected_pvalues(rr_2f, Q)
-        fou_alt_2f = np.array(offfreq_2f_l)
-        sigma_2f   = np.sqrt(0.5 * np.mean(np.abs(fou_alt_2f) ** 2, axis=1))
-        sens_2f    = np.abs(onfreq_2f_l) / np.where(sigma_2f > 0, sigma_2f, np.nan)
+    # ── Fourier harmonics: 1F always, 2F only if below Nyquist ─────────────
+    # Both harmonics go through the identical fit_Fourier -> rr/pp/sens
+    # derivation below; only the frequency (and whether 2F is skipped)
+    # differs, so this loops over (harmonic label, frequency) instead of
+    # duplicating the block per harmonic.
+    harmonics = [(1, freq)]
+    if (2 * freq) < nyquist:
+        harmonics.append((2, freq * 2))
     else:
         _p(f"[engert] {cfg.name}: skipping 2F ({freq*2:.3f} Hz >= Nyquist {nyquist:.3f} Hz)")
-        onfreq_2f_l = None
-        offfreq_2f_l = None
-        rr_2f = np.full(len(rr), np.nan)
-        pp_2f = np.full(len(rr), np.nan)
-        sens_2f = np.full(len(rr), np.nan)
+
+    n_cells = len(F)
+    empty = np.full(n_cells, np.nan)
+    results = {
+        1: dict(rr=empty, pp=empty, sens=empty, onfreq_pow_l=None,
+                offfreq_pow_l=None, freq_win=None, M=None),
+        2: dict(rr=empty, pp=empty, sens=empty, onfreq_pow_l=None,
+                offfreq_pow_l=None, freq_win=None, M=None),
+    }
+    for h, hfreq in harmonics:
+        _p(f"[engert] {cfg.name}: fit_Fourier at {hfreq} Hz" + (f" ({h}F)" if h == 2 else f"  (T={T})"))
+        chat_l, onfreq_pow_l, offfreq_pow_l, freq_win, M, avg_signal_l = fit_Fourier(
+            F, T=T, f=hfreq, Q_frac=Q_frac)
+
+        rr      = np.array(chat_l)
+        pp      = corrected_pvalues(rr, M)
+        fou_alt = np.array(offfreq_pow_l)                             # (C, 2*M) complex
+        sigma   = np.sqrt(0.5 * np.mean(np.abs(fou_alt) ** 2, axis=1))
+        sens    = avg_signal_l / np.where(sigma > 0, 2 * sigma, np.nan)
+
+        results[h] = dict(rr=rr, pp=pp, sens=sens, onfreq_pow_l=onfreq_pow_l,
+                           offfreq_pow_l=offfreq_pow_l, freq_win=freq_win, M=M)
+
+    r1, r2 = results[1], results[2]
+    rr, pp, sens = r1["rr"], r1["pp"], r1["sens"]
+    onfreq_pow_l, offfreq_pow_l = r1["onfreq_pow_l"], r1["offfreq_pow_l"]
+    freq_win, M_1f = r1["freq_win"], r1["M"]
+    rr_2f, pp_2f, sens_2f = r2["rr"], r2["pp"], r2["sens"]
+    onfreq_2f_l, offfreq_2f_l = r2["onfreq_pow_l"], r2["offfreq_pow_l"]
+    freq_win_2f, M_2f = r2["freq_win"], r2["M"]
 
     # ── Number of frames used by fit_Fourier ────────────────────────────────
     N_frames = int(120 * (F.shape[1] // 60))
@@ -122,14 +133,15 @@ def compute_fourier_results(cfg, verbose=True):
         "2f_pp":   pp_2f,
         "sens":    sens,
         "sens_2f": sens_2f,
-        "Q":       Q,
+        "Q":       M_1f,  # bin count behind THIS row's rr/pp (1F)
     })
 
     return {
         "F": F, "roi_df": roi_df, "included_mask": included_mask,
         "imaging_dims": imaging_dims, "fourier_df": fourier_df,
-        "freq": freq, "Q": Q, "T": T, "freq_win": freq_win,
+        "freq": freq, "Q": M_1f, "Q_2f": M_2f, "T": T, "freq_win": freq_win,
         "onfreq_pow_l": onfreq_pow_l, "offfreq_pow_l": offfreq_pow_l,
+        "freq_win_2f": freq_win_2f,
         "onfreq_2f_l": onfreq_2f_l, "offfreq_2f_l": offfreq_2f_l,
     }
 
@@ -137,9 +149,10 @@ def compute_fourier_results(cfg, verbose=True):
 def run_analysis(cfg):
     r = compute_fourier_results(cfg)
     F, roi_df, included_mask, imaging_dims = r["F"], r["roi_df"], r["included_mask"], r["imaging_dims"]
-    fourier_df, freq, Q, T = r["fourier_df"], r["freq"], r["Q"], r["T"]
+    fourier_df, freq, Q, Q_2f, T = r["fourier_df"], r["freq"], r["Q"], r["Q_2f"], r["T"]
     freq_win = r["freq_win"]
     onfreq_pow_l, offfreq_pow_l = r["onfreq_pow_l"], r["offfreq_pow_l"]
+    freq_win_2f = r["freq_win_2f"]
     onfreq_2f_l, offfreq_2f_l = r["onfreq_2f_l"], r["offfreq_2f_l"]
 
     # ── NWB write (see .claude/plans — NWB replatform, Phase 4) ────────────
@@ -149,15 +162,23 @@ def run_analysis(cfg):
             nwbfile, rec=cfg.name, freq=freq, Q=Q,
             T_duration=F.shape[1] * T, fourier_df_rows=fourier_df,
             onfreq_pow=onfreq_pow_l, offfreq_pow=offfreq_pow_l, freq_win=freq_win,
-            onfreq_pow_2f=onfreq_2f_l, offfreq_pow_2f=offfreq_2f_l),
+            onfreq_pow_2f=onfreq_2f_l, offfreq_pow_2f=offfreq_2f_l, Q_2f=Q_2f),
     )
     print(f"[engert] {cfg.name}: saved -> {cfg.nwb_path()}")
 
     # ── Diagnostics ──────────────────────────────────────────────────────────
+    # 2F args are passed straight from this SAME run's in-memory
+    # compute_fourier_results() output, not reconstructed from NWB (unlike
+    # NPIX's simple.py, which reads diagnostics input back from disk) --
+    # per-unit 2F Fourier coefficients are never persisted to NWB (see
+    # write_imaging_fourier_results/nwb_io.read_log_dict_equivalent), so
+    # this in-memory path is the only source for the 2F spectrum plot.
     from pipeline.diagnostics.engert import plot_engert_diagnostics
     diag_dir = Path(cfg.data_dir).parent / "figs" / "analysis"
     diag_dir.mkdir(parents=True, exist_ok=True)
     plot_engert_diagnostics(
         cfg, F, fourier_df, freq_win,
         onfreq_pow_l, offfreq_pow_l, diag_dir,
-        roi_df=roi_df, included_mask=included_mask, imaging_dims=imaging_dims)
+        roi_df=roi_df, included_mask=included_mask, imaging_dims=imaging_dims,
+        freq_win_2f=freq_win_2f, onfreq_pow_2f=onfreq_2f_l,
+        offfreq_pow_2f=offfreq_2f_l, Q_2f=Q_2f)

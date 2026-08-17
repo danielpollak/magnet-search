@@ -17,7 +17,15 @@ from magpyneto2.statistics import corrected_pvalues
 from pipeline import nwb_io
 
 _VISUAL_FREQ = 1 / 60
-_VISUAL_Q = 6
+# 0.10/0.20/0.25 (earlier fresh-default choices) all yield too few bins for
+# medaka's typical (short) recording durations at the visual frequency
+# 1/60 Hz -- e.g. a 1080-frame/1s-sample-period session needs >=0.444 to
+# clear MIN_FOURIER_BINS=8 (0.25 -> only M=4, confirmed on real data after
+# fixing fit_Fourier's frame-count bug -- see magpyneto2/engert_helpers.py).
+# Bumped to clear the floor with margin; still a starting point to retune
+# per the diagnostic-PDF-review workflow, not a value derived from any
+# formula.
+_VISUAL_Q_FRAC = 0.50
 
 
 def _load_from_nwb(nwb_path, iscell_thres, npix_thres):
@@ -51,9 +59,9 @@ def compute_fourier_results(cfg, verbose=True):
     compute_fourier_results docstring for why this is factored out (lets
     verify_outputs.py independently recompute and diff against what got
     persisted, without depending on any legacy pickle)."""
-    f_b = cfg.analysis.f
-    Q_b = cfg.analysis.Q
-    T   = cfg.sample_period
+    f_b     = cfg.analysis.f
+    Q_frac_b = cfg.analysis.Q_frac
+    T       = cfg.sample_period
 
     def _p(msg):
         if verbose:
@@ -65,9 +73,9 @@ def compute_fourier_results(cfg, verbose=True):
     _p(f"[medaka] {cfg.name}: {len(F)} cells after iscell/npix filter + flatline removal")
 
     # Magnetic frequency (keep intermediates for diagnostics)
-    chat_b, onb, offb, freq_win_b = fit_Fourier(F, T=T, f=f_b, Q=Q_b)
+    chat_b, onb, offb, freq_win_b, M_b, avg_b = fit_Fourier(F, T=T, f=f_b, Q_frac=Q_frac_b)
     # Visual frequency
-    chat_v, onv, offv, freq_win_v = fit_Fourier(F, T=T, f=_VISUAL_FREQ, Q=_VISUAL_Q)
+    chat_v, onv, offv, freq_win_v, M_v, avg_v = fit_Fourier(F, T=T, f=_VISUAL_FREQ, Q_frac=_VISUAL_Q_FRAC)
 
     contingency = "positive control" if "no_magneto" in cfg.name else "mag"
     nn = int(120 * (F.shape[1] // 60))
@@ -78,16 +86,25 @@ def compute_fourier_results(cfg, verbose=True):
     rec_name = os.path.basename(cfg.session_path.rstrip("/\\")) + ".tif"
 
     rows = []
-    for chat_l, freq, Q in [(chat_b, f_b, Q_b), (chat_v, _VISUAL_FREQ, _VISUAL_Q)]:
-        rr = np.array(chat_l)
+    for chat_l, freq, M, off, avg_signal_l in [
+        (chat_b, f_b, M_b, offb, avg_b),
+        (chat_v, _VISUAL_FREQ, M_v, offv, avg_v),
+    ]:
+        rr    = np.array(chat_l)
+        # Same sens = avg_signal / (2*sigma) as engert.py -- see that
+        # module for why this replaced the earlier (redundant with `rr`)
+        # |onfreq|/sigma formula.
+        sigma = np.sqrt(0.5 * np.mean(np.abs(np.array(off)) ** 2, axis=1))
+        sens  = avg_signal_l / np.where(sigma > 0, 2 * sigma, np.nan)
         rows.append(pd.DataFrame({
             "id":          np.arange(len(chat_l)),
-            "pp":          corrected_pvalues(rr, Q),
+            "pp":          corrected_pvalues(rr, M),
             "nn":          nn,
             "rr":          rr,
             "freq":        freq,
             "rec":         rec_name,
-            "Q":           Q,
+            "sens":        sens,
+            "Q":           M,
             "date":        cfg.date,
             "area":        "wholebrain",
             "ID":          cfg.subject_id,
@@ -99,7 +116,7 @@ def compute_fourier_results(cfg, verbose=True):
     return {
         "F": F, "roi_df": roi_df, "included_mask": included_mask,
         "imaging_dims": imaging_dims, "fourier_df": fourier_df,
-        "f_b": f_b, "Q_b": Q_b, "T": T, "rec_name": rec_name,
+        "f_b": f_b, "Q_b": M_b, "Q_v": M_v, "T": T, "rec_name": rec_name,
         "freq_win_b": freq_win_b, "onb": onb, "offb": offb,
         "freq_win_v": freq_win_v, "onv": onv, "offv": offv,
     }
@@ -108,7 +125,7 @@ def compute_fourier_results(cfg, verbose=True):
 def run_analysis(cfg):
     r = compute_fourier_results(cfg)
     F, roi_df, included_mask, imaging_dims = r["F"], r["roi_df"], r["included_mask"], r["imaging_dims"]
-    fourier_df, f_b, Q_b, T, rec_name = r["fourier_df"], r["f_b"], r["Q_b"], r["T"], r["rec_name"]
+    fourier_df, f_b, Q_b, Q_v, T, rec_name = r["fourier_df"], r["f_b"], r["Q_b"], r["Q_v"], r["T"], r["rec_name"]
     freq_win_b, onb, offb = r["freq_win_b"], r["onb"], r["offb"]
     freq_win_v, onv, offv = r["freq_win_v"], r["onv"], r["offv"]
 
@@ -130,7 +147,7 @@ def run_analysis(cfg):
                 fourier_df_rows=fourier_df.loc[fourier_df.freq == f_b],
                 onfreq_pow=onb, offfreq_pow=offb, freq_win=freq_win_b),
             nwb_io.write_imaging_fourier_results(
-                nwbfile, rec=rec_name, freq=_VISUAL_FREQ, Q=_VISUAL_Q,
+                nwbfile, rec=rec_name, freq=_VISUAL_FREQ, Q=Q_v,
                 T_duration=F.shape[1] * T,
                 fourier_df_rows=fourier_df.loc[fourier_df.freq == _VISUAL_FREQ],
                 onfreq_pow=onv, offfreq_pow=offv, freq_win=freq_win_v),
