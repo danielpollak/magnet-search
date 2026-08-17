@@ -12,7 +12,7 @@ window_size: 5
 recording_overrides:
   AV10829_Taeniopygia+guttata_CP_1_1830-1920_U: '\\datanas\family\data_raw\220621\AV10829_Taeniopygia+guttata_CP_1_1830-1920_U'
 analysis:
-  Q: 100
+  Q_frac: 0.15
 trials:
   - folder: '\\datanas\family\data_raw\20220621\3HZ_2022-06-21_15-01-35'
     frequency: 3

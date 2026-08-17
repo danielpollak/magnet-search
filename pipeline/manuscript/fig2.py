@@ -47,8 +47,8 @@ def _fix_excess_legend(ax):
               fontsize=5, title_fontsize=5)
 
 
-def get_num_positives(df, freq_harmonic=1):
-    """Count sessions with excess suspects, optionally filtered by frequency harmonic.
+def flag_sessions_with_excess_suspects(df, freq_harmonic=1):
+    """Flag sessions with excess suspects, optionally filtered by frequency harmonic.
 
     Args:
         df: DataFrame with 'freq' column
@@ -57,13 +57,13 @@ def get_num_positives(df, freq_harmonic=1):
     diff_list = []
     for (_), recdf in df.groupby(["species", "area", "rec"]):
         if freq_harmonic==1:
-            vals= recdf.rr.values 
+            vals= recdf.rr.values
         elif freq_harmonic==2:
             vals= recdf['2f_rr'].values
         else:
             raise ValueError("freq_harmonic must be 1 or 2")
-        
-        n_empirical, f_expected, f_lo, f_hi = statistics.get_suspect_stats(
+
+        n_empirical, f_expected, f_lo, f_hi = statistics.suspect_count_significance(
             vals, 0.99, conf_int_α=0.05)
 
         diff_list.append(1 if n_empirical > f_hi else 0)
@@ -158,10 +158,10 @@ def plot_fig2(all_fourier_df, out_dir: Path):
 
     # Stats summary printed to stdout
     # Separate F and 2F analyses
-    neg_res_F = get_num_positives(all_neg_res, freq_harmonic=1)
-    neg_res_2F = get_num_positives(all_neg_res, freq_harmonic=2)
-    pos_control_F = get_num_positives(all_pos_control, freq_harmonic=1)
-    pos_control_2F = get_num_positives(all_pos_control, freq_harmonic=2)
+    neg_res_F = flag_sessions_with_excess_suspects(all_neg_res, freq_harmonic=1)
+    neg_res_2F = flag_sessions_with_excess_suspects(all_neg_res, freq_harmonic=2)
+    pos_control_F = flag_sessions_with_excess_suspects(all_pos_control, freq_harmonic=1)
+    pos_control_2F = flag_sessions_with_excess_suspects(all_pos_control, freq_harmonic=2)
 
     print(f"\n% sessions with excess suspects (F):")
     if len(neg_res_F) > 0:

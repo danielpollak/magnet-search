@@ -1,11 +1,15 @@
 """
 Analysis-stage diagnostic plots.
 
-plot_analysis_diagnostics  — single multi-page PDF, three pages per (rec, freq) group:
+plot_analysis_diagnostics  — single multi-page PDF, up to six pages per (rec, freq) group:
   Page 1 (2×2): [power spectrum]  [c-hat histogram]
                 [coefficient CDF] [magnitude PDF  ]
-  Page 2 (2×1): Fourier coefficient spectrum (real + imaginary vs frequency)
-  Page 3 (4×1): Moments of off-frequency coefficients vs firing rate
+  Page 2 (1×1): Spike raster (units sorted by c-hat, period boundaries marked)
+  Page 3 (2×1): Fourier coefficient spectrum (real + imaginary vs frequency)
+  Page 4 (4×1): Moments of off-frequency coefficients vs firing rate
+  Page 5 (1×1): 2F c-hat histogram
+  Page 6 (2×1): 2F Fourier coefficient spectrum (only when per-unit 2F
+                coefficients are available -- see that page's own comment)
 All axes content is rasterized.
 """
 from pathlib import Path
@@ -93,7 +97,23 @@ def plot_analysis_diagnostics(cfg, modulation_df, fourier_df, log_dict, save_dir
             pdf.savefig(fig, dpi=150)
             plt.close(fig)
 
-            # ── Page 2: Fourier coefficient spectrum (power_by_freq) ─────────
+            # ── Page 2: Spike raster (sorted by c-hat, period boundaries) ────
+            rr_by_id = dict(zip(fdf_group["id"], fdf_group["rr"]))
+            id_spk_pairs = [(id_, g["spk"].values)
+                            for id_, g in modulation_df.loc[mod_mask].groupby("id")
+                            if len(g) > 0]
+            id_spk_pairs.sort(key=lambda p: rr_by_id.get(p[0], -1), reverse=True)
+
+            fig_r, ax_r = plt.subplots(figsize=(10, 6))
+            fig_r.suptitle(f"{cfg.name}  |  {rec}  |  {freq} Hz  —  spike raster "
+                           f"(sorted by c-hat, high → low)", fontsize=9)
+            _fill_spike_raster(ax_r, id_spk_pairs, freq)
+            _rasterize_ax(ax_r)
+            fig_r.tight_layout()
+            pdf.savefig(fig_r, dpi=150)
+            plt.close(fig_r)
+
+            # ── Page 3: Fourier coefficient spectrum (power_by_freq) ─────────
             entry = log_dict.get((rec, freq), {})
             if all(k in entry for k in ("ff_alt", "fou_alt", "fou0")):
                 fig2, axes2 = plt.subplots(2, 1, figsize=(10, 6))
@@ -115,7 +135,7 @@ def plot_analysis_diagnostics(cfg, modulation_df, fourier_df, log_dict, save_dir
                 pdf.savefig(fig2, dpi=150)
                 plt.close(fig2)
 
-            # ── Page 3: Moments vs firing rate ───────────────────────────────
+            # ── Page 4: Moments vs firing rate ───────────────────────────────
             if all(k in entry for k in ("nn", "fou_alt_c", "T")):
                 try:
                     fig3_axes = Moments_vs_FR(
@@ -136,6 +156,61 @@ def plot_analysis_diagnostics(cfg, modulation_df, fourier_df, log_dict, save_dir
                              transform=ax3.transAxes, fontsize=7)
                     pdf.savefig(fig3, dpi=150)
                     plt.close(fig3)
+
+            # ── Page 5: 2F c-hat histogram ────────────────────────────────────
+            # Mirrors Page 1's c-hat histogram but for the 2nd harmonic. The
+            # 2F group has its own bin count M_2f (~= 2*M_1f under the
+            # Q_frac policy -- see fit_fourier_sig), looked up from the twoF_
+            # log_dict entry rather than fourier_df's "Q" column (which only
+            # ever holds the 1F bin count, matching what it already meant
+            # pre-Q_frac -- see .claude/plans).
+            twoF_key = ("twoF_" + rec, "twoF_" + str(freq))
+            twoF_entry = log_dict.get(twoF_key, {})
+            rr_2f_all = fdf_group["2f_rr"].values if "2f_rr" in fdf_group.columns else np.array([])
+            rr_2f = rr_2f_all[~np.isnan(rr_2f_all)] if len(rr_2f_all) else rr_2f_all
+
+            if len(rr_2f) >= 2:
+                fig5, ax5 = plt.subplots(figsize=(7, 5))
+                fig5.suptitle(f"{cfg.name}  |  {rec}  |  {freq * 2} Hz (2F)  —  "
+                              f"c-hat distribution", fontsize=9)
+                _fill_chat_hist(ax5, rr_2f, Q=twoF_entry.get("M"))
+                ax5.set_title(f"N = {len(rr_2f)} units")
+                _rasterize_ax(ax5)
+                fig5.tight_layout()
+                pdf.savefig(fig5, dpi=150)
+                plt.close(fig5)
+
+                # ── Page 6: 2F Fourier coefficient spectrum ──────────────────
+                # Per-unit 2F Fourier coefficients (fou_alt/fou0) would need
+                # log_dict straight from fit_fourier_sig() -- but BOTH
+                # simple.py and multistim.py rebuild their diagnostics input
+                # from the just-written NWB file (nwb_io.
+                # read_log_dict_equivalent), which only persists 1F per-unit
+                # coefficients (see that function's docstring), so this page
+                # never renders under the current NWB schema for any NPIX
+                # call site. Kept as a graceful skip (matching how Pages 3/4
+                # already skip when their own data is missing) rather than
+                # deleted outright, in case a future caller passes a
+                # fit_fourier_sig()-sourced log_dict directly.
+                if all(k in twoF_entry for k in ("ff_alt", "fou_alt", "fou0")):
+                    fig6, axes6 = plt.subplots(2, 1, figsize=(10, 6))
+                    fig6.suptitle(
+                        f"{cfg.name}  |  {rec}  |  {freq * 2} Hz (2F)  —  "
+                        f"Fourier spectrum", fontsize=9)
+                    kk6 = _subsample_units(len(twoF_entry["fou_alt"]), max_units=30)
+                    try:
+                        plot_power_by_freq(
+                            twoF_entry["ff_alt"], twoF_entry["fou_alt"],
+                            twoF_entry["fou0"], freq * 2, kk=kk6, axes=axes6)
+                    except Exception as exc:
+                        axes6[0].text(0.5, 0.5, f"error:\n{exc}", ha="center",
+                                      va="center", transform=axes6[0].transAxes,
+                                      fontsize=7)
+                    for ax in axes6:
+                        _rasterize_ax(ax)
+                    fig6.tight_layout()
+                    pdf.savefig(fig6, dpi=150)
+                    plt.close(fig6)
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +256,47 @@ def _fill_power_spectra(ax, spks, freq, f_lo=0.3, f_hi=20, df=0.3):
 
     ax.set_xlabel("Frequency (Hz)")
     ax.set_ylabel("Power (a.u.)")
+
+
+def _fill_spike_raster(ax, id_spk_pairs, freq, max_units=80, max_periods=20):
+    """Rasterized spike-raster plot: one row per unit (in the order given by
+    the caller -- e.g. sorted by c-hat descending), spike times on the
+    x-axis, with vertical dashed lines marking stimulus period boundaries so
+    stimulus-locked (or not) structure in the raw spikes can be compared by
+    eye against the reported Fourier result. Restricted to `max_periods`
+    periods (from the first spike) so long recordings still render as a
+    legible raster instead of a solid smear.
+    """
+    if not id_spk_pairs:
+        ax.text(0.5, 0.5, "no spikes", ha="center", va="center",
+                transform=ax.transAxes, fontsize=8)
+        return
+
+    period_s = 1.0 / freq
+    pairs = id_spk_pairs[:max_units]
+    nonempty = [s for _, s in pairs if len(s) > 0]
+    if not nonempty:
+        ax.text(0.5, 0.5, "no spikes", ha="center", va="center",
+                transform=ax.transAxes, fontsize=8)
+        return
+    t0 = min(s.min() for s in nonempty)
+    t_window_end = t0 + max_periods * period_s
+
+    spk_list = [s[(s >= t0) & (s <= t_window_end)] - t0 for _, s in pairs]
+
+    ax.eventplot(spk_list, lineoffsets=np.arange(len(spk_list)), linelengths=0.8,
+                 colors="k", linewidths=0.5, rasterized=True)
+
+    n_periods_drawn = int(np.ceil((t_window_end - t0) / period_s))
+    for k in range(n_periods_drawn + 1):
+        ax.axvline(k * period_s, color="crimson", lw=0.6, alpha=0.6,
+                   linestyle="--", zorder=0, rasterized=True)
+
+    ax.set_xlim(0, t_window_end - t0)
+    ax.set_ylim(-1, len(spk_list))
+    ax.set_xlabel(f"Time (s), relative to first spike -- dashed lines every "
+                  f"period ({period_s:.2f} s)")
+    ax.set_ylabel(f"Unit (N={len(spk_list)} of {len(id_spk_pairs)} shown)")
 
 
 def _fill_chat_hist(ax, rr, Q=None):

@@ -8,4 +8,4 @@ iscell_threshold: 0.8
 npix_threshold: 7
 analysis:
   f: 0.1
-  Q: 60
+  Q_frac: 0.15

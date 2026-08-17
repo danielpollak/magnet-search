@@ -8,7 +8,7 @@ metadata_csv: '\\datanas\family\data_aggregated\20220228_secondsitemetadata.csv'
 threshold: 300
 window_size: 5
 analysis:
-  Q: 100
+  Q_frac: 0.15
 trials:
   - folder: '\\datanas\family\data_raw\20220228\2nd site 2 Hz_2022-02-28_17-48-17'
     frequency: 2

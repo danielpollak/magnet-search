@@ -8,9 +8,9 @@ window_size: 5
 aggregated_path: '\\datanas\family\data_aggregated\20230415'
 metadata_csv: '\\datanas\family\data_aggregated\20230415metadata.csv'
 analysis:
-  mag_Q: 90
-  visual_Q: 90
-  WN_Q: 50
+  mag_Q_frac: 0.15
+  visual_Q_frac: 0.15
+  WN_Q_frac: 0.15
   mag_rec_substring: "mag"
   visual_rec_substring: "visual"
   wn_rec_substring: "WN"

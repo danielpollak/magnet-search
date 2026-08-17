@@ -155,34 +155,67 @@ def normalize_chat(on_freq, off_freqs):
     return np.abs(on_freq) / np.sqrt(0.5 * np.mean(np.abs(off_freqs)**2))
     
 
-def fit_Fourier(F, T=1, f=0.4, Q=100):
+def fit_Fourier(F, T=1, f=0.4, Q_frac=0.1):
     """
     F: (2d arr) fluorescence traces
-    T: (int) sample spacing (inverse of sampling rate) 
+    T: (int) sample spacing (inverse of sampling rate)
     f: (float) stim frequency
-    Q: (int): frequency window size
+    Q_frac: (float) off-frequency half-window width, as a fraction of `f`
+        (half-width_Hz = Q_frac * f). Converted to an integer bin count `M`
+        via `bins_for_fraction`, using this call's own real-FFT bin
+        resolution `1/(N*T)` (N = frame count after the 120-frame-multiple
+        truncation below) -- see that function's docstring for the exact
+        formula and error conditions.
+
+    Returns chat_l, onfreq_pow_l, offfreq_pow_l, xf[freq_win], M, avg_signal_l
+    -- avg_signal_l is each cell's mean RAW fluorescence, over the same
+    N-frame window the FFT itself analyzes. This is the numerator of the
+    `sens` statistic (avg_signal / (2*sigma)), analogous to the spiking-side
+    `nn / (2*sigma)` where `nn` is spike count.
     """
 
     onfreq_pow_l = np.zeros(len(F),dtype="complex")
     offfreq_pow_l = [None] * len(F)
 
-    F = (F.T - np.min(F, axis=1)).T
-    
+    # N/xf/f0/M don't depend on cell_ind (only on F.shape[1] and T) -- hoisted
+    # out of the per-cell loop instead of being recomputed every iteration.
+    # `120*(F.shape[1]//60)` is a NOMINAL "multiple of 120 frames" target,
+    # but it routinely EXCEEDS the actual frame count (e.g. 2280 vs an
+    # actual 1194) -- the per-cell slice below then silently clips to
+    # F.shape[1] elements. N must reflect that ACTUAL (possibly clipped)
+    # length, exactly like the original per-cell `N = len(y)` (computed
+    # AFTER slicing) did, or fftfreq/f0/freq_win end up built on a
+    # frequency grid that doesn't match the real FFT output length at all --
+    # confirmed on real data: silently wrong with no crash, pulling power
+    # from the wrong bin entirely (e.g. requesting 0.4 Hz on a grid sized
+    # for 2280 samples, but actually getting a 1194-sample FFT, ends up
+    # reading the bin for ~0.76 Hz instead).
+    N = min(int(120 * (F.shape[1] // 60)), F.shape[1])
+    avg_signal_l = np.mean(F[:, :N], axis=1)
+
+    xf = fftfreq(N, T)[:N // 2]
+    f0 = np.argmin(np.abs(f - xf))
+    # max_bins: the tighter of the two sides actually available in this
+    # real-FFT grid (only N//2 bins wide) -- without this, a high base
+    # frequency close to Nyquist combined with a wide Q_frac can request a
+    # window that runs off the edge of the spectrum, silently corrupting
+    # freq_win rather than erroring at the point of misconfiguration.
+    max_bins = min(f0, len(xf) - 1 - f0)
+    M = bins_for_fraction(f, Q_frac, resolution=1.0 / (N * T), max_bins=max_bins,
+                           context=f"fit_Fourier @ {f}Hz ")
+    freq_win = np.concatenate([np.arange(f0 - M, f0), np.arange(f0 + 1, f0 + M + 1)])
+
     for cell_ind in range(len(F)):
         # 120 is the lowest common multiple of the periods here.
-        y = F[cell_ind,:int(120*(F.shape[1]//60))].copy()
+        y = F[cell_ind, :N].copy()
         y -= np.mean(y)
-        N = len(y)
         yf = fft(y)[:N//2]
-        xf = fftfreq(N, T)[:N//2]
 
-        f0 = np.argmin(np.abs(f-xf))
-        freq_win = np.concatenate([np.arange(f0-(Q-1), f0), np.arange(f0+1, f0+Q)])
         offfreq_pow_l[cell_ind] = yf[freq_win]
         onfreq_pow_l[cell_ind] = yf[f0]
 
     chat_l = [normalize_chat(c_on, c_off) for c_on, c_off in zip(onfreq_pow_l, offfreq_pow_l)]
-    return chat_l, onfreq_pow_l, offfreq_pow_l, xf[freq_win]
+    return chat_l, onfreq_pow_l, offfreq_pow_l, xf[freq_win], M, avg_signal_l
 
 
 def fit_Fourier_deprecated(F, T=1, f_v=1/60, f_b=0.4, Q_v=6, Q_b=100):
@@ -436,7 +469,9 @@ def remove_flatlines(F, spks=None, stat=None, rtol=0.01, f=0.2):
     row) without the fragile centroid-matching this used to require."""
 
     """Note: if there are nans, that means that the trace is all zeros"""
-    chat_l, onfreq_pow_l, offfreq_pow_l, xf = fit_Fourier(F, T=1, f=f, Q=100)
+    # Q_frac here is an artifact-detection window, not stimulus-meaningful --
+    # only needs to clear MIN_FOURIER_BINS at this f=0.2 default.
+    chat_l, onfreq_pow_l, offfreq_pow_l, xf, _M, _avg_signal_l = fit_Fourier(F, T=1, f=f, Q_frac=0.15)
     inclusion_inds = np.where(
         np.logical_not(np.isclose(chat_l, np.sqrt(2), rtol=rtol))
         & np.logical_not(np.isnan(chat_l)))[0]

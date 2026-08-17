@@ -2,7 +2,7 @@
 import os
 from pathlib import Path
 
-from magpyneto2 import find_outliers
+from magpyneto2 import fit_fourier_sig
 from pipeline import nwb_io
 
 
@@ -16,13 +16,13 @@ def run_analysis(cfg):
     modulation_df = nwb_io.build_modulation_frame(nwbfile, good_only=cfg.good)
     io_p.close()
 
-    full_fourier_df, log_dict = find_outliers(
-        modulation_df, Q=cfg.analysis.Q, diagnostics=False)
+    full_fourier_df, log_dict = fit_fourier_sig(
+        modulation_df, Q_frac=cfg.analysis.Q_frac, diagnostics=False)
 
-    nwb_io.append_results(
+    nwb_io.rebuild_and_replace_analysis(
         cfg.nwb_path(),
         lambda nwbfile: nwb_io.write_fourier_results(
-            nwbfile, full_fourier_df, log_dict, cfg.analysis.Q),
+            nwbfile, full_fourier_df, log_dict),
     )
 
     # Read diagnostics input back from the just-written NWB file rather than

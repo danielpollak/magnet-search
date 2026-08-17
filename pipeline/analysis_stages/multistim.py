@@ -5,7 +5,7 @@ Splits modulation_df by rec-name substring and applies per-stimulus-type Q value
 import os
 from pathlib import Path
 
-from magpyneto2 import find_outliers
+from magpyneto2 import fit_fourier_sig
 from pipeline import nwb_io
 
 
@@ -21,41 +21,41 @@ def run_analysis(cfg):
     modulation_df = nwb_io.build_modulation_frame(nwbfile, good_only=cfg.good)
     io_p.close()
 
-    # Detect whether this experiment has per-stimulus Q values
-    has_multiq = a.mag_Q > 0
+    # Detect whether this experiment has per-stimulus Q_frac values
+    has_multiq = a.mag_Q_frac > 0
 
-    # (fourier_df, log_dict, Q) per sub-analysis -- written to NWB below in
-    # the SAME per-Q groups find_outliers() was actually called with
-    # (write_fourier_results is safe to call multiple times on one nwbfile,
-    # see its docstring).
+    # (fourier_df, log_dict) per sub-analysis -- written to NWB below.
+    # write_fourier_results no longer takes a Q argument (it sources each
+    # group's actual bin count from log_dict itself -- see its docstring),
+    # so there's no need to carry a Q/fraction alongside each pair anymore.
     nwb_results = []
 
     if not has_multiq:
-        # Fall back to single Q if YAML only specifies analysis.Q
-        full_fourier_df, log_dict = find_outliers(
-            modulation_df, Q=a.Q, diagnostics=False)
-        nwb_results.append((full_fourier_df, log_dict, a.Q))
+        # Fall back to single fraction if YAML only specifies analysis.Q_frac
+        full_fourier_df, log_dict = fit_fourier_sig(
+            modulation_df, Q_frac=a.Q_frac, diagnostics=False)
+        nwb_results.append((full_fourier_df, log_dict))
     else:
         mag_mask = [a.mag_rec_substring in rec for rec in modulation_df.rec]
         visual_mask = [a.visual_rec_substring in rec for rec in modulation_df.rec]
         wn_mask = [a.wn_rec_substring in rec for rec in modulation_df.rec]
 
-        for mask, Q, label in [
-            (mag_mask,    a.mag_Q,    "mag"),
-            (visual_mask, a.visual_Q, "visual"),
-            (wn_mask,     a.WN_Q,     "WN"),
+        for mask, frac, label in [
+            (mag_mask,    a.mag_Q_frac,    "mag"),
+            (visual_mask, a.visual_Q_frac, "visual"),
+            (wn_mask,     a.WN_Q_frac,     "WN"),
         ]:
             sub = modulation_df.loc[mask]
             if sub.empty:
                 continue
-            fourier_df, log_dict = find_outliers(sub, Q=Q, diagnostics=False)
-            nwb_results.append((fourier_df, log_dict, Q))
+            fourier_df, log_dict = fit_fourier_sig(sub, Q_frac=frac, diagnostics=False)
+            nwb_results.append((fourier_df, log_dict))
 
-    nwb_io.append_results(
+    nwb_io.rebuild_and_replace_analysis(
         cfg.nwb_path(),
         lambda nwbfile: [
-            nwb_io.write_fourier_results(nwbfile, fdf, ld, Q)
-            for fdf, ld, Q in nwb_results
+            nwb_io.write_fourier_results(nwbfile, fdf, ld)
+            for fdf, ld in nwb_results
         ],
     )
 

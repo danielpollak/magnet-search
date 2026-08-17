@@ -156,7 +156,7 @@ def run_analysis(cfg):
     onfreq_2f_l, offfreq_2f_l = r["onfreq_2f_l"], r["offfreq_2f_l"]
 
     # ── NWB write (see .claude/plans — NWB replatform, Phase 4) ────────────
-    nwb_io.append_results(
+    nwb_io.rebuild_and_replace_analysis(
         cfg.nwb_path(),
         lambda nwbfile: nwb_io.write_imaging_fourier_results(
             nwbfile, rec=cfg.name, freq=freq, Q=Q,

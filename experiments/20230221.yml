@@ -8,9 +8,9 @@ window_size: 5
 aggregated_path: '\\datanas\family\data_aggregated\20230221'
 metadata_csv: '\\datanas\family\data_aggregated\20230221metadata.csv'
 analysis:
-  mag_Q: 25
-  visual_Q: 50
-  WN_Q: 30
+  mag_Q_frac: 0.20  # 0.15 yields only M=7 (< min 8) at the 1 Hz mag trials here
+  visual_Q_frac: 0.15
+  WN_Q_frac: 0.20  # 0.15 yields only M=7 (< min 8) for the short WN3D trial here
   mag_rec_substring: "mag"
   visual_rec_substring: "oddball"
   wn_rec_substring: "WN"

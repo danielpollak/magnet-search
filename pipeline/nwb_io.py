@@ -12,7 +12,7 @@ Fourier-analysis results tables. Phase 4 adds the ophys (engert/medaka)
 branch: `PlaneSegmentation` (all suite2p ROIs, unfiltered) + `RoiResponseSeries`
 (fluorescence traces), and a `fit_Fourier()`-sourced analog of the Fourier
 results tables (see `write_imaging_fourier_results` — `write_fourier_results`
-itself is tightly coupled to `find_outliers()`'s `log_dict` shape, which
+itself is tightly coupled to `fit_fourier_sig()`'s `log_dict` shape, which
 `fit_Fourier()` has no equivalent of, so imaging gets its own writer
 targeting the *same* table schema; `read_fourier_results_as_full_fourier_df`
 is shared unchanged).
@@ -45,7 +45,7 @@ from pynwb.epoch import TimeIntervals
 from pynwb.file import Subject
 from pynwb.ophys import ImagingPlane, ImageSegmentation, PlaneSegmentation, OpticalChannel, Fluorescence, RoiResponseSeries
 
-AP_SR = 30_000  # default NPIX/spike sampling rate (matches find_outliers's sr=30_000 default)
+AP_SR = 30_000  # default NPIX/spike sampling rate (matches fit_fourier_sig's sr=30_000 default)
 
 GZIP_LEVEL = 4  # empirically: level 4 vs 9 made no measurable difference on
                 # real spike_times/fluorescence data (both float64/float32
@@ -652,10 +652,10 @@ def _gratings_group_exclusions(epochs, units_df, sr, min_spikes):
 def build_modulation_frame(nwbfile, rec=None, good_only=True, min_spikes=50):
     """Reconstruct a `modulation_df`-shaped, in-memory-only DataFrame
     (columns: period, spk, phase, freq, id, rec) from the NWB file's `Units`
-    + `stimulus_epochs` tables — exactly the input `find_outliers()` expects.
+    + `stimulus_epochs` tables — exactly the input `fit_fourier_sig()` expects.
 
     This is never persisted; it is a transient adapter so the (unmodified)
-    `find_outliers()` machinery keeps working against NWB-backed data. See
+    `fit_fourier_sig()` machinery keeps working against NWB-backed data. See
     the NWB replatform design doc, "Is modulation_df eliminated?".
     """
     sr = get_sampling_rate(nwbfile)
@@ -903,19 +903,19 @@ def build_modulation_frame(nwbfile, rec=None, good_only=True, min_spikes=50):
 
 
 # ---------------------------------------------------------------------------
-# Fourier-analysis results (persists find_outliers()'s intermediates, which
+# Fourier-analysis results (persists fit_fourier_sig()'s intermediates, which
 # today are computed, used for diagnostics, and discarded every single run)
 # ---------------------------------------------------------------------------
 
 def write_fourier_results(nwbfile, fourier_df, log_dict):
-    """Persist `find_outliers()`'s scalar results *and* its previously-
+    """Persist `fit_fourier_sig()`'s scalar results *and* its previously-
     discarded per-group/per-unit intermediates (ff_alt, fou0, fou_alt) into
     three linked DynamicTables under `nwbfile.processing["analysis"]`.
 
-    No changes to `find_outliers()` itself are required: `log_dict` already
+    No changes to `fit_fourier_sig()` itself are required: `log_dict` already
     carries every per-group intermediate needed, INCLUDING each group's own
     actual off-frequency bin count (`entry["M"]`) -- under the Q_frac (bin
-    fraction) policy, a single `find_outliers()` call already produces
+    fraction) policy, a single `fit_fourier_sig()` call already produces
     different bin counts for different `(rec, freq)` groups and for the 1F
     vs. 2F harmonic of the same group (since the fraction is applied
     independently at each analyzed frequency), so there is no longer one
@@ -942,7 +942,7 @@ def write_fourier_results(nwbfile, fourier_df, log_dict):
         module = nwbfile.processing["analysis"]
     else:
         module = nwbfile.create_processing_module(
-            "analysis", "Fourier-analysis results (find_outliers intermediates)")
+            "analysis", "Fourier-analysis results (fit_fourier_sig intermediates)")
 
     # -- null-distribution model: one row per distinct M (shared, not
     #    duplicated per group or per unit, and not duplicated across
@@ -993,7 +993,7 @@ def write_fourier_results(nwbfile, fourier_df, log_dict):
         group_table.add_column("ff_alt", "off-frequencies analyzed, Hz", index=True)
 
     # NB: 2F log_dict keys are ("twoF_"+rec, "twoF_"+str(frq)) where `frq` is
-    # the *base* (1F) frequency — see find_outliers, `log_dict[("twoF_" +
+    # the *base* (1F) frequency — see fit_fourier_sig, `log_dict[("twoF_" +
     # rec, "twoF_"+str(frq))] = {..., "args": (spks, frq * 2, M_2f)}` — so the
     # base frequency, not frq*2, is what's embedded in the dict key string.
     group_row_by_key = {}  # (rec, base_freq) -> {"1F": (idx, entry), "2F": (idx, entry)}
@@ -1037,7 +1037,7 @@ def write_fourier_results(nwbfile, fourier_df, log_dict):
         unit_table.add_column("fou_alt_imag", "off-freq coefficients, imag parts, 1F", index=True)
         unit_table.add_column("sigma", "sqrt(0.5 * mean(|off-freq coeffs|^2)), 1F")
 
-    # positional alignment: within a (rec, freq) group, find_outliers builds
+    # positional alignment: within a (rec, freq) group, fit_fourier_sig builds
     # ids/fou0/fou_alt/fourier_df rows all from the same per-unit list, in
     # the same order — so position i in a fourier_df group == position i in
     # log_dict[(rec, freq)]'s arrays. No id-based lookup needed.
@@ -1077,7 +1077,7 @@ def write_fourier_results(nwbfile, fourier_df, log_dict):
 
 def read_fourier_results_as_full_fourier_df(nwbfile):
     """Reconstruct a `full_fourier_df`-shaped DataFrame (columns matching
-    `find_outliers()`'s legacy output) from the persisted results tables —
+    `fit_fourier_sig()`'s legacy output) from the persisted results tables —
     used by `verify_outputs.py` and `aggregate.py`-equivalents so nothing
     needs to be recomputed to compare against/consume legacy pickles."""
     unit_df = nwbfile.processing["analysis"]["per_unit_fourier_results"].to_dataframe()
@@ -1085,7 +1085,7 @@ def read_fourier_results_as_full_fourier_df(nwbfile):
 
     # Per-row, not a single file-wide scalar: openephys_multistim can apply
     # different Q per stimulus type (mag_Q/visual_Q/WN_Q), and legacy
-    # find_outliers() stamps its own Q argument onto every row of *its*
+    # fit_fourier_sig() stamps its own Q argument onto every row of *its*
     # call's result, so the concatenated full_fourier_df genuinely varies by
     # group -- matching that here, not just reading group_df["Q"].iloc[0].
     rec = group_df.loc[unit_df["group_1f_index"], "rec"].values
@@ -1501,7 +1501,7 @@ def write_nwbfile(nwbfile, nwb_path):
         io.write(nwbfile)
 
 
-def append_results(nwb_path, build_results_fn):
+def rebuild_and_replace_analysis(nwb_path, build_results_fn):
     """Read `nwb_path`, call `build_results_fn(nwbfile)` to add new
     containers (e.g. via `write_fourier_results`), and export the result to
     a fresh copy that atomically replaces the original.
@@ -1568,10 +1568,10 @@ def append_results(nwb_path, build_results_fn):
 
 def read_log_dict_equivalent(nwbfile):
     """Reconstruct a `log_dict`-shaped dict (same keys/array shapes
-    `find_outliers()` returns) from the persisted results tables, for
+    `fit_fourier_sig()` returns) from the persisted results tables, for
     feeding `plot_analysis_diagnostics` without recomputing anything.
 
-    1F entries get the full shape `find_outliers()` produces (C/T/ff_alt/M/
+    1F entries get the full shape `fit_fourier_sig()` produces (C/T/ff_alt/M/
     nn/fou0/fou_alt/fou_alt_c). 2F entries get only the GROUP-level
     intermediates (C/T/ff_alt/M) -- `per_unit_fourier_results` only
     persists PER-UNIT Fourier coefficients (fou_alt_real/imag, fou0_real/

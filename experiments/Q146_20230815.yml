@@ -8,6 +8,6 @@ mag_channel: 1
 smooth_window: 50
 mag_threshold: -20000
 analysis:
-  Q: 100
+  Q_frac: 0.15
 trials:
   - frequency: 4

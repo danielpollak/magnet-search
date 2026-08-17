@@ -98,7 +98,7 @@ def compute_ci_df(spks):
             (C, T, nn, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, c_hats) = \
                 statistics.fourier_analysis(modulated, FREQ, "ideal", None)
             n_empirical, f_expected, l_bound, h_bound = \
-                statistics.get_suspect_stats(c_hats, 0.99, conf_int_α=0.05)
+                statistics.suspect_count_significance(c_hats, 0.99, conf_int_α=0.05)
             data_d["mod"].append(A)
             data_d["ci"].append((l_bound, h_bound))
             data_d["mid"].append(n_empirical)

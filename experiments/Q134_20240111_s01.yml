@@ -3,6 +3,6 @@ paradigm: "gutfreund"
 good: True
 aggregated_path: '\\datanas\family\data_aggregated\Gutfreund\Q134_11.01.24_s01'
 analysis:
-  Q: 100
+  Q_frac: 0.15
 trials:
   - frequency: 4

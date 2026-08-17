@@ -219,7 +219,7 @@ good: true
 stream_id: "2"
 recording_ldr_cntlbarcodes: false
 analysis:
-  Q: 100
+  Q_frac: 0.15
   mag_rec_substring: "Mag"
   visual_rec_substring: "visual"
   # ... stimulus-specific parameters
@@ -227,7 +227,7 @@ analysis:
 
 **Key YAML fields:**
 - `paradigm` — recording type (openephys, engert, medaka, etc.)
-- `analysis.Q` — Fourier window width (number of off-frequency bins on each side)
+- `analysis.Q_frac` — Fourier window half-width, as a fraction of `analysis.f` (half-width_Hz = Q_frac * f)
 - `analysis.f` — stimulus frequency in Hz
 - `iscell_threshold` / `npix_threshold` — suite2p cell filtering (engert/medaka)
 
@@ -245,7 +245,8 @@ python verify_outputs.py --stage processing --experiments 20220916 20230415
 
 Expected results:
 - **PASS** — DataFrames match exactly (column order and dtypes ignored)
-- **STALE_OLD** — Analysis differs from old pickle, but `find_outliers()` on old modulation_df yields new result (acceptable; algorithm evolved)
+- **STALE_OLD** — Analysis differs from old pickle, but `fit_fourier_sig()` on old modulation_df yields new result (acceptable; algorithm evolved)
+- **STALE_SEMANTICS** — Analysis differs from old pickle because `Q` was redefined (raw off-frequency bin count → fraction of the analyzed frequency); reconciles under the current `Q_frac` config (acceptable, expected for every old fixture)
 - **FAIL** — Genuine mismatch (investigate)
 
 ## Project Structure

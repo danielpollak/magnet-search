@@ -10,4 +10,4 @@ npix_threshold: 20
 
 analysis:
   f: 0.4
-  Q: 100
+  Q_frac: 0.15

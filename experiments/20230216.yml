@@ -8,7 +8,7 @@ window_size: 5
 aggregated_path: '\\datanas\family\data_aggregated\20230216'
 metadata_csv: '\\datanas\family\data_aggregated\20230216metadata.csv'
 analysis:
-  Q: 25
+  Q_frac: 0.15
 trials:
   - folder: '\\datanas\family\data_raw\20230216\mag3hz_2023-02-16_11-43-42'
     frequency: 3

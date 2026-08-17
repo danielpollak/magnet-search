@@ -36,7 +36,7 @@ NEW_DATA = r"C:\Users\dan\Documents\magnet_search\data"
 NWB_DRIFT_ATOL = 1e-9
 # Relative counterpart to NWB_DRIFT_ATOL -- needed because reordering units
 # (e.g. good-only NWB writes changing dict/array iteration order feeding
-# find_outliers's vectorized ops) shifts float64 summation order, producing
+# fit_fourier_sig's vectorized ops) shifts float64 summation order, producing
 # differences that scale with a column's own magnitude, not a fixed
 # absolute size. Confirmed on real data (20220916's sens/sens_2f columns,
 # not O(1) like pp/rr): up to ~1.5e-8 absolute but only ~1e-11 *relative* --
@@ -158,7 +158,7 @@ def _frames_equal_sorted(a, b, sort_cols, atol=0.0, rtol=0.0):
 
     `rtol` matters alongside `atol`: confirmed on real data (20220916's
     `sens`/`sens_2f` columns) that excluding MUA units reorders the array
-    feeding find_outliers's vectorized ops, shifting float64 summation
+    feeding fit_fourier_sig's vectorized ops, shifting float64 summation
     order enough to produce ~1.5e-8 absolute (but only ~1e-11 *relative*)
     differences in columns whose values aren't O(1) like pp/rr are --
     atol alone can't cover every column's scale without also being loose
@@ -233,7 +233,7 @@ def _compare_tiered(old_df, nwb_df, sort_cols):
     return f"FAIL: {tol_err}", exact_err
 
 
-_OK_TAGS = ("PASS", "SKIP", "STALE_OLD", "DRIFT_TOLERATED")
+_OK_TAGS = ("PASS", "SKIP", "STALE_OLD", "STALE_SEMANTICS", "DRIFT_TOLERATED")
 
 
 def _is_ok(tag):
@@ -262,52 +262,56 @@ def _print_result_row(name, results, cols):
     return status == "OK"
 
 
-def _reconcile_stale_old(name, old_proc_df, nwb_anal_df):
-    """Re-run find_outliers() on the OLD modulation_df using THIS
+def _reconcile_under_current_Q_semantics(name, old_proc_df, nwb_anal_df):
+    """Re-run fit_fourier_sig() on the OLD modulation_df using THIS
     experiment's actual analysis config, and check whether the result now
     matches nwb_anal_df (the frame reconstructed from `{name}.nwb`) -- i.e.
-    is the analysis-stage mismatch fully explained by find_outliers() having
+    is the analysis-stage mismatch fully explained by fit_fourier_sig() having
     evolved since the old fixture was generated, not a real bug?
 
-    Previously hardcoded `Q=100` for every experiment, which happened to be
-    right for many single-Q paradigms but is WRONG for (a) any single-Q
-    experiment whose own `analysis.Q != 100` (e.g. 20230216 uses Q=25) and
-    (b) every openephys_multistim experiment with per-stimulus-type Q
-    overrides (mag_Q/visual_Q/WN_Q) -- both cases were silently falling
-    through to a spurious FAIL instead of the correct STALE_OLD, requiring
-    manual re-verification every time one came up. This mirrors
-    analysis_stages/simple.py (single Q) and analysis_stages/multistim.py
-    (per-type Q splitting) instead of guessing a single global Q.
+    Uses per-experiment Q_frac/per-type Q_frac from THIS experiment's own
+    YAML, matching analysis_stages/simple.py (single Q_frac) and
+    analysis_stages/multistim.py (per-type Q_frac splitting) instead of
+    guessing a single global value.
+
+    NOTE: as of the Q-redefinition (raw integer bin count -> fraction of the
+    analyzed frequency), a mismatch reconciled here is virtually never "the
+    algorithm evolved" in the STALE_OLD sense anymore -- `old_anal_df` was
+    generated under the OLD integer-Q semantics entirely, so re-running under
+    the NEW fraction semantics reconciling successfully mostly reflects that
+    deliberate redefinition, not an incidental evolution. verify_experiment
+    labels a successful reconciliation `STALE_SEMANTICS` rather than
+    `STALE_OLD` to keep that distinct.
 
     Returns (ok: bool, fresh_ff: DataFrame or None).
     """
-    from magpyneto2.statistics import find_outliers as _fo
+    from magpyneto2.statistics import fit_fourier_sig as _fo
     cfg = _load_experiment_by_name(name)
     a = cfg.analysis
 
-    if cfg.paradigm == "openephys_multistim" and a.mag_Q > 0:
+    if cfg.paradigm == "openephys_multistim" and a.mag_Q_frac > 0:
         sub_dfs = []
         mag_mask = [a.mag_rec_substring in rec for rec in old_proc_df.rec]
         visual_mask = [a.visual_rec_substring in rec for rec in old_proc_df.rec]
         wn_mask = [a.wn_rec_substring in rec for rec in old_proc_df.rec]
-        for mask, Q, _label in [(mag_mask, a.mag_Q, "mag"),
-                                 (visual_mask, a.visual_Q, "visual"),
-                                 (wn_mask, a.WN_Q, "WN")]:
+        for mask, frac, _label in [(mag_mask, a.mag_Q_frac, "mag"),
+                                    (visual_mask, a.visual_Q_frac, "visual"),
+                                    (wn_mask, a.WN_Q_frac, "WN")]:
             sub = old_proc_df.loc[mask]
             if sub.empty:
                 continue
-            fourier_df, _ = _fo(sub, Q=Q, diagnostics=False)
+            fourier_df, _ = _fo(sub, Q_frac=frac, diagnostics=False)
             sub_dfs.append(fourier_df)
         fresh_ff = pd.concat(sub_dfs).reset_index(drop=True) if sub_dfs else None
     else:
-        fresh_ff, _ = _fo(old_proc_df, Q=a.Q, diagnostics=False)
+        fresh_ff, _ = _fo(old_proc_df, Q_frac=a.Q_frac, diagnostics=False)
 
     if fresh_ff is None:
         return False, None
     cols = [c for c in fresh_ff.columns if c in nwb_anal_df.columns]
     # atol=NWB_DRIFT_ATOL, not 0.0: confirmed on real data (20220314) that
     # reordering units (e.g. excluding MUA from the NWB Units table changes
-    # dict/array iteration order feeding find_outliers) shifts float64
+    # dict/array iteration order feeding fit_fourier_sig) shifts float64
     # summation order enough to produce ~1e-13-relative-magnitude
     # differences in `pp`/`rr` -- the exact same class of harmless
     # numerical noise NWB_DRIFT_ATOL already exists to absorb elsewhere,
@@ -378,14 +382,19 @@ def verify_experiment(name, old_proc_file, old_anal_file, verbose=True):
         if status == "PASS" or status.startswith("DRIFT_TOLERATED"):
             results["analysis"] = status
         elif old_proc_df is not None:
-            # Check whether the discrepancy is from find_outliers evolving:
-            # re-run it on the old modulation_df, using THIS experiment's
-            # actual Q config (see _reconcile_stale_old), and see if it
-            # matches the NWB reconstruction.
+            # Check whether the discrepancy is fully explained by re-running
+            # fit_fourier_sig on the old modulation_df with THIS experiment's
+            # actual (post Q-redefinition) Q_frac config (see
+            # _reconcile_under_current_Q_semantics) -- almost always the
+            # Q-semantics redefinition itself for these ancient fixtures, not
+            # an incidental algorithm change, hence STALE_SEMANTICS rather
+            # than STALE_OLD (see CLAUDE.md's verify_outputs.py behaviour section).
             try:
-                ok2, _ = _reconcile_stale_old(name, old_proc_df, nwb_anal_df)
-                results["analysis"] = ("STALE_OLD (find_outliers evolved; new matches fresh run)"
-                                        if ok2 else status)
+                ok2, _ = _reconcile_under_current_Q_semantics(name, old_proc_df, nwb_anal_df)
+                results["analysis"] = (
+                    "STALE_SEMANTICS (Q redefined int-bins -> freq-fraction; "
+                    "new matches fresh run under current Q_frac)"
+                    if ok2 else status)
             except Exception:
                 results["analysis"] = status
         else:

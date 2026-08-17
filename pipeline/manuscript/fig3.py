@@ -32,7 +32,7 @@ import format_parameters as FP
 
 
 
-def compute_waves(all_fourier_df):
+def split_into_occurrence_waves(all_fourier_df):
     all_neg_res, all_pos_control, all_unique_pos_control = \
         statistics.get_poscontrols_negresults(all_fourier_df)
 
@@ -86,7 +86,7 @@ def plot_uniform_p(waves, axes, u=0, percentile=None):
 
 
 def plot_fig3(all_fourier_df, out_dir: Path):
-    waves, wave_df_l = compute_waves(all_fourier_df)
+    waves, wave_df_l = split_into_occurrence_waves(all_fourier_df)
 
     font = {"family": FP.FONT_FAMILY, "size": FP.FS_BODY}
     matplotlib.rc("font", **font)

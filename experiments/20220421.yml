@@ -8,7 +8,7 @@ metadata_csv: '\\datanas\family\data_aggregated\20220421metadata.csv'
 threshold: 300
 window_size: 5
 analysis:
-  Q: 100
+  Q_frac: 0.15
 trials:
   - folder: '\\datanas\family\data_raw\20220421\mag1Hz_2022-04-21_18-06-30'
     frequency: 1

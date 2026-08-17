@@ -165,7 +165,7 @@ def bins_for_fraction(freq, fraction, resolution, *, min_bins=MIN_FOURIER_BINS,
         Half-width as a fraction of `freq` (e.g. 0.15 -> +/-15% of freq).
     resolution : float
         Frequency-grid bin spacing, Hz/bin: `1/T` for spike-train DFT
-        analysis (`fourier_analysis`/`find_outliers`), `1/(N*T)` for the
+        analysis (`fourier_analysis`/`fit_fourier_sig`), `1/(N*T)` for the
         imaging real-FFT analysis (`fit_Fourier`).
     min_bins : int
         Hard floor (MIN_FOURIER_BINS by default).
@@ -510,43 +510,7 @@ def fourier_analysis(spks, freq, idealized_or_empirical="ideal", phase_l=None, Q
     return (C, T, nn, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, c_hat)
 
 
-def get_excess_suspect_stats(rr, crossing_percentile, conf_int_α=0.05):
-    """
-    Puts confidence bounds on excess counts
-    
-    Parameters
-    ----------
-    rr: (np.array) Normalized Fourier coefficient magnitudes
-    crossing_percentile: (float) Percentile above which to count crossings empirically and theoretically
-    α: (float) significance level for confidence intervals 
-        
-    Outputs
-    -------
-    n_empirical: (int) Number of coefficients above the confidence bound
-    f_expected: (float) Expected number of coefficients above the confidence bound.
-    f_{lo/hi}: (floats)
-    
-    Notes
-    -----
-    Compute excess count
-    `excess_count = n_empirical - f_expected`
-    """
-    # Theoretical stats
-    K = len(rr)
-    f_expected = K * (1-crossing_percentile)
-
-    binom = scipy.stats.binom(K, 1-crossing_percentile)
-    f_lo = binom.ppf(conf_int_α/2) - f_expected
-    f_hi = binom.ppf(1-conf_int_α/2)  - f_expected
-    
-    # 
-    inverse_cdf_val = inverse_Rayleigh_CDF(crossing_percentile)
-    n_empirical = len(rr[rr>inverse_cdf_val])
-
-    return n_empirical, f_expected, f_lo, f_hi
-
-
-def get_suspect_stats(rr, crossing_percentile:float, conf_int_α:float=0.05, eps:float=0.0):
+def suspect_count_significance(rr, crossing_percentile:float, conf_int_α:float=0.05, eps:float=0.0):
     """
     Puts confidence bounds on excess counts
     
@@ -681,7 +645,7 @@ def gaussianinterp(xx, dat_x, dat_y, smo_x, err=False):
     return yy, sy
 
     
-def detect_modulation(modulation_df, full_log_dict, key, mods=np.arange(.01, 0.51, 0.01), Z=1000):
+def simulate_modulation_power(modulation_df, full_log_dict, key, mods=np.arange(.01, 0.51, 0.01), Z=1000):
     """
     Parameters
     ----------
@@ -1115,7 +1079,7 @@ def sanity_check_raw_data(θ, period_crossings, sts, n_representative_units=7, s
     return fig, axes
 
 
-def find_outliers(df, Q_frac, sr=30_000, method="ideal", diagnostics=True):
+def fit_fourier_sig(df, Q_frac, sr=30_000, method="ideal", diagnostics=True):
     """Runs fourier_analysis on a dataframe of spiking data
 
     Parameters
@@ -1423,11 +1387,11 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
                 # less than  one in a thousand.
                 sig_thres = 0.99 # Set by the number of recordings; less than one in 100
                 
-                n_empirical,    _, f_lo, f_hi = get_suspect_stats(recdf["rr"].values,    sig_thres, conf_int_α=0.05)
+                n_empirical,    _, f_lo, f_hi = suspect_count_significance(recdf["rr"].values,    sig_thres, conf_int_α=0.05)
                 conf_ax.hlines(n_empirical,    counter+.25, counter+0.75, "black", zorder=2, linewidth=1, alpha=0.9)
-                
+
                 if ~np.all(np.isnan(recdf["2f_rr"].values)):
-                    n_empirical_2f, _, _,    _    = get_suspect_stats(recdf["2f_rr"].values, sig_thres, conf_int_α=0.05)
+                    n_empirical_2f, _, _,    _    = suspect_count_significance(recdf["2f_rr"].values, sig_thres, conf_int_α=0.05)
                     conf_ax.hlines(n_empirical_2f, counter+.25, counter+0.75, "red", zorder=2, linewidth=1, alpha=0.9)
                 
                 conf_ax.plot(

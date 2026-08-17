@@ -138,7 +138,7 @@ def run_analysis(cfg):
     # persisted in the shared table (they're per-cfg constants, not Fourier
     # intermediates) -- callers needing them re-derive from cfg, same as
     # aggregate.py's ANNOT_D fallback already does for the legacy pickle.
-    nwb_io.append_results(
+    nwb_io.rebuild_and_replace_analysis(
         cfg.nwb_path(),
         lambda nwbfile: [
             nwb_io.write_imaging_fourier_results(
