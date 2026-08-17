@@ -45,13 +45,19 @@ class AuxStimulusConfig:
 
 @dataclass
 class AnalysisConfig:
-    Q: int = 100
+    # Off-frequency half-window width, as a fraction of the frequency being
+    # analyzed (half-width_Hz = Q_frac * freq) -- see bins_for_fraction in
+    # magpyneto2/statistics.py. Sentinel -1.0 means "unset"; deliberately NOT
+    # named `Q` (that used to be a raw integer bin count with a totally
+    # different meaning) so an unmigrated YAML fails loudly at load instead
+    # of silently reinterpreting an old integer as a fraction.
+    Q_frac: float = -1.0
     # stimulus frequency for Engert/GCaMP paradigm (NPIX ignores this)
     f: float = -1.0
     # multi-stim fields (used when paradigm == openephys_multistim)
-    mag_Q: int = -1
-    visual_Q: int = -1
-    WN_Q: int = -1
+    mag_Q_frac: float = -1.0
+    visual_Q_frac: float = -1.0
+    WN_Q_frac: float = -1.0
     mag_rec_substring: str = "mag"
     visual_rec_substring: str = "visual"
     wn_rec_substring: str = "WN"
@@ -142,8 +148,8 @@ class ExperimentConfig:
         return os.path.join(self.data_dir, f"{self.name}_analysis.pickle")
 
     def nwb_path(self) -> str:
-        """Single-file NWB replacement for the processing/MM_d/analysis
-        pickle trio (see pipeline/nwb_io.py). Every paradigm's processing
+        """Single-file NWB replacement for the processing/analysis pickle
+        pair (see pipeline/nwb_io.py). Every paradigm's processing
         stage writes this file; analysis reads it back and appends results
         to it -- this is now the only per-experiment output artifact."""
         return os.path.join(self.data_dir, f"{self.name}.nwb")
@@ -166,6 +172,13 @@ class ExperimentConfig:
             for aux in self.auxiliary_stimuli:
                 if aux.kind not in valid_kinds:
                     raise ValueError(f"{self.name}: unknown aux stimulus kind '{aux.kind}'")
+            if self.analysis.Q_frac <= 0 and self.analysis.mag_Q_frac <= 0:
+                raise ValueError(
+                    f"{self.name}: openephys_multistim requires analysis.Q_frac "
+                    f"(single-fraction fallback) or analysis.mag_Q_frac/"
+                    f"visual_Q_frac/WN_Q_frac > 0")
+        elif self.paradigm != "manual" and self.analysis.Q_frac <= 0:
+            raise ValueError(f"{self.name}: paradigm '{self.paradigm}' requires analysis.Q_frac > 0")
 
 
 def load_experiment(yaml_path: str) -> ExperimentConfig:

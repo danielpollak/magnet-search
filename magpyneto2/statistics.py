@@ -1981,23 +1981,3 @@ def Fig1_NPIX_data(modulation_df_full, CONTINGENCY, unitrow, freq):
 
 
 
-def save_diagnostics_MM(MM_d, RECORDING_NAME, text=True):
-    fig, ax = plt.subplots(figsize=(15, 5))
-    
-    # Plot first ten spiketrains
-    [ax.eventplot(st, lineoffsets=st_i) for st_i, st in enumerate(list(MM_d["spikes"].values())[:10])]
-    
-    # Plot the periods and labels
-    for recname, (periods, freq) in MM_d["aux"].items():
-        if text:
-            ax.text(periods[0] if len(periods.shape) == 1 else periods[0][0], 0, recname, rotation=90)
-        for period in periods if len(periods.shape) > 1 else [periods]:
-            ax.axvline(period[0], color="green", linestyle="--", alpha=0.5) # starts
-            ax.axvline(period[1], color="red", linestyle="--", alpha=0.5) # stops
-        
-    
-    ax.set_xlabel("Time (s)")
-    ax.set_ylim((0, 20))
-    save_and_close(fig, RECORDING_NAME, "MM_diagnostics", "")
-
-

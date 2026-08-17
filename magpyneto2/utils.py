@@ -558,29 +558,6 @@ def get_MM_offset(cat_df, recname):
     offset = (row.cumulate - row.nframes).iloc[0] # get vals
     return offset
 
-def update_MM_d_mag(MM_d, data, cat_df):
-    """
-    Docstring for update_MM_d
-    
-    :param MM_d: Description
-    :param data: Description
-    :param cat_df: Description
-    """
-    
-    # Get relevant keys
-    for freq in data.keys():
-        for folder in data[freq].keys():
-            recname = os.path.basename(folder)
-
-            offset = get_MM_offset(cat_df, recname)
-            _, period_crossings = data[freq][folder]
-                
-            mag_period = period_crossings[[0, -1]] + offset
-            MM_d["aux"][recname] = (mag_period, freq)
-
-    return MM_d
-
-
 def sanity_check_raw_data(θ, period_crossings, sts, n_representative_units=7, sampling_rate=30_000):
     """
     Usage:

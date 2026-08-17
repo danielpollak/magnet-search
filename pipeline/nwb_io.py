@@ -230,8 +230,8 @@ def write_units_and_spikes(nwbfile, all_sts, cluster_info=None, sampling_rate=AP
 
 
 # ---------------------------------------------------------------------------
-# Stimulus epochs (replaces MM_d["aux"], generalizes it with full
-# period-crossing arrays instead of just [start, end])
+# Stimulus epochs (rec/frequency/window plus the full period-crossing array,
+# not just [start, end])
 # ---------------------------------------------------------------------------
 
 def write_epochs_table(nwbfile, epochs, sampling_rate=AP_SR):
@@ -608,34 +608,6 @@ def compute_period_at_samples(spike_samples, period_crossings, inclusive=False):
     return np.searchsorted(crossings, spike_samples, side=side).astype(np.int64)
 
 
-def read_mm_d_equivalent(nwbfile):
-    """Reconstruct an `MM_d`-shaped dict
-    (`{"spikes": {id: spike_samples}, "aux": {rec: (endpoints_samples, freq)}}`)
-    from the NWB file's `Units` + `stimulus_epochs` tables, purely so the
-    existing `MM_d`-based diagnostic plotter (`plot_recording_timeline`) can
-    read back from NWB instead of the in-memory object the paradigm module
-    already has (see the NWB replatform plan, Phase 2, "read back from NWB").
-
-    Only epoch endpoints are reconstructed (not the full period_crossings
-    array) since that's all `MM_d["aux"]`/the timeline plot ever used.
-    """
-    sr = get_sampling_rate(nwbfile)
-    units_df = nwbfile.units.to_dataframe()
-    spikes = {
-        int(uid): np.round(np.asarray(row["spike_times"]) * sr).astype(np.int64)
-        for uid, row in units_df.iterrows()
-    }
-
-    epochs_df = nwbfile.intervals["stimulus_epochs"].to_dataframe()
-    aux = {}
-    for _, epoch in epochs_df.iterrows():
-        crossings = _period_crossings_samples(epoch, sr)
-        endpoints = crossings[[0, -1]] if len(crossings) >= 2 else crossings
-        aux[epoch["rec"]] = (endpoints, float(epoch["frequency"]))
-
-    return {"spikes": spikes, "aux": aux}
-
-
 def _gratings_group_exclusions(epochs, units_df, sr, min_spikes):
     """visual_gratings' own legacy loop
     (`if len(trial_df_l) == aux_cfg.n_orientations: df_l.extend(trial_df_l)`)
@@ -935,25 +907,31 @@ def build_modulation_frame(nwbfile, rec=None, good_only=True, min_spikes=50):
 # today are computed, used for diagnostics, and discarded every single run)
 # ---------------------------------------------------------------------------
 
-def write_fourier_results(nwbfile, fourier_df, log_dict, Q):
+def write_fourier_results(nwbfile, fourier_df, log_dict):
     """Persist `find_outliers()`'s scalar results *and* its previously-
     discarded per-group/per-unit intermediates (ff_alt, fou0, fou_alt) into
     three linked DynamicTables under `nwbfile.processing["analysis"]`.
 
     No changes to `find_outliers()` itself are required: `log_dict` already
-    carries every per-group intermediate needed; `sigma` (per unit) and the
-    null-distribution PDF/CDF/eps (shared, Q-only-dependent) are cheaply
-    recomputed here from public magpyneto2.statistics helpers, deduplicated
-    per distinct Q rather than duplicated per group/unit.
+    carries every per-group intermediate needed, INCLUDING each group's own
+    actual off-frequency bin count (`entry["M"]`) -- under the Q_frac (bin
+    fraction) policy, a single `find_outliers()` call already produces
+    different bin counts for different `(rec, freq)` groups and for the 1F
+    vs. 2F harmonic of the same group (since the fraction is applied
+    independently at each analyzed frequency), so there is no longer one
+    scalar `Q` to pass in — each group's own `M` is used instead. `sigma`
+    (per unit) and the null-distribution PDF/CDF/eps (Q-only-dependent) are
+    cheaply recomputed here from public magpyneto2.statistics helpers,
+    deduplicated per distinct `M` rather than duplicated per group/unit.
 
     Complex Fourier coefficients are split into real/imag columns (HDF5
     complex-dtype support is inconsistent across NWB client libraries).
 
     Safe to call multiple times on the same `nwbfile` with different
-    (fourier_df, log_dict, Q) — e.g. openephys_multistim's per-stimulus-type
-    Q overrides (mag_Q/visual_Q/WN_Q): existing tables are reused/appended
-    to rather than recreated, and a Q already present in
-    `null_distribution_models` from an earlier call is not duplicated.
+    (fourier_df, log_dict) — e.g. openephys_multistim's per-stimulus-type
+    Q_frac overrides (mag_Q_frac/visual_Q_frac/WN_Q_frac): existing tables
+    are reused/appended to rather than recreated, and an M already present
+    in `null_distribution_models` from an earlier call is not duplicated.
     """
     from magpyneto2.statistics import (
         get_epsilon, get_sgm, normalized_Fourier_PDF,
@@ -966,12 +944,12 @@ def write_fourier_results(nwbfile, fourier_df, log_dict, Q):
         module = nwbfile.create_processing_module(
             "analysis", "Fourier-analysis results (find_outliers intermediates)")
 
-    # -- null-distribution model: one row per distinct Q (shared, not
+    # -- null-distribution model: one row per distinct M (shared, not
     #    duplicated per group or per unit, and not duplicated across
     #    multiple write_fourier_results calls either) --
     if "null_distribution_models" in module.data_interfaces:
         null_table = module["null_distribution_models"]
-        already_have_q = int(Q) in list(null_table["Q"][:])
+        already_have = set(int(v) for v in null_table["Q"][:])
     else:
         null_table = DynamicTable(
             name="null_distribution_models",
@@ -983,15 +961,19 @@ def write_fourier_results(nwbfile, fourier_df, log_dict, Q):
         null_table.add_column("support_r", "PDF/CDF support grid (c-hat values)", index=True)
         null_table.add_column("pdf_corrected", "corrected null PDF, same grid as support_r", index=True)
         null_table.add_column("cdf_corrected", "corrected null CDF, same grid as support_r", index=True)
-        already_have_q = False
+        already_have = set()
 
-    if not already_have_q:
-        eps = get_epsilon(Q)
-        R, YY_uncorrected = normalized_Fourier_PDF()
+    distinct_Ms = sorted({int(entry["M"]) for entry in log_dict.values()})
+    R, YY_uncorrected = normalized_Fourier_PDF()
+    for M in distinct_Ms:
+        if M in already_have:
+            continue
+        eps = get_epsilon(M)
         PDF = normalized_Fourier_PDF_corrected(R[1:], R[1:], YY_uncorrected[1:], eps)
         CDF = normalized_Fourier_CDF_corrected(PDF, R[1:])
         null_table.add_row(
-            Q=int(Q), eps=float(eps), support_r=R[1:], pdf_corrected=PDF, cdf_corrected=CDF)
+            Q=int(M), eps=float(eps), support_r=R[1:], pdf_corrected=PDF, cdf_corrected=CDF)
+        already_have.add(M)
 
     # -- one row per (rec, freq, harmonic) group --
     if "fourier_group_results" in module.data_interfaces:
@@ -1012,7 +994,7 @@ def write_fourier_results(nwbfile, fourier_df, log_dict, Q):
 
     # NB: 2F log_dict keys are ("twoF_"+rec, "twoF_"+str(frq)) where `frq` is
     # the *base* (1F) frequency — see find_outliers, `log_dict[("twoF_" +
-    # rec, "twoF_"+str(frq))] = {..., "args": (spks, frq * 2, Q)}` — so the
+    # rec, "twoF_"+str(frq))] = {..., "args": (spks, frq * 2, M_2f)}` — so the
     # base frequency, not frq*2, is what's embedded in the dict key string.
     group_row_by_key = {}  # (rec, base_freq) -> {"1F": (idx, entry), "2F": (idx, entry)}
     for (rec, frq), entry in log_dict.items():
@@ -1024,7 +1006,7 @@ def write_fourier_results(nwbfile, fourier_df, log_dict, Q):
 
         group_table.add_row(
             rec=real_rec, frequency=analyzed_freq, harmonic=harmonic,
-            Q=int(Q), T=float(entry["T"]), C=int(entry["C"]),
+            Q=int(entry["M"]), T=float(entry["T"]), C=int(entry["C"]),
             ff_alt=np.asarray(entry["ff_alt"], dtype=float),
         )
         group_idx = len(group_table) - 1
@@ -1298,7 +1280,7 @@ def read_roi_data(nwbfile):
 
 def write_imaging_fourier_results(nwbfile, rec, freq, Q, T_duration, fourier_df_rows,
                                    onfreq_pow, offfreq_pow, freq_win,
-                                   onfreq_pow_2f=None, offfreq_pow_2f=None):
+                                   onfreq_pow_2f=None, offfreq_pow_2f=None, Q_2f=None):
     """Persist `fit_Fourier()`'s per-cell results into the SAME
     null_distribution_models/fourier_group_results/per_unit_fourier_results
     schema `write_fourier_results` (ephys) uses, so
@@ -1334,6 +1316,12 @@ def write_imaging_fourier_results(nwbfile, rec, freq, Q, T_duration, fourier_df_
         1F and 2F groups (matching write_fourier_results's group_1f_index/
         group_2f_index pairing); when omitted, group_2f_index is -1 (no 2F),
         matching medaka's independent-group (no-harmonic-pairing) usage.
+    Q_2f : optional, the off-frequency bin count for the paired 2F group
+        (only meaningful when onfreq_pow_2f is given). Under the Q_frac
+        (bin fraction) policy the fraction is applied independently at each
+        analyzed frequency, so the 2F group generally has a DIFFERENT bin
+        count than the 1F group's `Q` (M_2f ~= 2*M_1f) -- falls back to `Q`
+        only if left None, for defensive backward-compatibility.
     """
     if "analysis" in nwbfile.processing:
         module = nwbfile.processing["analysis"]
@@ -1346,9 +1334,12 @@ def write_imaging_fourier_results(nwbfile, rec, freq, Q, T_duration, fourier_df_
         normalized_Fourier_PDF_corrected, normalized_Fourier_CDF_corrected,
     )
 
+    if Q_2f is None:
+        Q_2f = Q
+
     if "null_distribution_models" in module.data_interfaces:
         null_table = module["null_distribution_models"]
-        already_have_q = int(Q) in list(null_table["Q"][:])
+        already_have = set(int(v) for v in null_table["Q"][:])
     else:
         null_table = DynamicTable(
             name="null_distribution_models",
@@ -1360,15 +1351,19 @@ def write_imaging_fourier_results(nwbfile, rec, freq, Q, T_duration, fourier_df_
         null_table.add_column("support_r", "PDF/CDF support grid (c-hat values)", index=True)
         null_table.add_column("pdf_corrected", "corrected null PDF, same grid as support_r", index=True)
         null_table.add_column("cdf_corrected", "corrected null CDF, same grid as support_r", index=True)
-        already_have_q = False
+        already_have = set()
 
-    if not already_have_q:
-        eps = get_epsilon(Q)
-        R, YY_uncorrected = normalized_Fourier_PDF()
+    distinct_Ms = sorted({int(Q)} | ({int(Q_2f)} if onfreq_pow_2f is not None else set()))
+    R, YY_uncorrected = normalized_Fourier_PDF()
+    for M in distinct_Ms:
+        if M in already_have:
+            continue
+        eps = get_epsilon(M)
         PDF = normalized_Fourier_PDF_corrected(R[1:], R[1:], YY_uncorrected[1:], eps)
         CDF = normalized_Fourier_CDF_corrected(PDF, R[1:])
         null_table.add_row(
-            Q=int(Q), eps=float(eps), support_r=R[1:], pdf_corrected=PDF, cdf_corrected=CDF)
+            Q=int(M), eps=float(eps), support_r=R[1:], pdf_corrected=PDF, cdf_corrected=CDF)
+        already_have.add(M)
 
     if "fourier_group_results" in module.data_interfaces:
         group_table = module["fourier_group_results"]
@@ -1398,7 +1393,7 @@ def write_imaging_fourier_results(nwbfile, rec, freq, Q, T_duration, fourier_df_
     idx_2f = -1
     if onfreq_pow_2f is not None:
         group_table.add_row(
-            rec=rec, frequency=float(freq) * 2, harmonic="2F", Q=int(Q),
+            rec=rec, frequency=float(freq) * 2, harmonic="2F", Q=int(Q_2f),
             T=float(T_duration), C=int(len(onfreq_pow_2f)), ff_alt=np.asarray(freq_win, dtype=float))
         idx_2f = len(group_table) - 1
 
@@ -1507,9 +1502,9 @@ def write_nwbfile(nwbfile, nwb_path):
 
 
 def append_results(nwb_path, build_results_fn):
-    """Reopen `nwb_path` in append mode, call
-    `build_results_fn(nwbfile)` to add new containers (e.g. via
-    `write_fourier_results`), and write the modified file back in place.
+    """Read `nwb_path`, call `build_results_fn(nwbfile)` to add new
+    containers (e.g. via `write_fourier_results`), and export the result to
+    a fresh copy that atomically replaces the original.
 
     Fails loudly if the file is missing the processing-stage containers
     this pipeline always writes first — mirroring today's
@@ -1518,13 +1513,33 @@ def append_results(nwb_path, build_results_fn):
     instead write an "ophys" processing module (PlaneSegmentation +
     RoiResponseSeries) and have neither Units nor stimulus_epochs — accept
     either shape rather than assuming the ephys one.
+
+    Rewrites the WHOLE file (via `NWBHDF5IO.export`) rather than mutating
+    the existing file in place (`mode="r+"`, as this used to do). This is
+    what lets the analysis stage be re-run standalone as many times as
+    needed -- e.g. while retuning Q_frac against the diagnostic PDFs, per
+    CLAUDE.md's documented "edit the YAML, re-run analysis only" workflow --
+    without reprocessing. Once a DynamicTable's columns are written to disk,
+    HDF5 only allows resizing datasets that were created with chunking
+    enabled, and the null_distribution_models/fourier_group_results/
+    per_unit_fourier_results tables aren't created that way -- a second
+    `add_row()` call against an already-persisted table raises `TypeError:
+    Only chunked datasets can be resized` (confirmed on real data: this
+    fires on literally any second standalone analysis run against an
+    already-analyzed file, independent of what changed). Any PRIOR
+    "analysis" processing module is dropped in-memory before
+    `build_results_fn` runs, so the tables it builds are always freshly
+    created (never touching an on-disk dataset that would need resizing),
+    and the export writes the whole file out complete rather than
+    incrementally.
     """
     if not os.path.exists(nwb_path):
         raise FileNotFoundError(
             f"{nwb_path} does not exist — run the processing stage first.")
 
-    with NWBHDF5IO(nwb_path, mode="r+") as io:
-        nwbfile = io.read()
+    tmp_path = os.path.splitext(nwb_path)[0] + ".tmp.nwb"  # keep the .nwb suffix pynwb expects
+    with NWBHDF5IO(nwb_path, mode="r") as io_in:
+        nwbfile = io_in.read()
         has_ephys_processing = nwbfile.units is not None and "stimulus_epochs" in nwbfile.intervals
         has_ophys_processing = "ophys" in nwbfile.processing
         if not (has_ephys_processing or has_ophys_processing):
@@ -1533,24 +1548,61 @@ def append_results(nwb_path, build_results_fn):
                 f"and an 'ophys' processing module (imaging) — the "
                 f"processing stage for this experiment did not complete "
                 f"successfully.")
+
+        if "analysis" in nwbfile.processing:
+            del nwbfile.processing["analysis"]
+            nwbfile.set_modified()
+
         build_results_fn(nwbfile)
-        io.write(nwbfile)
+
+        try:
+            with NWBHDF5IO(tmp_path, mode="w") as io_out:
+                io_out.export(src_io=io_in, nwbfile=nwbfile)
+        except BaseException:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            raise
+
+    os.replace(tmp_path, nwb_path)
 
 
 def read_log_dict_equivalent(nwbfile):
     """Reconstruct a `log_dict`-shaped dict (same keys/array shapes
-    `find_outliers()` returns for its 1F groups) from the persisted results
-    tables, for feeding `plot_analysis_diagnostics` without recomputing
-    anything. 2F entries are not reconstructed — `plot_analysis_diagnostics`
-    never reads them (only the 1F entry per (rec, freq) group is used)."""
+    `find_outliers()` returns) from the persisted results tables, for
+    feeding `plot_analysis_diagnostics` without recomputing anything.
+
+    1F entries get the full shape `find_outliers()` produces (C/T/ff_alt/M/
+    nn/fou0/fou_alt/fou_alt_c). 2F entries get only the GROUP-level
+    intermediates (C/T/ff_alt/M) -- `per_unit_fourier_results` only
+    persists PER-UNIT Fourier coefficients (fou_alt_real/imag, fou0_real/
+    imag) for the 1F harmonic (see `write_fourier_results`'s unit_table
+    columns), so a reconstructed 2F entry has no `fou_alt`/`fou0`/
+    `fou_alt_c` keys. This is enough for a 2F c-hat histogram (only needs
+    the bin count `M`, via the `"Q"` column -- which always means "bin
+    count," not the config fraction, see .claude/plans), but not for a
+    per-unit 2F Fourier-coefficient spectrum plot; `plot_analysis_diagnostics`
+    skips that panel gracefully when it's missing.
+    """
     module = nwbfile.processing["analysis"]
     group_df = module["fourier_group_results"].to_dataframe()
     unit_df = module["per_unit_fourier_results"].to_dataframe()
 
     log_dict = {}
     for group_idx, group_row in group_df.iterrows():
-        if group_row["harmonic"] != "1F":
+        is_2f = group_row["harmonic"] == "2F"
+        M = int(group_row["Q"])
+
+        if is_2f:
+            if len(unit_df[unit_df["group_2f_index"] == group_idx]) == 0:
+                continue
+            base_freq = float(group_row["frequency"]) / 2
+            key = ("twoF_" + group_row["rec"], "twoF_" + str(base_freq))
+            log_dict[key] = {
+                "C": int(group_row["C"]), "T": float(group_row["T"]),
+                "ff_alt": np.asarray(group_row["ff_alt"]), "M": M,
+            }
             continue
+
         rows = unit_df[unit_df["group_1f_index"] == group_idx]
         if len(rows) == 0:
             continue
@@ -1566,7 +1618,7 @@ def read_log_dict_equivalent(nwbfile):
         log_dict[key] = {
             "C": int(group_row["C"]), "T": float(group_row["T"]), "nn": nn,
             "ff_alt": np.asarray(group_row["ff_alt"]), "fou0": fou0,
-            "fou_alt": fou_alt, "fou_alt_c": fou_alt_c,
+            "fou_alt": fou_alt, "fou_alt_c": fou_alt_c, "M": M,
         }
 
     return log_dict

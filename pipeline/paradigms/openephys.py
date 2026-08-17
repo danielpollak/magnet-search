@@ -4,7 +4,8 @@ Paradigm: openephys
 Pure-magnetic OpenEphys recordings.
 Loads spike times from Kilosort via Reader, builds contingency_d from
 metadata CSV, calls process_raw_data_NPIX, writes Units/epochs to
-`{name}.nwb` (see pipeline/nwb_io.py), and saves MM_d diagnostics.
+`{name}.nwb` (see pipeline/nwb_io.py), and plots a recording-timeline
+diagnostic read back from that same NWB file.
 """
 import os
 import matplotlib
@@ -18,8 +19,7 @@ import tqdm.auto as tqdm
 from ephysio import openEphysIO
 from ephysio.kilosortIO import Reader
 from magpyneto2 import (
-    get_cluster_info, process_raw_data_NPIX, update_MM_d_mag,
-    save_diagnostics_MM,
+    get_cluster_info, process_raw_data_NPIX,
 )
 from magpyneto2.utils import get_MM_offset
 from pipeline import nwb_io
@@ -116,17 +116,12 @@ def run_processing(cfg):
     modulation_df, data, _ = process_raw_data_NPIX(
         folder_locations_freq_skips, THRES=cfg.threshold)
 
-    MM_d = {"spikes": all_sts, "aux": {}}
-    MM_d = update_MM_d_mag(MM_d, data, cat_df)
-    save_diagnostics_MM(MM_d, cfg.name)
-
     # --- NWB write (see .claude/plans — NWB replatform; Phase 7 cutover: the
-    # legacy modulation_df/MM_d pickles this paradigm used to also write are
-    # retired now that verify_outputs.py confirms NWB parity -- see
+    # legacy modulation_df/diagnostics pickles this paradigm used to also
+    # write are retired now that verify_outputs.py confirms NWB parity -- see
     # cfg.processing_path()'s docstring for the frozen-fixture history this
-    # replaces). MM_d/modulation_df above stay purely in-memory: they're
-    # still needed as inputs to build the epochs/Units below and for
-    # save_diagnostics_MM's plot.
+    # replaces). modulation_df above stays purely in-memory: it's still
+    # needed as an input to build the epochs/Units below.
     nwbfile = nwb_io.create_nwbfile(cfg)
     # label_column="KSLabel": matches this paradigm's own good-filter
     # (`udf.KSLabel == "good"` above) -- see write_units_and_spikes's
@@ -167,17 +162,14 @@ def run_processing(cfg):
     diag_dir.mkdir(parents=True, exist_ok=True)
 
     # Read diagnostics input back from the just-written NWB file rather than
-    # the in-memory MM_d/modulation_df above — proves read-back fidelity
-    # ("traceability without recomputation"). Falls back to the in-memory
-    # objects if anything about the NWB round-trip goes wrong, so a
-    # diagnostics-plotting bug can never block the processing stage itself.
+    # the in-memory modulation_df above — proves read-back fidelity
+    # ("traceability without recomputation"). A diagnostics-plotting bug
+    # must never block the processing stage itself, so any failure here is
+    # logged and skipped rather than raised.
     try:
         io_r, nwbfile_r = nwb_io.read_nwbfile(cfg.nwb_path())
-        MM_d_nwb = nwb_io.read_mm_d_equivalent(nwbfile_r)
         modulation_df_nwb = nwb_io.build_modulation_frame(nwbfile_r, good_only=cfg.good)
-        plot_recording_timeline(cfg, MM_d_nwb, modulation_df_nwb, diag_dir)
+        plot_recording_timeline(cfg, nwbfile_r, modulation_df_nwb, diag_dir, cat_df=cat_df)
         io_r.close()
     except Exception as exc:
-        print(f"  WARNING: NWB-sourced diagnostics failed ({exc}); "
-              f"falling back to in-memory MM_d/modulation_df")
-        plot_recording_timeline(cfg, MM_d, modulation_df, diag_dir)
+        print(f"  WARNING: NWB-sourced diagnostics failed ({exc}); skipping timeline plot")

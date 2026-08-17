@@ -17,8 +17,7 @@ matplotlib.use("Agg")
 from ephysio import openEphysIO
 from ephysio.kilosortIO import Reader
 from magpyneto2 import (
-    get_cluster_info, process_raw_data_NPIX, update_MM_d_mag,
-    save_diagnostics_MM,
+    get_cluster_info, process_raw_data_NPIX,
     schmitt, correct_theta, get_condition_array, get_MM_offset,
     get_concat_spks_consistent_period,
 )
@@ -74,7 +73,7 @@ def _build_contingency(cfg, ksr, udf, cat_df):
     return all_sts, contingency_d, aux_d
 
 
-def _handle_visual_gratings(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM_d, nwb_epochs):
+def _handle_visual_gratings(cfg, aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, nwb_epochs):
     recname = aux_cfg.recname
     st_d = contingency_d[recname]
     recording, ldr = aux_d[recname]
@@ -142,10 +141,6 @@ def _handle_visual_gratings(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM
         period_markers = t_up[trials == trial]
         if len(period_markers) == 0:
             continue
-        MM_d["aux"][recname + str(orientation_d[trial])] = (
-            np.array([np.min(period_markers), np.max(period_markers)]) + offset,
-            aux_cfg.frequency,
-        )
         period_markers_agg = period_markers + offset
         nwb_epochs.append({
             "rec": recname + "_" + str(orientation_d[trial]),
@@ -165,7 +160,7 @@ def _handle_visual_gratings(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM
         })
 
 
-def _handle_white_noise(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM_d, nwb_epochs):
+def _handle_white_noise(cfg, aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, nwb_epochs):
     """White-noise handler.
 
     Two modes, controlled by duration_s:
@@ -203,10 +198,6 @@ def _handle_white_noise(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM_d, 
         if not legacy:
             periods_qs = [np.array([1.25, 2.5, 3.75, 5]) + aux_cfg.duration_s * i
                           for i in np.arange(len(t_down))]
-        MM_d["aux"][recname] = (
-            np.vstack([t_down - duration_samples, t_down]).T + offset,
-            freq,
-        )
         window_starts = t_down - duration_samples + offset
         window_stops = t_down + offset
         window_offsets = np.arange(len(t_down)) * duration_samples
@@ -249,10 +240,6 @@ def _handle_white_noise(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM_d, 
                 df_l.append(pd.concat(trial_df_l))
     else:
         # Single-window: 300s before last t_down
-        MM_d["aux"][recname] = (
-            np.vstack([t_down - duration_samples, t_down]).T + offset,
-            freq,
-        )
         period_freq = aux_cfg.wn_period_freq if aux_cfg.wn_period_freq > 0 else freq
         nwb_epochs.append({
             "rec": recname,
@@ -288,7 +275,7 @@ def _handle_white_noise(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM_d, 
                 }))
 
 
-def _handle_oddball(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM_d, nwb_epochs):
+def _handle_oddball(cfg, aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, nwb_epochs):
     """Oddball: inter-event intervals where t_down[i] - t_down[i-1] < max_interval_s."""
     recname = aux_cfg.recname
     st_d = contingency_d[recname]
@@ -313,13 +300,43 @@ def _handle_oddball(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM_d, nwb_
     offset = get_MM_offset(cat_df, recname)
     max_interval_s = getattr(aux_cfg, "max_interval_s", 1.2)
 
-    # Build intervals: (curr, prev) pairs where gap < max_interval_s
+    # Build intervals: (curr, prev) pairs where gap < max_interval_s.
+    # kept_idx tracks which idown POSITIONS (native aux-sample-rate indices,
+    # not npix-shifted ones) end up retained -- purely for the raw-TTL
+    # diagnostic below, so it can show which detected pulses actually feed
+    # the analysis vs. which get silently dropped for having too long a gap
+    # to the previous pulse.
     intervals = []
+    kept_idx = set()
     for down_i in range(1, len(t_down) - 1):
         curr = t_down[down_i]
         prev = t_down[down_i - 1]
         if (curr - prev) / ap_sr < max_interval_s:
             intervals.append((curr, prev))
+            kept_idx.add(down_i)
+            kept_idx.add(down_i - 1)
+
+    # Raw-TTL diagnostic -- plotted regardless of whether any intervals were
+    # found (empty-interval sessions are exactly when seeing the raw trace
+    # matters most for debugging). t_down/idown share indexing 1:1 (t_down is
+    # just idown run through ldr.shifttime()), so kept_idx applies directly.
+    # NOTE: neither this plot nor any other part of the pipeline distinguishes
+    # standard from oddball/deviant pulses -- see plot_oddball_raw_ttl's
+    # docstring. This is a first look at the raw signal to see whether that
+    # distinction is even recoverable from the TTL trace itself.
+    try:
+        from pathlib import Path
+        from pipeline.diagnostics.oddball import plot_oddball_raw_ttl
+        kept_mask = np.zeros(len(idown), dtype=bool)
+        if kept_idx:
+            kept_mask[sorted(kept_idx)] = True
+        diag_dir = Path(cfg.data_dir).parent / "figs" / "processing"
+        diag_dir.mkdir(parents=True, exist_ok=True)
+        plot_oddball_raw_ttl(
+            cfg, recname, viz_trace, recording.get_sampling_frequency(),
+            aux_cfg.thr_on, aux_cfg.thr_off, iup, idown, kept_mask, diag_dir)
+    except Exception as exc:
+        print(f"  WARNING: oddball raw-TTL diagnostics failed ({exc})")
 
     if len(intervals) == 0:
         print(f"  WARNING: no oddball intervals found for {recname}")
@@ -328,8 +345,6 @@ def _handle_oddball(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM_d, nwb_
     period = np.abs(np.mean(np.diff(intervals)) / ap_sr)
     freq = 1 / period
     periods_arr = np.arange(len(intervals)) * period
-
-    MM_d["aux"][recname] = (np.array(intervals) + offset, freq)
 
     intervals_arr = np.array(intervals)  # columns: (curr, prev)
     window_starts = intervals_arr[:, 1] + offset  # prev
@@ -371,7 +386,7 @@ def _handle_oddball(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM_d, nwb_
         df_l.append(pd.concat(trial_df_l))
 
 
-def _handle_visual_bars(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM_d, nwb_epochs):
+def _handle_visual_bars(cfg, aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, nwb_epochs):
     """20220916-style visual bars.
 
     Orientation CSV has 'trial' and 'deg' columns.
@@ -411,13 +426,7 @@ def _handle_visual_bars(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM_d, 
         ons = t_up[deg_df.trial]
         offs = t_down[deg_df.trial]
 
-        bar_freq = 1 / (np.mean(offs - ons) / ap_sr)
         period_samples = int(4 * ap_sr)
-
-        MM_d["aux"][recname + "_" + str(deg)] = (
-            np.vstack([t_down - 5 * ap_sr, t_down]).T + offset,
-            bar_freq,
-        )
 
         freq = 1 / 4  # fixed 4-second period
 
@@ -513,9 +522,6 @@ def run_processing(cfg):
     modulation_df, data, _ = process_raw_data_NPIX(
         folder_locations_freq_skips, THRES=cfg.threshold)
 
-    MM_d = {"spikes": all_sts, "aux": {}}
-    MM_d = update_MM_d_mag(MM_d, data, cat_df)
-
     df_l = [modulation_df]
 
     # --- NWB dual-write prep (see .claude/plans — NWB replatform, Phase 3) ---
@@ -562,10 +568,9 @@ def run_processing(cfg):
         if aux_cfg.recname not in contingency_d:
             print(f"  WARNING: aux recname '{aux_cfg.recname}' not in contingency_d, skipping")
             continue
-        handler(aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, MM_d, nwb_epochs)
+        handler(cfg, aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, nwb_epochs)
 
     modulation_df = pd.concat(df_l).reset_index(drop=True)
-    save_diagnostics_MM(MM_d, cfg.name)
 
     nwbfile = nwb_io.create_nwbfile(cfg)
     # label_column="KSLabel": matches this paradigm's own good-filter
@@ -583,17 +588,14 @@ def run_processing(cfg):
     diag_dir.mkdir(parents=True, exist_ok=True)
 
     # Read diagnostics input back from the just-written NWB file rather than
-    # the in-memory MM_d/modulation_df above -- same "traceability without
-    # recomputation" check as openephys.py. Falls back to in-memory objects
-    # on any failure so a diagnostics-plotting bug can never block the
-    # processing stage itself.
+    # the in-memory modulation_df above -- same "traceability without
+    # recomputation" check as openephys.py. A diagnostics-plotting bug must
+    # never block the processing stage itself, so any failure here is
+    # logged and skipped rather than raised.
     try:
         io_r, nwbfile_r = nwb_io.read_nwbfile(cfg.nwb_path())
-        MM_d_nwb = nwb_io.read_mm_d_equivalent(nwbfile_r)
         modulation_df_nwb = nwb_io.build_modulation_frame(nwbfile_r, good_only=cfg.good)
-        plot_recording_timeline(cfg, MM_d_nwb, modulation_df_nwb, diag_dir)
+        plot_recording_timeline(cfg, nwbfile_r, modulation_df_nwb, diag_dir, cat_df=cat_df)
         io_r.close()
     except Exception as exc:
-        print(f"  WARNING: NWB-sourced diagnostics failed ({exc}); "
-              f"falling back to in-memory MM_d/modulation_df")
-        plot_recording_timeline(cfg, MM_d, modulation_df, diag_dir)
+        print(f"  WARNING: NWB-sourced diagnostics failed ({exc}); skipping timeline plot")

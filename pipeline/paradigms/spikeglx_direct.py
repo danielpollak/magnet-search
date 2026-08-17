@@ -4,7 +4,8 @@ Paradigm: spikeglx_direct
 SpikeGLX recordings (Gutfreund lab, Q146/Q148/Q_magner).
 Loads NIDAQ + AP binary files directly, detects magnet periods via
 threshold crossing on a smoothed NIDAQ channel, builds modulation_df.
-No MM_d / save_diagnostics_MM — these scripts never had that.
+Uses the modulation_df-only fallback path in plot_recording_timeline
+(no NWB-derived timeline diagnostic) -- these scripts never had one.
 """
 import glob
 import os
