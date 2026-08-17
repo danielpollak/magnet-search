@@ -2,6 +2,12 @@ figs/**/*
 !figs/**/.gitkeep
 data/*_processing.pickle
 data/MM_*.pickle
+# data/*.nwb: fully regenerable pipeline output (pipeline/processing.py +
+# pipeline/analysis.py from raw NAS data), not source -- tracking every
+# re-run in git permanently bloats history (HDF5/NWB binaries don't delta-
+# compress between versions). Untracked deliberately; disseminated via a
+# GitHub Release when ready rather than committed directly.
+data/*.nwb
 logs/
 *.xlsx
 __pycache__/
