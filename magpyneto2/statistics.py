@@ -139,6 +139,88 @@ def corrected_pvalues(rr, Q):
     return 1 - np.interp(rr, R[2:], CDF)
 
 
+# Floor on off-frequency bins per side of the analyzed frequency. Below this,
+# get_epsilon()'s finite-sample correction is unreliable and the off-frequency
+# sigma estimate is too noisy to trust -- a statistical-validity floor, not a
+# per-experiment tuning knob, so it's a fixed constant rather than something
+# exposed in YAML (see bins_for_fraction).
+MIN_FOURIER_BINS = 8
+
+
+def bins_for_fraction(freq, fraction, resolution, *, min_bins=MIN_FOURIER_BINS,
+                       max_bins=None, context=""):
+    """Convert a half-width *fraction* of `freq` into an integer bin count M
+    (number of off-frequency bins used on EACH side of `freq`).
+
+        half-width_Hz = fraction * freq
+        M = round(half-width_Hz / resolution)
+
+    Parameters
+    ----------
+    freq : float
+        Frequency actually being analyzed at this call (1F, 2F, a visual/WN
+        frequency, or an NPIX per-trial frequency) -- never a base frequency;
+        recompute this fresh at every call site the fraction is applied.
+    fraction : float
+        Half-width as a fraction of `freq` (e.g. 0.15 -> +/-15% of freq).
+    resolution : float
+        Frequency-grid bin spacing, Hz/bin: `1/T` for spike-train DFT
+        analysis (`fourier_analysis`/`find_outliers`), `1/(N*T)` for the
+        imaging real-FFT analysis (`fit_Fourier`).
+    min_bins : int
+        Hard floor (MIN_FOURIER_BINS by default).
+    max_bins : int, optional
+        Hard ceiling -- the largest M the caller's frequency grid can
+        actually support on its tighter side (e.g. `min(f0, len(xf)-1-f0)`
+        for `fit_Fourier`'s real-FFT grid, which is only a few hundred to a
+        few thousand bins wide, unlike NPIX's `frequencies(T, sr=30_000)`
+        grid, which is large enough that this is never reached in practice).
+        Confirmed on real data: without this check, a high base frequency
+        (e.g. 0.4 Hz) combined with a wide fraction can request a window
+        that runs past the edge of the available spectrum (past Nyquist),
+        producing a silent `IndexError` deep inside the per-cell loop rather
+        than a clear, actionable error at the point of misconfiguration.
+    context : str
+        Human-readable prefix folded into error messages (experiment/rec
+        name, harmonic, frequency) -- makes a batch-run failure identifiable
+        without needing to re-run under a debugger.
+
+    Returns
+    -------
+    M : int
+
+    Raises
+    ------
+    ValueError
+        If `fraction <= 0`, `freq <= 0`, the computed `M < min_bins`, or
+        (when `max_bins` is given) `M > max_bins`.
+    """
+    if fraction <= 0:
+        raise ValueError(f"{context}fraction must be > 0 (got {fraction!r})")
+    if freq <= 0:
+        raise ValueError(f"{context}freq must be > 0 (got {freq!r})")
+    M = int(round(fraction * freq / resolution))
+    if M < min_bins:
+        raise ValueError(
+            f"{context}fraction={fraction} at freq={freq} Hz with "
+            f"resolution={resolution:.6g} Hz/bin yields only M={M} off-frequency "
+            f"bins per side (< minimum {min_bins}). Increase the Q_frac for this "
+            f"experiment, or check T/N for this recording -- refusing to run an "
+            f"underpowered analysis."
+        )
+    if max_bins is not None and M > max_bins:
+        raise ValueError(
+            f"{context}fraction={fraction} at freq={freq} Hz with "
+            f"resolution={resolution:.6g} Hz/bin yields M={M} off-frequency "
+            f"bins per side, which runs past the edge of the available "
+            f"spectrum (max {max_bins} bins fit on the tighter side of this "
+            f"frequency). Decrease the Q_frac for this experiment -- refusing "
+            f"to build a window that would silently truncate or index out of "
+            f"bounds."
+        )
+    return M
+
+
 def interpolate_corrected_CDF(R, CDF, points):
     """
     Evaluate CDF at a specific point (ie, c-hat value)
@@ -925,53 +1007,6 @@ def Moments_vs_FR(nn, fou_alt_c, T, ax=None):
     return axes
 
 
-def visualize_fourier_df(fourier_df_arg, XX, YY):
-    """Generates diagnostic visualizations of fourier dataframes
-    
-    Parameters
-    ----------
-    fourier_df_arg: (pd.DataFrame) Input fourier_df
-    XX, YY: (np.array) Data for plotting the Rayleigh distribution
-    """
-    f_list = []
-    for (frq), freq_df in fourier_df_arg.groupby("freq"):       
-        for (rec, rec_df) in freq_df.groupby("rec"):
-            # Get epsilon
-            epsilon = get_epsilon(rec_df.Q.values[0])
-
-            # Get corrected distribution
-            YY_corrected = normalized_Fourier_PDF_corrected(XX, XX, YY, epsilon)
-            
-            fig, ax = plt.subplots()
-
-            # Unpack data relevant to this particular recording
-            rr = rec_df.rr.values
-            abridged_rec = rec.split('\\')[-1].split('/')[-1]
-
-            n_empirical, f_expected, l_bound, h_bound = get_suspect_stats(rr, .95)
-            radius = (h_bound-l_bound) / 2
-
-            plt.hist(rr, bins=np.arange(0, 6, .1), density=True)
-            plt.plot(XX, YY, label="Uncorrected PDF")
-            plt.plot(XX, YY_corrected, label="Corrected PDF")
-            plt.title(rec)
-            
-            # 
-            ax.set_xlabel('$|\hat{c}|$')
-            ax.set_ylabel('Proportion of units')
-            print(l_bound, h_bound)
-            title =  f"{abridged_rec} n={len(rr)}" + "\n"
-            title += f"{frq} Hz: {n_empirical} - {np.round(f_expected, 2)} = $"
-            excess = n_empirical-f_expected
-            title += str(np.round(excess, 2)) + "_{" + str(np.round(excess - radius, 2))
-            title += "}^{" + str(np.round(excess + radius, 2)) + "}$"
-            
-            ax.set_title(title)
-            f_list.append((rec, frq, fig))
-        
-    return f_list
-        
-
 def add_legend_label(color, label, ax=None):
     if ax is None:
         _, ax = plt.subplots()
@@ -1080,23 +1115,27 @@ def sanity_check_raw_data(θ, period_crossings, sts, n_representative_units=7, s
     return fig, axes
 
 
-def find_outliers(df, Q=100, sr=30_000, method="ideal", diagnostics=True):
+def find_outliers(df, Q_frac, sr=30_000, method="ideal", diagnostics=True):
     """Runs fourier_analysis on a dataframe of spiking data
 
     Parameters
     ----------
     df: (pd.DataFrame) `df.columns` yields `Index(['period', 'spk', 'phase', 'freq', 'id', 'rec'], dtype='object')`
-    Q: (int) Determines window size
+    Q_frac: (float) Off-frequency half-window width, as a fraction of the
+        frequency being analyzed (half-width_Hz = Q_frac * freq). Converted
+        to an integer bin count via `bins_for_fraction`, independently for
+        the 1F and 2F harmonic of each (rec, freq) group -- see that
+        function's docstring for the exact formula and error conditions.
     sr: (int) sampling rate
     diagnostics: (bool) whether to output diagnostic plots
-    
+
     Returns
     -------
     fourier_df: (pd.DataFrame) Indexes coefficients by unit index and so on
     """
     log_dict = {}
     fourier_l = []
-    
+
     for (rec, frq), subdf in df.groupby(["rec", "freq"]):
         print("analyzing", rec, "at", frq, "Hz")
 
@@ -1112,74 +1151,92 @@ def find_outliers(df, Q=100, sr=30_000, method="ideal", diagnostics=True):
         phase_l = [phases if len(phases) > 0 else np.array([0]) for (_, _, phases) in spks_and_ids_and_phases]
         ids = [id_ for (id_, _, _) in spks_and_ids_and_phases]
 
+        # Bin resolution (Hz/bin) is 1/T -- same T feeds both the 1F and 2F
+        # fourier_analysis calls below, so the fraction->bins conversion for
+        # each harmonic is computed fresh from ITS OWN analyzed frequency
+        # (frq, then frq*2), not shared.
+        group_T = (1/frq) * np.max(subdf.period)
+        resolution = 1 / group_T
+        M_1f = bins_for_fraction(frq, Q_frac, resolution, context=f"[{rec} 1F @ {frq}Hz] ")
+        M_2f = bins_for_fraction(frq * 2, Q_frac, resolution, context=f"[{rec} 2F @ {frq*2}Hz] ")
+
         # Run Fourier 1F
         (C, T, nn, fff,
          i0, ff_alt, fou0,
          fou_alt, fou_alt_c, c_hat) = fourier_analysis(
             spks, frq, idealized_or_empirical=method,
-            phase_l=phase_l, Q=Q, sr=sr, T=(1/frq) * np.max(subdf.period)
+            phase_l=phase_l, Q=M_1f, sr=sr, T=group_T
         )
 
         sigma_1F = get_sgm(fou_alt_c)
-        
+
         log_dict[(rec, frq)] = {
             "C": C, "T":T, "nn":nn, "fff":fff,
             "i0":i0, "ff_alt":ff_alt, "fou0":fou0,
-            "fou_alt": fou_alt, "fou_alt_c": fou_alt_c, "args":(spks, frq, Q)
+            "fou_alt": fou_alt, "fou_alt_c": fou_alt_c, "M": M_1f, "args":(spks, frq, M_1f)
         }
 
         # Run Fourier 2F
-        (twoF_C, twoF_T, twoF_nn, twoF_fff, 
+        (twoF_C, twoF_T, twoF_nn, twoF_fff,
          twoF_i0, twoF_ff_alt, twoF_fou0,
          twoF_fou_alt, twoF_fou_alt_c, twoF_c_hat) = fourier_analysis(
             spks, frq * 2, idealized_or_empirical="ideal",
-            phase_l=phase_l, Q=Q, sr=sr, T=(1/frq) * np.max(subdf.period)
+            phase_l=phase_l, Q=M_2f, sr=sr, T=group_T
         )
         sigma_2F = get_sgm(twoF_fou_alt_c)
 
-        
+
         log_dict[("twoF_" + rec, "twoF_"+str(frq))] = {
             "C": twoF_C, "T":twoF_T, "nn":twoF_nn, "fff":twoF_fff,
             "i0":twoF_i0, "ff_alt":twoF_ff_alt, "fou0":twoF_fou0,
             "fou_alt": twoF_fou_alt, "fou_alt_c": twoF_fou_alt_c,
-            "args":(spks, frq * 2, Q)
+            "M": M_2f, "args":(spks, frq * 2, M_2f)
         }
-        
+
         if diagnostics:
             # Save diagnostic plots
             ax = plot_power_by_freq(ff_alt, fou_alt, fou0, frq)
             plt.gca().set_title(f"{frq}, {rec}")
-            save_and_close(plt.gcf(), rec, f"power_by_freq_Q{Q}", frq)
-            
+            save_and_close(plt.gcf(), rec, f"power_by_freq_Q{M_1f}", frq)
+
             ax = plot_coefficient_cdf(ff_alt, fou_alt)
             plt.gca().set_title(f"{frq}, {rec}")
-            save_and_close(plt.gcf(), rec, f"coefficient_cdf_Q{Q}", frq)
-            
+            save_and_close(plt.gcf(), rec, f"coefficient_cdf_Q{M_1f}", frq)
+
             ax = plot_magnitude_pdf(ff_alt, fou_alt)
             plt.gca().set_title(f"{frq}, {rec}")
             save_and_close(plt.gcf(), rec, "magnitude_pdf", frq)
-            
+
             ax = Moments_vs_FR(nn, fou_alt_c, T)
             plt.gca().set_title(f"{frq}, {rec}")
-            save_and_close(plt.gcf(), rec, f"Moments_vs_fr_Q{Q}", frq)
-            
-                    
-        # Standard deviation of the surrounding frequencies' coefficients
-        eps = get_epsilon(Q)
+            save_and_close(plt.gcf(), rec, f"Moments_vs_fr_Q{M_1f}", frq)
+
+
+        # Standard deviation of the surrounding frequencies' coefficients --
+        # 1F and 2F now generally have DIFFERENT bin counts (M_2f ~= 2*M_1f,
+        # since the fraction is applied independently at each analyzed
+        # frequency), so each needs its own eps/null-distribution rather than
+        # sharing one (as was harmless when both used the same literal Q).
+        eps_1f = get_epsilon(M_1f)
         R, YY_uncorrected = normalized_Fourier_PDF()
-        PDF = normalized_Fourier_PDF_corrected(
-            R[1:], R[1:], YY_uncorrected[1:], eps)
-        CDF = normalized_Fourier_CDF_corrected(PDF, R[1:])
-        pp = 1 - np.interp(c_hat, R[2:], CDF)
-        twof_pp = 1 - np.interp(twoF_c_hat, R[2:], CDF) 
-        
+        PDF_1f = normalized_Fourier_PDF_corrected(
+            R[1:], R[1:], YY_uncorrected[1:], eps_1f)
+        CDF_1f = normalized_Fourier_CDF_corrected(PDF_1f, R[1:])
+        pp = 1 - np.interp(c_hat, R[2:], CDF_1f)
+
+        eps_2f = get_epsilon(M_2f)
+        PDF_2f = normalized_Fourier_PDF_corrected(
+            R[1:], R[1:], YY_uncorrected[1:], eps_2f)
+        CDF_2f = normalized_Fourier_CDF_corrected(PDF_2f, R[1:])
+        twof_pp = 1 - np.interp(twoF_c_hat, R[2:], CDF_2f)
+
         fourier_l.append(pd.DataFrame({
             "id": ids, "pp":pp, "nn":nn, "rr":c_hat,
-            "freq":frq, "rec":rec, "2f_rr":twoF_c_hat, "2f_pp":twof_pp, 
-            "sens":nn/2/sigma_1F, "sens_2f":nn/2/sigma_2F}))
-    
+            "freq":frq, "rec":rec, "2f_rr":twoF_c_hat, "2f_pp":twof_pp,
+            "sens":nn/2/sigma_1F, "sens_2f":nn/2/sigma_2F,
+            "Q": M_1f}))  # bin count behind THIS row's rr/pp (1F)
+
     fourier_df = pd.concat(fourier_l)
-    fourier_df["Q"] = Q # Save number of neighbors used
     return fourier_df, log_dict
 
 
@@ -1302,9 +1359,16 @@ def draw_hist(c_hat, ax, xlim=12.5, title=False, inset=True, invert=False, eps=N
 
 
 def inset_hist(ax, vals, bins, eps=None):
-    x1, x2, y1, y2 = 2.5, 10, 0, .01
+    x1, x2, y1, y2 = 2.5, 6, 0, .01
     axins = ax.inset_axes([0.5, 0.5, 0.47, 0.47], xlim=(x1, x2), ylim=(y1, y2))
-    ax.indicate_inset_zoom(axins, edgecolor="black")
+    # indicate_inset_zoom's automatic corner choice sometimes connects to the
+    # inset's TOP corner even though the inset sits above the (near-zero-y)
+    # zoomed region -- a long diagonal that crosses the plot and looks
+    # inconsistent with the other, short bottom-to-bottom connector. Anchor
+    # both connectors to the inset's bottom corners explicitly instead
+    # (loc codes: 3=lower-left, 4=lower-right).
+    from mpl_toolkits.axes_grid1.inset_locator import mark_inset
+    mark_inset(ax, axins, loc1=3, loc2=4, edgecolor="black", facecolor="none")
 
     axins.bar(bins[:-1], vals, width=np.diff(bins)[0], align="edge")
     XX, YY = normalized_Fourier_PDF()
