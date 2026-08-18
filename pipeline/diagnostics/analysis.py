@@ -2,12 +2,12 @@
 Analysis-stage diagnostic plots.
 
 plot_analysis_diagnostics  — single multi-page PDF, up to six pages per (rec, freq) group:
-  Page 1 (2×2): [power spectrum]  [c-hat histogram]
+  Page 1 (2×2): [power spectrum]  [NFC histogram]
                 [coefficient CDF] [magnitude PDF  ]
-  Page 2 (1×1): Spike raster (units sorted by c-hat, period boundaries marked)
+  Page 2 (1×1): Spike raster (units sorted by NFC, period boundaries marked)
   Page 3 (2×1): Fourier coefficient spectrum (real + imaginary vs frequency)
   Page 4 (4×1): Moments of off-frequency coefficients vs firing rate
-  Page 5 (1×1): 2F c-hat histogram
+  Page 5 (1×1): 2F NFC histogram
   Page 6 (2×1): 2F Fourier coefficient spectrum (only when per-unit 2F
                 coefficients are available -- see that page's own comment)
 All axes content is rasterized.
@@ -66,11 +66,11 @@ def plot_analysis_diagnostics(cfg, modulation_df, fourier_df, log_dict, save_dir
             _fill_power_spectra(ax_psd, spks, freq)
             ax_psd.set_title("Power spectrum")
 
-            # ── c-hat histogram ──────────────────────────────────────────────
+            # ── NFC histogram ─────────────────────────────────────────────────
             NFC = fdf_group["NFC"].values
             Q = fdf_group["Q"].iloc[0] if "Q" in fdf_group.columns and len(fdf_group) else None
-            _fill_chat_hist(ax_hist, NFC, Q=Q)
-            ax_hist.set_title(f"c-hat distribution  (N={len(NFC)})")
+            _fill_NFC_hist(ax_hist, NFC, Q=Q)
+            ax_hist.set_title(f"NFC distribution  (N={len(NFC)})")
 
             # ── Coefficient CDF and magnitude PDF ────────────────────────────
             entry = log_dict.get((rec, freq), {})
@@ -97,7 +97,7 @@ def plot_analysis_diagnostics(cfg, modulation_df, fourier_df, log_dict, save_dir
             pdf.savefig(fig, dpi=150)
             plt.close(fig)
 
-            # ── Page 2: Spike raster (sorted by c-hat, period boundaries) ────
+            # ── Page 2: Spike raster (sorted by NFC, period boundaries) ──────
             NFC_by_id = dict(zip(fdf_group["id"], fdf_group["NFC"]))
             id_spk_pairs = [(id_, g["spk"].values)
                             for id_, g in modulation_df.loc[mod_mask].groupby("id")
@@ -106,7 +106,7 @@ def plot_analysis_diagnostics(cfg, modulation_df, fourier_df, log_dict, save_dir
 
             fig_r, ax_r = plt.subplots(figsize=(10, 6))
             fig_r.suptitle(f"{cfg.name}  |  {rec}  |  {freq} Hz  —  spike raster "
-                           f"(sorted by c-hat, high → low)", fontsize=9)
+                           f"(sorted by NFC, high → low)", fontsize=9)
             _fill_spike_raster(ax_r, id_spk_pairs, freq)
             _rasterize_ax(ax_r)
             fig_r.tight_layout()
@@ -157,8 +157,8 @@ def plot_analysis_diagnostics(cfg, modulation_df, fourier_df, log_dict, save_dir
                     pdf.savefig(fig3, dpi=150)
                     plt.close(fig3)
 
-            # ── Page 5: 2F c-hat histogram ────────────────────────────────────
-            # Mirrors Page 1's c-hat histogram but for the 2nd harmonic. The
+            # ── Page 5: 2F NFC histogram ──────────────────────────────────────
+            # Mirrors Page 1's NFC histogram but for the 2nd harmonic. The
             # 2F group has its own bin count M_2f (~= 2*M_1f under the
             # Q_frac policy -- see fit_fourier_sig), looked up from the twoF_
             # log_dict entry rather than fourier_df's "Q" column (which only
@@ -172,8 +172,8 @@ def plot_analysis_diagnostics(cfg, modulation_df, fourier_df, log_dict, save_dir
             if len(NFC_2f) >= 2:
                 fig5, ax5 = plt.subplots(figsize=(7, 5))
                 fig5.suptitle(f"{cfg.name}  |  {rec}  |  {freq * 2} Hz (2F)  —  "
-                              f"c-hat distribution", fontsize=9)
-                _fill_chat_hist(ax5, NFC_2f, Q=twoF_entry.get("M"))
+                              f"NFC distribution", fontsize=9)
+                _fill_NFC_hist(ax5, NFC_2f, Q=twoF_entry.get("M"))
                 ax5.set_title(f"N = {len(NFC_2f)} units")
                 _rasterize_ax(ax5)
                 fig5.tight_layout()
@@ -260,7 +260,7 @@ def _fill_power_spectra(ax, spks, freq, f_lo=0.3, f_hi=20, df=0.3):
 
 def _fill_spike_raster(ax, id_spk_pairs, freq, max_units=80, max_periods=20):
     """Rasterized spike-raster plot: one row per unit (in the order given by
-    the caller -- e.g. sorted by c-hat descending), spike times on the
+    the caller -- e.g. sorted by NFC descending), spike times on the
     x-axis, with vertical dashed lines marking stimulus period boundaries so
     stimulus-locked (or not) structure in the raw spikes can be compared by
     eye against the reported Fourier result. Restricted to `max_periods`
@@ -299,7 +299,7 @@ def _fill_spike_raster(ax, id_spk_pairs, freq, max_units=80, max_periods=20):
     ax.set_ylabel(f"Unit (N={len(spk_list)} of {len(id_spk_pairs)} shown)")
 
 
-def _fill_chat_hist(ax, NFC, Q=None):
+def _fill_NFC_hist(ax, NFC, Q=None):
     if len(NFC) < 2:
         ax.text(0.5, 0.5, "insufficient data", ha="center", va="center",
                 transform=ax.transAxes, fontsize=8)

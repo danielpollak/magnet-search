@@ -145,21 +145,6 @@ def process_spikes(st, T, fs):
     return flo, fhi, freq_range, ref_c, stim_c, sigma
 
 
-def compute_c_hat(st, T, fs):  
-    """
-    Generate c_hat value
-    Parameters
-    ----------
-    st: np.array spike times in s
-    T: duration of stimulation epoch in s
-    fs: stimulation frequency in Hz
-    """
-    _, _, _, _, stim_c, sigma = process_spikes(st, T, fs)
-
-    c_hat = np.abs(stim_c) / sigma
-    return c_hat
-
-
 def run_diagnostics(
         ff_alt, fou_alt, fou0, frq, rec, Q, spk_count,
         fou_alt_c, spks, save_path=r'C:\Users\dan\Documents\MagnetSearch\figs\nwb'):

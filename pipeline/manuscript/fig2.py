@@ -1,4 +1,4 @@
-"""Fig 2 — excess-count barplots and c-hat distributions for all neurons.
+"""Fig 2 — excess-count barplots and NFC distributions for all neurons.
 
 Requires:
   data/manuscript/all_fourier_df.parquet  (run python pipeline/aggregate.py first)

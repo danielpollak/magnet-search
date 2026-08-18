@@ -59,7 +59,7 @@ def compute_fourier_results(cfg, verbose=True):
 
     Returns a dict with everything run_analysis needs to write/plot:
     F, roi_df, included_mask, imaging_dims, fourier_df, freq, Q, Q_2f, T,
-    freq_win, onfreq_pow_l, offfreq_pow_l, onfreq_2f_l, offfreq_2f_l.
+    freq_win, onfreq_coef_l, offfreq_coef_l, onfreq_coef_2f_l, offfreq_coef_2f_l.
     """
     freq    = cfg.analysis.f
     Q_frac  = cfg.analysis.Q_frac
@@ -90,31 +90,31 @@ def compute_fourier_results(cfg, verbose=True):
     n_cells = len(F)
     empty = np.full(n_cells, np.nan)
     results = {
-        1: dict(NFC=empty, p_value=empty, sens=empty, onfreq_pow_l=None,
-                offfreq_pow_l=None, freq_win=None, M=None),
-        2: dict(NFC=empty, p_value=empty, sens=empty, onfreq_pow_l=None,
-                offfreq_pow_l=None, freq_win=None, M=None),
+        1: dict(NFC=empty, p_value=empty, sens=empty, onfreq_coef_l=None,
+                offfreq_coef_l=None, freq_win=None, M=None),
+        2: dict(NFC=empty, p_value=empty, sens=empty, onfreq_coef_l=None,
+                offfreq_coef_l=None, freq_win=None, M=None),
     }
     for h, hfreq in harmonics:
         _p(f"[engert] {cfg.name}: fit_Fourier at {hfreq} Hz" + (f" ({h}F)" if h == 2 else f"  (T={T})"))
-        chat_l, onfreq_pow_l, offfreq_pow_l, freq_win, M, avg_signal_l = fit_Fourier(
+        NFC_l, onfreq_coef_l, offfreq_coef_l, freq_win, M, avg_signal_l = fit_Fourier(
             F, T=T, f=hfreq, Q_frac=Q_frac)
 
-        NFC     = np.array(chat_l)
+        NFC     = np.array(NFC_l)
         p_value = corrected_pvalues(NFC, M)
-        fou_alt = np.array(offfreq_pow_l)                             # (C, 2*M) complex
+        fou_alt = np.array(offfreq_coef_l)                            # (C, 2*M) complex
         sigma   = np.sqrt(0.5 * np.mean(np.abs(fou_alt) ** 2, axis=1))
         sens    = avg_signal_l / np.where(sigma > 0, 2 * sigma, np.nan)
 
-        results[h] = dict(NFC=NFC, p_value=p_value, sens=sens, onfreq_pow_l=onfreq_pow_l,
-                           offfreq_pow_l=offfreq_pow_l, freq_win=freq_win, M=M)
+        results[h] = dict(NFC=NFC, p_value=p_value, sens=sens, onfreq_coef_l=onfreq_coef_l,
+                           offfreq_coef_l=offfreq_coef_l, freq_win=freq_win, M=M)
 
     r1, r2 = results[1], results[2]
     NFC, p_value, sens = r1["NFC"], r1["p_value"], r1["sens"]
-    onfreq_pow_l, offfreq_pow_l = r1["onfreq_pow_l"], r1["offfreq_pow_l"]
+    onfreq_coef_l, offfreq_coef_l = r1["onfreq_coef_l"], r1["offfreq_coef_l"]
     freq_win, M_1f = r1["freq_win"], r1["M"]
     NFC_2f, p_value_2f, sens_2f = r2["NFC"], r2["p_value"], r2["sens"]
-    onfreq_2f_l, offfreq_2f_l = r2["onfreq_pow_l"], r2["offfreq_pow_l"]
+    onfreq_coef_2f_l, offfreq_coef_2f_l = r2["onfreq_coef_l"], r2["offfreq_coef_l"]
     freq_win_2f, M_2f = r2["freq_win"], r2["M"]
 
     # ── Number of frames used by fit_Fourier ────────────────────────────────
@@ -140,9 +140,9 @@ def compute_fourier_results(cfg, verbose=True):
         "F": F, "roi_df": roi_df, "included_mask": included_mask,
         "imaging_dims": imaging_dims, "fourier_df": fourier_df,
         "freq": freq, "Q": M_1f, "Q_2f": M_2f, "T": T, "freq_win": freq_win,
-        "onfreq_pow_l": onfreq_pow_l, "offfreq_pow_l": offfreq_pow_l,
+        "onfreq_coef_l": onfreq_coef_l, "offfreq_coef_l": offfreq_coef_l,
         "freq_win_2f": freq_win_2f,
-        "onfreq_2f_l": onfreq_2f_l, "offfreq_2f_l": offfreq_2f_l,
+        "onfreq_coef_2f_l": onfreq_coef_2f_l, "offfreq_coef_2f_l": offfreq_coef_2f_l,
     }
 
 
@@ -151,9 +151,9 @@ def run_analysis(cfg):
     F, roi_df, included_mask, imaging_dims = r["F"], r["roi_df"], r["included_mask"], r["imaging_dims"]
     fourier_df, freq, Q, Q_2f, T = r["fourier_df"], r["freq"], r["Q"], r["Q_2f"], r["T"]
     freq_win = r["freq_win"]
-    onfreq_pow_l, offfreq_pow_l = r["onfreq_pow_l"], r["offfreq_pow_l"]
+    onfreq_coef_l, offfreq_coef_l = r["onfreq_coef_l"], r["offfreq_coef_l"]
     freq_win_2f = r["freq_win_2f"]
-    onfreq_2f_l, offfreq_2f_l = r["onfreq_2f_l"], r["offfreq_2f_l"]
+    onfreq_coef_2f_l, offfreq_coef_2f_l = r["onfreq_coef_2f_l"], r["offfreq_coef_2f_l"]
 
     # ── NWB write (see .claude/plans — NWB replatform, Phase 4) ────────────
     nwb_io.rebuild_and_replace_analysis(
@@ -161,8 +161,8 @@ def run_analysis(cfg):
         lambda nwbfile: nwb_io.write_imaging_fourier_results(
             nwbfile, rec=cfg.name, freq=freq, Q=Q,
             T_duration=F.shape[1] * T, fourier_df_rows=fourier_df,
-            onfreq_pow=onfreq_pow_l, offfreq_pow=offfreq_pow_l, freq_win=freq_win,
-            onfreq_pow_2f=onfreq_2f_l, offfreq_pow_2f=offfreq_2f_l, Q_2f=Q_2f),
+            onfreq_coef=onfreq_coef_l, offfreq_coef=offfreq_coef_l, freq_win=freq_win,
+            onfreq_coef_2f=onfreq_coef_2f_l, offfreq_coef_2f=offfreq_coef_2f_l, Q_2f=Q_2f),
     )
     print(f"[engert] {cfg.name}: saved -> {cfg.nwb_path()}")
 
@@ -178,7 +178,7 @@ def run_analysis(cfg):
     diag_dir.mkdir(parents=True, exist_ok=True)
     plot_engert_diagnostics(
         cfg, F, fourier_df, freq_win,
-        onfreq_pow_l, offfreq_pow_l, diag_dir,
+        onfreq_coef_l, offfreq_coef_l, diag_dir,
         roi_df=roi_df, included_mask=included_mask, imaging_dims=imaging_dims,
-        freq_win_2f=freq_win_2f, onfreq_pow_2f=onfreq_2f_l,
-        offfreq_pow_2f=offfreq_2f_l, Q_2f=Q_2f)
+        freq_win_2f=freq_win_2f, onfreq_coef_2f=onfreq_coef_2f_l,
+        offfreq_coef_2f=offfreq_coef_2f_l, Q_2f=Q_2f)
