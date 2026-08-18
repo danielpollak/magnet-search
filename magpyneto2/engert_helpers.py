@@ -171,7 +171,7 @@ def fit_Fourier(F, T=1, f=0.4, Q_frac=0.1):
     -- avg_signal_l is each cell's mean RAW fluorescence, over the same
     N-frame window the FFT itself analyzes. This is the numerator of the
     `sens` statistic (avg_signal / (2*sigma)), analogous to the spiking-side
-    `nn / (2*sigma)` where `nn` is spike count.
+    `spk_count / (2*sigma)` where `spk_count` is spike count.
     """
 
     onfreq_pow_l = np.zeros(len(F),dtype="complex")

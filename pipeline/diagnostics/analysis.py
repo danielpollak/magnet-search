@@ -42,7 +42,7 @@ def plot_analysis_diagnostics(cfg, modulation_df, fourier_df, log_dict, save_dir
     ----------
     cfg          : ExperimentConfig
     modulation_df: pd.DataFrame  columns [period, spk, phase, freq, id, rec]
-    fourier_df   : pd.DataFrame  columns include [rr, rec, freq]
+    fourier_df   : pd.DataFrame  columns include [NFC, rec, freq]
     log_dict     : dict  {(rec, freq): {"ff_alt": ..., "fou_alt": ..., ...}}
     save_dir     : Path-like
     """
@@ -67,10 +67,10 @@ def plot_analysis_diagnostics(cfg, modulation_df, fourier_df, log_dict, save_dir
             ax_psd.set_title("Power spectrum")
 
             # ── c-hat histogram ──────────────────────────────────────────────
-            rr = fdf_group["rr"].values
+            NFC = fdf_group["NFC"].values
             Q = fdf_group["Q"].iloc[0] if "Q" in fdf_group.columns and len(fdf_group) else None
-            _fill_chat_hist(ax_hist, rr, Q=Q)
-            ax_hist.set_title(f"c-hat distribution  (N={len(rr)})")
+            _fill_chat_hist(ax_hist, NFC, Q=Q)
+            ax_hist.set_title(f"c-hat distribution  (N={len(NFC)})")
 
             # ── Coefficient CDF and magnitude PDF ────────────────────────────
             entry = log_dict.get((rec, freq), {})
@@ -98,11 +98,11 @@ def plot_analysis_diagnostics(cfg, modulation_df, fourier_df, log_dict, save_dir
             plt.close(fig)
 
             # ── Page 2: Spike raster (sorted by c-hat, period boundaries) ────
-            rr_by_id = dict(zip(fdf_group["id"], fdf_group["rr"]))
+            NFC_by_id = dict(zip(fdf_group["id"], fdf_group["NFC"]))
             id_spk_pairs = [(id_, g["spk"].values)
                             for id_, g in modulation_df.loc[mod_mask].groupby("id")
                             if len(g) > 0]
-            id_spk_pairs.sort(key=lambda p: rr_by_id.get(p[0], -1), reverse=True)
+            id_spk_pairs.sort(key=lambda p: NFC_by_id.get(p[0], -1), reverse=True)
 
             fig_r, ax_r = plt.subplots(figsize=(10, 6))
             fig_r.suptitle(f"{cfg.name}  |  {rec}  |  {freq} Hz  —  spike raster "
@@ -136,10 +136,10 @@ def plot_analysis_diagnostics(cfg, modulation_df, fourier_df, log_dict, save_dir
                 plt.close(fig2)
 
             # ── Page 4: Moments vs firing rate ───────────────────────────────
-            if all(k in entry for k in ("nn", "fou_alt_c", "T")):
+            if all(k in entry for k in ("spk_count", "fou_alt_c", "T")):
                 try:
                     fig3_axes = Moments_vs_FR(
-                        entry["nn"], entry["fou_alt_c"], entry["T"])
+                        entry["spk_count"], entry["fou_alt_c"], entry["T"])
                     fig3 = fig3_axes[0].get_figure()
                     fig3.suptitle(
                         f"{cfg.name}  |  {rec}  |  {freq} Hz  —  Moments vs FR",
@@ -166,15 +166,15 @@ def plot_analysis_diagnostics(cfg, modulation_df, fourier_df, log_dict, save_dir
             # pre-Q_frac -- see .claude/plans).
             twoF_key = ("twoF_" + rec, "twoF_" + str(freq))
             twoF_entry = log_dict.get(twoF_key, {})
-            rr_2f_all = fdf_group["2f_rr"].values if "2f_rr" in fdf_group.columns else np.array([])
-            rr_2f = rr_2f_all[~np.isnan(rr_2f_all)] if len(rr_2f_all) else rr_2f_all
+            NFC_2f_all = fdf_group["2f_NFC"].values if "2f_NFC" in fdf_group.columns else np.array([])
+            NFC_2f = NFC_2f_all[~np.isnan(NFC_2f_all)] if len(NFC_2f_all) else NFC_2f_all
 
-            if len(rr_2f) >= 2:
+            if len(NFC_2f) >= 2:
                 fig5, ax5 = plt.subplots(figsize=(7, 5))
                 fig5.suptitle(f"{cfg.name}  |  {rec}  |  {freq * 2} Hz (2F)  —  "
                               f"c-hat distribution", fontsize=9)
-                _fill_chat_hist(ax5, rr_2f, Q=twoF_entry.get("M"))
-                ax5.set_title(f"N = {len(rr_2f)} units")
+                _fill_chat_hist(ax5, NFC_2f, Q=twoF_entry.get("M"))
+                ax5.set_title(f"N = {len(NFC_2f)} units")
                 _rasterize_ax(ax5)
                 fig5.tight_layout()
                 pdf.savefig(fig5, dpi=150)
@@ -299,13 +299,13 @@ def _fill_spike_raster(ax, id_spk_pairs, freq, max_units=80, max_periods=20):
     ax.set_ylabel(f"Unit (N={len(spk_list)} of {len(id_spk_pairs)} shown)")
 
 
-def _fill_chat_hist(ax, rr, Q=None):
-    if len(rr) < 2:
+def _fill_chat_hist(ax, NFC, Q=None):
+    if len(NFC) < 2:
         ax.text(0.5, 0.5, "insufficient data", ha="center", va="center",
                 transform=ax.transAxes, fontsize=8)
         return
     eps = get_epsilon(Q) if Q else None
-    vals, bins = draw_hist(rr, ax, xlim=9, inset=False, eps=eps)
+    vals, bins = draw_hist(NFC, ax, xlim=9, inset=False, eps=eps)
     inset_hist(ax, vals, bins, eps=eps)
 
 

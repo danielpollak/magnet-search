@@ -77,7 +77,7 @@ def compute_fourier_results(cfg, verbose=True):
        f"cells after iscell filter (npix filter combined), {len(F)} after flatline removal")
 
     # ── Fourier harmonics: 1F always, 2F only if below Nyquist ─────────────
-    # Both harmonics go through the identical fit_Fourier -> rr/pp/sens
+    # Both harmonics go through the identical fit_Fourier -> NFC/p_value/sens
     # derivation below; only the frequency (and whether 2F is skipped)
     # differs, so this loops over (harmonic label, frequency) instead of
     # duplicating the block per harmonic.
@@ -90,9 +90,9 @@ def compute_fourier_results(cfg, verbose=True):
     n_cells = len(F)
     empty = np.full(n_cells, np.nan)
     results = {
-        1: dict(rr=empty, pp=empty, sens=empty, onfreq_pow_l=None,
+        1: dict(NFC=empty, p_value=empty, sens=empty, onfreq_pow_l=None,
                 offfreq_pow_l=None, freq_win=None, M=None),
-        2: dict(rr=empty, pp=empty, sens=empty, onfreq_pow_l=None,
+        2: dict(NFC=empty, p_value=empty, sens=empty, onfreq_pow_l=None,
                 offfreq_pow_l=None, freq_win=None, M=None),
     }
     for h, hfreq in harmonics:
@@ -100,40 +100,40 @@ def compute_fourier_results(cfg, verbose=True):
         chat_l, onfreq_pow_l, offfreq_pow_l, freq_win, M, avg_signal_l = fit_Fourier(
             F, T=T, f=hfreq, Q_frac=Q_frac)
 
-        rr      = np.array(chat_l)
-        pp      = corrected_pvalues(rr, M)
+        NFC     = np.array(chat_l)
+        p_value = corrected_pvalues(NFC, M)
         fou_alt = np.array(offfreq_pow_l)                             # (C, 2*M) complex
         sigma   = np.sqrt(0.5 * np.mean(np.abs(fou_alt) ** 2, axis=1))
         sens    = avg_signal_l / np.where(sigma > 0, 2 * sigma, np.nan)
 
-        results[h] = dict(rr=rr, pp=pp, sens=sens, onfreq_pow_l=onfreq_pow_l,
+        results[h] = dict(NFC=NFC, p_value=p_value, sens=sens, onfreq_pow_l=onfreq_pow_l,
                            offfreq_pow_l=offfreq_pow_l, freq_win=freq_win, M=M)
 
     r1, r2 = results[1], results[2]
-    rr, pp, sens = r1["rr"], r1["pp"], r1["sens"]
+    NFC, p_value, sens = r1["NFC"], r1["p_value"], r1["sens"]
     onfreq_pow_l, offfreq_pow_l = r1["onfreq_pow_l"], r1["offfreq_pow_l"]
     freq_win, M_1f = r1["freq_win"], r1["M"]
-    rr_2f, pp_2f, sens_2f = r2["rr"], r2["pp"], r2["sens"]
+    NFC_2f, p_value_2f, sens_2f = r2["NFC"], r2["p_value"], r2["sens"]
     onfreq_2f_l, offfreq_2f_l = r2["onfreq_pow_l"], r2["offfreq_pow_l"]
     freq_win_2f, M_2f = r2["freq_win"], r2["M"]
 
     # ── Number of frames used by fit_Fourier ────────────────────────────────
     N_frames = int(120 * (F.shape[1] // 60))
-    nn = np.full(len(rr), N_frames)
+    n_frames = np.full(len(NFC), N_frames)
 
     # ── Build fourier_df ─────────────────────────────────────────────────────
     fourier_df = pd.DataFrame({
-        "id":      np.arange(len(rr)),
-        "pp":      pp,
-        "nn":      nn,
-        "rr":      rr,
-        "freq":    freq,
-        "rec":     cfg.name,
-        "2f_rr":   rr_2f,
-        "2f_pp":   pp_2f,
-        "sens":    sens,
-        "sens_2f": sens_2f,
-        "Q":       M_1f,  # bin count behind THIS row's rr/pp (1F)
+        "id":        np.arange(len(NFC)),
+        "p_value":   p_value,
+        "n_frames":  n_frames,
+        "NFC":       NFC,
+        "freq":      freq,
+        "rec":       cfg.name,
+        "2f_NFC":    NFC_2f,
+        "2f_p_value": p_value_2f,
+        "sens":      sens,
+        "sens_2f":   sens_2f,
+        "Q":         M_1f,  # bin count behind THIS row's NFC/p_value (1F)
     })
 
     return {

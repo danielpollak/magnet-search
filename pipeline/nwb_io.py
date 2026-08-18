@@ -1024,11 +1024,11 @@ def write_fourier_results(nwbfile, fourier_df, log_dict):
         unit_table.add_column("group_1f_index", "row index into fourier_group_results, 1F")
         unit_table.add_column("group_2f_index", "row index into fourier_group_results, 2F (-1 if none)")
         unit_table.add_column("unit_id", "Kilosort cluster id (matches Units table id)")
-        unit_table.add_column("pp", "p-value, 1F")
-        unit_table.add_column("nn", "spike count")
-        unit_table.add_column("rr", "c-hat, 1F")
-        unit_table.add_column("rr_2f", "c-hat, 2F")
-        unit_table.add_column("pp_2f", "p-value, 2F")
+        unit_table.add_column("p_value", "p-value, 1F")
+        unit_table.add_column("spk_count", "spike count")
+        unit_table.add_column("NFC", "c-hat, 1F")
+        unit_table.add_column("2f_NFC", "c-hat, 2F")
+        unit_table.add_column("2f_p_value", "p-value, 2F")
         unit_table.add_column("sens", "detection sensitivity, 1F")
         unit_table.add_column("sens_2f", "detection sensitivity, 2F")
         unit_table.add_column("fou0_real", "on-freq coefficient, real part, 1F")
@@ -1054,15 +1054,22 @@ def write_fourier_results(nwbfile, fourier_df, log_dict):
         sigma_arr = get_sgm(entry_1f["fou_alt_c"])
 
         for pos, (_, row) in enumerate(gdf.iterrows()):
-            unit_table.add_row(
+            # 2f_NFC/2f_p_value aren't valid Python identifiers, so they can't
+            # be passed as literal add_row(2f_NFC=...) keyword args -- build a
+            # dict and unpack it instead (DynamicTable.add_row's (*args,
+            # **kwargs) signature accepts non-identifier string keys this way
+            # even though the literal keyword syntax doesn't parse for them).
+            row_kwargs = dict(
                 group_1f_index=idx_1f, group_2f_index=idx_2f, unit_id=int(row["id"]),
-                pp=float(row["pp"]), nn=int(row["nn"]), rr=float(row["rr"]),
-                rr_2f=float(row.get("2f_rr", np.nan)), pp_2f=float(row.get("2f_pp", np.nan)),
+                p_value=float(row["p_value"]), spk_count=int(row["spk_count"]), NFC=float(row["NFC"]),
                 sens=float(row.get("sens", np.nan)), sens_2f=float(row.get("sens_2f", np.nan)),
                 fou0_real=float(np.real(fou0[pos])), fou0_imag=float(np.imag(fou0[pos])),
                 fou_alt_real=np.real(fou_alt[pos]), fou_alt_imag=np.imag(fou_alt[pos]),
                 sigma=float(sigma_arr[pos]),
             )
+            row_kwargs["2f_NFC"] = float(row.get("2f_NFC", np.nan))
+            row_kwargs["2f_p_value"] = float(row.get("2f_p_value", np.nan))
+            unit_table.add_row(**row_kwargs)
 
     # module.add() on a table that's already a data_interface of this module
     # raises -- only add each table the first time it's created.
@@ -1108,20 +1115,28 @@ def read_fourier_results_as_full_fourier_df(nwbfile):
     if len(group_df) and has_2f.any():
         Q_2f[has_2f] = group_df.loc[group_2f_idx[has_2f], "Q"].values
 
-    return pd.DataFrame({
+    result = {
         "id": unit_df["unit_id"].values,
-        "pp": unit_df["pp"].values,
-        "nn": unit_df["nn"].values,
-        "rr": unit_df["rr"].values,
+        "p_value": unit_df["p_value"].values,
+        "NFC": unit_df["NFC"].values,
         "freq": freq,
         "rec": rec,
-        "2f_rr": unit_df["rr_2f"].values,
-        "2f_pp": unit_df["pp_2f"].values,
+        "2f_NFC": unit_df["2f_NFC"].values,
+        "2f_p_value": unit_df["2f_p_value"].values,
         "sens": unit_df["sens"].values,
         "sens_2f": unit_df["sens_2f"].values,
         "Q": Q,
         "Q_2f": Q_2f,
-    })
+    }
+    # write_fourier_results (ephys) persists spk_count; write_imaging_fourier_results
+    # (engert/medaka) persists n_frames -- this reader is shared across both, so it
+    # must emit whichever one this file's per_unit_fourier_results table actually has,
+    # rather than forcing both pathways onto one name.
+    if "spk_count" in unit_df.columns:
+        result["spk_count"] = unit_df["spk_count"].values
+    else:
+        result["n_frames"] = unit_df["n_frames"].values
+    return pd.DataFrame(result)
 
 
 # ---------------------------------------------------------------------------
@@ -1306,25 +1321,25 @@ def write_imaging_fourier_results(nwbfile, rec, freq, Q, T_duration, fourier_df_
     `fit_Fourier()` has no `log_dict` equivalent (no `fou_alt_c`/`get_sgm`
     3-D trial-averaging machinery).
 
-    Mirrors write_fourier_results's own contract: `pp`/`nn`/`rr`/`2f_rr`/
-    `2f_pp`/`sens`/`sens_2f`/`id` are trusted AS-IS from `fourier_df_rows`
-    (the caller's own already-computed, legacy-pickle-matching DataFrame
-    slice for this group) rather than recomputed here -- recomputing them
-    independently risks a subtly different formula (e.g. `fit_Fourier`'s own
-    `normalize_chat` has no epsilon guard against `sigma==0`, while the
-    analysis stage's `sens` computation does; duplicating that logic here
-    would be a second place for the two to drift apart). Only the
-    previously-discarded intermediates (`fou0`, `fou_alt`, `sigma`) are
-    computed fresh here, from onfreq_pow/offfreq_pow.
+    Mirrors write_fourier_results's own contract: `p_value`/`n_frames`/`NFC`/
+    `2f_NFC`/`2f_p_value`/`sens`/`sens_2f`/`id` are trusted AS-IS from
+    `fourier_df_rows` (the caller's own already-computed, legacy-pickle-
+    matching DataFrame slice for this group) rather than recomputed here --
+    recomputing them independently risks a subtly different formula (e.g.
+    `fit_Fourier`'s own `normalize_chat` has no epsilon guard against
+    `sigma==0`, while the analysis stage's `sens` computation does;
+    duplicating that logic here would be a second place for the two to
+    drift apart). Only the previously-discarded intermediates (`fou0`,
+    `fou_alt`, `sigma`) are computed fresh here, from onfreq_pow/offfreq_pow.
 
     Parameters
     ----------
     rec, freq, Q, T_duration : this (rec, freq) group's identity/duration (s).
     fourier_df_rows : pd.DataFrame, this group's rows exactly as the caller
         already built them (same row order as onfreq_pow/offfreq_pow),
-        columns id/pp/nn/rr/2f_rr/2f_pp/sens/sens_2f -- NOT the original
-        suite2p ROI index (see module design notes); verify_outputs.py
-        parity depends on reusing these columns unchanged.
+        columns id/p_value/n_frames/NFC/2f_NFC/2f_p_value/sens/sens_2f --
+        NOT the original suite2p ROI index (see module design notes);
+        verify_outputs.py parity depends on reusing these columns unchanged.
     onfreq_pow, offfreq_pow : `fit_Fourier`'s `onfreq_pow_l`/`offfreq_pow_l`
         for the base (1F) call, used only to persist fou0/fou_alt/sigma.
     onfreq_pow_2f, offfreq_pow_2f : optional, the SAME for a paired 2F call
@@ -1424,11 +1439,11 @@ def write_imaging_fourier_results(nwbfile, rec, freq, Q, T_duration, fourier_df_
         unit_table.add_column("group_1f_index", "row index into fourier_group_results, 1F")
         unit_table.add_column("group_2f_index", "row index into fourier_group_results, 2F (-1 if none)")
         unit_table.add_column("unit_id", "sequential id matching legacy full_fourier_df's id column")
-        unit_table.add_column("pp", "p-value, 1F")
-        unit_table.add_column("nn", "frame count")
-        unit_table.add_column("rr", "c-hat, 1F")
-        unit_table.add_column("rr_2f", "c-hat, 2F")
-        unit_table.add_column("pp_2f", "p-value, 2F")
+        unit_table.add_column("p_value", "p-value, 1F")
+        unit_table.add_column("n_frames", "frame count")
+        unit_table.add_column("NFC", "c-hat, 1F")
+        unit_table.add_column("2f_NFC", "c-hat, 2F")
+        unit_table.add_column("2f_p_value", "p-value, 2F")
         unit_table.add_column("sens", "detection sensitivity, 1F")
         unit_table.add_column("sens_2f", "detection sensitivity, 2F")
         unit_table.add_column("fou0_real", "on-freq coefficient, real part, 1F")
@@ -1444,20 +1459,25 @@ def write_imaging_fourier_results(nwbfile, rec, freq, Q, T_duration, fourier_df_
     ])
 
     fourier_df_rows = fourier_df_rows.reset_index(drop=True)
-    has_2f_cols = "2f_rr" in fourier_df_rows.columns
+    has_2f_cols = "2f_NFC" in fourier_df_rows.columns
     for i in range(C):
         row = fourier_df_rows.iloc[i]
-        unit_table.add_row(
+        # 2f_NFC/2f_p_value aren't valid Python identifiers, so they can't be
+        # passed as literal add_row(2f_NFC=...) keyword args -- build a dict
+        # and unpack it instead (see write_fourier_results for the same
+        # pattern/rationale).
+        row_kwargs = dict(
             group_1f_index=idx_1f, group_2f_index=idx_2f, unit_id=int(row["id"]),
-            pp=float(row["pp"]), nn=int(row["nn"]), rr=float(row["rr"]),
-            rr_2f=float(row["2f_rr"]) if has_2f_cols else np.nan,
-            pp_2f=float(row["2f_pp"]) if has_2f_cols else np.nan,
+            p_value=float(row["p_value"]), n_frames=int(row["n_frames"]), NFC=float(row["NFC"]),
             sens=float(row.get("sens", np.nan)), sens_2f=float(row.get("sens_2f", np.nan)),
             fou0_real=float(np.real(onfreq_pow[i])), fou0_imag=float(np.imag(onfreq_pow[i])),
             fou_alt_real=np.real(np.asarray(offfreq_pow[i])),
             fou_alt_imag=np.imag(np.asarray(offfreq_pow[i])),
             sigma=float(sigma[i]),
         )
+        row_kwargs["2f_NFC"] = float(row["2f_NFC"]) if has_2f_cols else np.nan
+        row_kwargs["2f_p_value"] = float(row["2f_p_value"]) if has_2f_cols else np.nan
+        unit_table.add_row(**row_kwargs)
 
     if "null_distribution_models" not in module.data_interfaces:
         module.add(null_table)
@@ -1588,7 +1608,7 @@ def read_log_dict_equivalent(nwbfile):
     feeding `plot_analysis_diagnostics` without recomputing anything.
 
     1F entries get the full shape `fit_fourier_sig()` produces (C/T/ff_alt/M/
-    nn/fou0/fou_alt/fou_alt_c). 2F entries get only the GROUP-level
+    spk_count/fou0/fou_alt/fou_alt_c). 2F entries get only the GROUP-level
     intermediates (C/T/ff_alt/M) -- `per_unit_fourier_results` only
     persists PER-UNIT Fourier coefficients (fou_alt_real/imag, fou0_real/
     imag) for the 1F harmonic (see `write_fourier_results`'s unit_table
@@ -1623,7 +1643,7 @@ def read_log_dict_equivalent(nwbfile):
         if len(rows) == 0:
             continue
 
-        nn = rows["nn"].values.astype(np.int64)
+        spk_count = rows["spk_count"].values.astype(np.int64)
         fou0 = (rows["fou0_real"].values + 1j * rows["fou0_imag"].values).reshape(-1, 1)
         fou_alt_real = np.stack(rows["fou_alt_real"].values)
         fou_alt_imag = np.stack(rows["fou_alt_imag"].values)
@@ -1632,7 +1652,7 @@ def read_log_dict_equivalent(nwbfile):
 
         key = (group_row["rec"], float(group_row["frequency"]))
         log_dict[key] = {
-            "C": int(group_row["C"]), "T": float(group_row["T"]), "nn": nn,
+            "C": int(group_row["C"]), "T": float(group_row["T"]), "spk_count": spk_count,
             "ff_alt": np.asarray(group_row["ff_alt"]), "fou0": fou0,
             "fou_alt": fou_alt, "fou_alt_c": fou_alt_c, "M": M,
         }

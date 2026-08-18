@@ -57,17 +57,17 @@ def flag_sessions_with_excess_suspects(df, freq_harmonic=1):
     diff_list = []
     for (_), recdf in df.groupby(["species", "area", "rec"]):
         if freq_harmonic==1:
-            vals= recdf.rr.values
+            vals= recdf.NFC.values
             Q_col = "Q"
         elif freq_harmonic==2:
-            vals= recdf['2f_rr'].values
+            vals= recdf['2f_NFC'].values
             Q_col = "Q_2f"
         else:
             raise ValueError("freq_harmonic must be 1 or 2")
 
         # eps corrects the null distribution for the same finite-Q
-        # dependent-sampling effect already baked into the per-unit pp/
-        # 2f_pp p-values (see fit_fourier_sig) -- without this, "excess
+        # dependent-sampling effect already baked into the per-unit p_value/
+        # 2f_p_value p-values (see fit_fourier_sig) -- without this, "excess
         # suspects" here would be flagged against an uncorrected Rayleigh
         # null while the p-value uniformity panels use the corrected one.
         eps = (statistics.eps_from_Q(recdf[Q_col].iloc[0])
@@ -118,9 +118,9 @@ def plot_fig2(all_fourier_df, out_dir: Path):
     print(f"Subfig B (visual & auditory): {num_exp_B} experiments")
 
     vals_neg_res, bins_neg_res = statistics.draw_hist(
-        all_fourier_df_unique_neg_res.rr, ax_C, inset=False)
+        all_fourier_df_unique_neg_res.NFC, ax_C, inset=False)
     vals_pos_con, bins_pos_con = statistics.draw_hist(
-        all_unique_pos_control.rr, ax_D, inset=False)
+        all_unique_pos_control.NFC, ax_D, inset=False)
 
     axins_C = statistics.inset_hist(ax_C, vals_neg_res, bins_neg_res)
     axins_D = statistics.inset_hist(ax_D, vals_pos_con, bins_pos_con)

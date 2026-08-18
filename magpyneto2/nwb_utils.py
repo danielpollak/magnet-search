@@ -161,7 +161,7 @@ def compute_c_hat(st, T, fs):
 
 
 def run_diagnostics(
-        ff_alt, fou_alt, fou0, frq, rec, Q, nn, 
+        ff_alt, fou_alt, fou0, frq, rec, Q, spk_count,
         fou_alt_c, spks, save_path=r'C:\Users\dan\Documents\MagnetSearch\figs\nwb'):
     """
     Make diagnostic plots
@@ -174,7 +174,7 @@ def run_diagnostics(
     frq: stimulus freq
     rec: rec name
     Q: number of alt freqs
-    nn: n neurons
+    spk_count: n neurons
     fou_alt_c: alt c values for neurons
     spks: spike times
     """
@@ -191,7 +191,7 @@ def run_diagnostics(
     plt.gca().set_title(f"{frq}, {rec}")
     save_and_close(plt.gcf(), rec, "magnitude_pdf", frq, save_path)
 
-    ax = Moments_vs_FR(nn, fou_alt_c, T)
+    ax = Moments_vs_FR(spk_count, fou_alt_c, T)
     plt.gca().set_title(f"{frq}, {rec}")
     save_and_close(plt.gcf(), rec, f"Moments_vs_fr_Q{Q}", save_path)
     

@@ -936,7 +936,7 @@ def get_poscontrols_negresults(all_fourier_df):
     
     """POSITIVE CONTROL"""
     not_fish_fourier_df_filtered_pos_control = all_fourier_df.loc[
-        (all_fourier_df.nn > 50)
+        (all_fourier_df.spk_count > 50)
         & np.logical_not(fish_inds)
         & np.array([("visual" in elem) | ("oddball" in elem) 
                     | ("WN" in elem) | ("3D" in elem) for elem in rec_values]), :]
@@ -948,7 +948,7 @@ def get_poscontrols_negresults(all_fourier_df):
     
     """NEGATIVE RESULTS"""
     not_fish_fourier_df_filtered_neg_res = all_fourier_df.loc[
-        ((all_fourier_df.nn > 50) | (all_fourier_df.species == "Owl"))
+        ((all_fourier_df.spk_count > 50) | (all_fourier_df.species == "Owl"))
         & np.logical_not(fish_inds) & (all_fourier_df.freq > 1)
         & np.array(["visual" not in elem for elem in rec_values])
         & np.array(["WN" not in elem for elem in rec_values])

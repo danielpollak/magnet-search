@@ -34,7 +34,7 @@ def run_viz(full_fourier_df, chat_thres=3, data_path = r"\\datanas\family\data_a
     fs_Hz = recording.get_sampling_frequency()
     
     ch_sp = []
-    for _, row in full_fourier_df.loc[full_fourier_df.rr > chat_thres, "id"].iterrows():
+    for _, row in full_fourier_df.loc[full_fourier_df.NFC > chat_thres, "id"].iterrows():
         id = row.id
         ch_sp.append((udf.loc[udf.cluster_id==id,"ch"].values[0], st_d[id] / fs_Hz))
      
@@ -768,10 +768,10 @@ def extract_waveforms(recording, sorting, unit_df, pre=0.001, post=0.002, n_wave
 
 def ecdf_wfs(fourier_df, waveform_d):
     fig, ax = plt.subplots()
-    argsorted = np.argsort(fourier_df.rr.values)
+    argsorted = np.argsort(fourier_df.NFC.values)
     n_units = len(fourier_df)
 
-    for w_i, chat in enumerate(fourier_df.rr.values[argsorted]):
+    for w_i, chat in enumerate(fourier_df.NFC.values[argsorted]):
         waveforms = waveform_d[fourier_df.id[argsorted][w_i]]
         waveform = np.mean(waveforms, axis=0)
         x = np.linspace(-0.5, 0.5, len(waveform)) + chat

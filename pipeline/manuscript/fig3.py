@@ -43,7 +43,7 @@ def split_into_occurrence_waves(all_fourier_df):
     u = 0
     wave_df_l = []
     for wave_df in waves:
-        c_hat = wave_df.rr.values
+        c_hat = wave_df.NFC.values
         pval = statistics.compute_p_value(c_hat, u)
         qval, pi0 = statistics.storey_qvalues(pval, lambda_=0.5)
         wave_df = wave_df.copy()
@@ -65,7 +65,7 @@ def plot_uniform_p(waves, axes, u=0, percentile=None):
             wave_df = wave_df.loc[wave_df.sens > pct]
         if len(wave_df) == 0:
             continue
-        c_hat = wave_df["rr"].values
+        c_hat = wave_df["NFC"].values
         pval = statistics.compute_p_value(c_hat, u)
         if len(pval) == 0:
             continue

@@ -104,7 +104,7 @@ def compute_ci_df(spks):
                     modulated[spk_i] = statistics.warp_mod(spkt, A, 1 / FREQ, 0)
                 else:
                     modulated[spk_i] = spkt
-            (C, T, nn, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, c_hats) = \
+            (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, c_hats) = \
                 statistics.fourier_analysis(modulated, FREQ, "ideal", None, Q=FOURIER_Q)
             n_empirical, f_expected, l_bound, h_bound = \
                 statistics.suspect_count_significance(c_hats, 0.99, conf_int_α=0.05, eps=eps)
@@ -120,7 +120,7 @@ def compute_fr_df(spks):
     rows = []
     for A in tqdm.tqdm([0, 0.3, 0.6], desc="FR vs c_hat"):
         modulated = [statistics.modulate(spkt, FREQ, A) for spkt in spks]
-        (C, _, nn, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, c_hats) = \
+        (C, _, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, c_hats) = \
             statistics.fourier_analysis(modulated, FREQ, "ideal", None)
         rows.append(pd.DataFrame({
             "mod": A,
@@ -154,7 +154,7 @@ def plot_fig4(ci_df, c_hat_modulation_FR_df, spks, out_dir: Path):
 
     for mod_i, A in enumerate([0, 0.5, 1]):
         warped = statistics.warp_mod(example_spk, A, 1 / FREQ, 0)
-        (C, T, nn, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, c_hat) = \
+        (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, c_hat) = \
             statistics.fourier_analysis([warped], freq=FREQ)
 
         spectra_axes[mod_i].plot(ff_alt, fou_alt.real.T, ".", color="orange")
