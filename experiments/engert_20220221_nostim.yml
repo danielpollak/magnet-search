@@ -1,6 +1,10 @@
 name: "engert_20220221_nostim"
 paradigm: "engert"
-
+date: "20220221"
+subject_id: "unknown"
+species: "zebrafish"
+area: "WB"
+contingency: "positive control"
 session_path: "//datanas/family/data_aggregated/Engert/2022_02_21"
 tiff_name: "2022-02-21_18-15-42_nostim_z_plane0000_trial000_imaging_roi00_green_channel.tif"
 sample_period: 1.0

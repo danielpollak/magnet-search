@@ -1,6 +1,9 @@
 name: "engert_20220915_fish1_magneto_2"
 paradigm: "engert"
-
+date: "20220915"
+subject_id: "20220915_fish1"
+species: "zebrafish"
+area: "WB"
 session_path: "//datanas/family/data_aggregated/Engert/2022_09_15-fish1_cytoGCaMP"
 tiff_name: "2022_09_15_fish1_magneto_2.tif"
 sample_period: 1.0

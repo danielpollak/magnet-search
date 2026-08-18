@@ -1,5 +1,9 @@
 name: "20230413_firstsite"
 paradigm: "openephys_multistim"
+date: "20230413_firstsite"
+subject_id: "W25R"
+species: "Pigeon"
+area: "HP"
 good: True
 cntlbarcodes: True
 stream_id: "0"

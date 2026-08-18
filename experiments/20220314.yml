@@ -1,5 +1,9 @@
 name: "20220314"
 paradigm: "openephys"
+date: "20220314"
+subject_id: "G122♀"
+species: "zebra finch"
+area: "arcopallium"
 good: True
 cntlbarcodes: True
 stream_id: "2"

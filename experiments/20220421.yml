@@ -1,5 +1,9 @@
 name: "20220421"
 paradigm: "openephys"
+date: "20220421"
+subject_id: "S37♀"
+species: "zebra finch"
+area: "CB"
 good: True
 cntlbarcodes: False
 stream_id: "2"

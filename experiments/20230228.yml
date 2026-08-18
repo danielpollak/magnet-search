@@ -1,5 +1,9 @@
 name: "20230228"
 paradigm: "openephys_multistim"
+date: "20230228"
+subject_id: "Pk12L"
+species: "Pigeon"
+area: "CB"
 good: True
 cntlbarcodes: True
 stream_id: "2"

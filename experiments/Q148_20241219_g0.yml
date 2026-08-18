@@ -1,5 +1,9 @@
 name: "Q148_20241219_g0"
 paradigm: "spikeglx_direct"
+date: "20241219"
+subject_id: "Q148"
+species: "Quail"
+area: "nidopallium"
 good: True
 aggregated_path: '\\datanas\family\data_aggregated\Gutfreund\q148magnet19-12s2_g0'
 nidaq_channels: 9

@@ -108,6 +108,13 @@ class ExperimentConfig:
     date: str = ""           # experiment date (YYYY-MM-DD)
     subject_id: str = ""     # animal/fish/subject identifier
     species: str = ""        # e.g. "zebra finch", "Pigeon", "medaka"
+    area: str = ""           # canonical brain-area label, e.g. "HP", "CB", "NCM", "wulst"
+    # "mag" | "positive control" -- experiment-level default classification for
+    # aggregate.py's `contingency` annotation column. For openephys/openephys_multistim,
+    # this is the default applied to `trials`-derived recs only: `auxiliary_stimuli`
+    # (visual gratings/white noise/oddball/bars) recs are always "positive control"
+    # regardless of this field, since they are definitionally non-magnetic controls.
+    contingency: str = "mag"
 
     trials: list = field(default_factory=list)
     auxiliary_stimuli: list = field(default_factory=list)
@@ -182,7 +189,7 @@ class ExperimentConfig:
 
 
 def load_experiment(yaml_path: str) -> ExperimentConfig:
-    with open(yaml_path, "r") as f:
+    with open(yaml_path, "r", encoding="utf-8") as f:
         raw = yaml.safe_load(f)
     cfg = ExperimentConfig(**raw)
     cfg.validate()
