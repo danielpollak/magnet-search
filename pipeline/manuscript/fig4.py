@@ -85,7 +85,16 @@ def load_spks(data_dir: str, experiment: str, rec_name: str):
     return spks
 
 
+FOURIER_Q = 100  # fourier_analysis's own default -- made explicit here so the
+                 # eps correction below is guaranteed to match the Q actually used
+
+
 def compute_ci_df(spks):
+    # Same corrected null the per-unit p-values elsewhere use for a real Q_frac
+    # analysis (see fit_fourier_sig) -- fixed for the whole loop since every
+    # call below analyzes at the same Q.
+    eps = statistics.get_epsilon(FOURIER_Q)
+
     data_d = {"mod": [], "ci": [], "mid": [], "%": []}
     for percent_i, percent in enumerate(PERCENTAGES):
         for A in tqdm.tqdm(A_L, desc=f"{int(percent*100)}% modulated"):
@@ -96,9 +105,9 @@ def compute_ci_df(spks):
                 else:
                     modulated[spk_i] = spkt
             (C, T, nn, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, c_hats) = \
-                statistics.fourier_analysis(modulated, FREQ, "ideal", None)
+                statistics.fourier_analysis(modulated, FREQ, "ideal", None, Q=FOURIER_Q)
             n_empirical, f_expected, l_bound, h_bound = \
-                statistics.suspect_count_significance(c_hats, 0.99, conf_int_α=0.05)
+                statistics.suspect_count_significance(c_hats, 0.99, conf_int_α=0.05, eps=eps)
             data_d["mod"].append(A)
             data_d["ci"].append((l_bound, h_bound))
             data_d["mid"].append(n_empirical)

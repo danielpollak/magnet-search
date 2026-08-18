@@ -1,3 +1,5 @@
+import functools
+
 import numpy as np
 import pandas as pd
 import scipy.stats
@@ -85,6 +87,20 @@ def get_epsilon(M):
     eps: (float) Correction factor
     """
     return 1 / (2 * np.sqrt(2 * M))
+
+
+def eps_from_Q(Q):
+    """`get_epsilon(Q)`, guarding against a missing/NaN `Q` -- e.g. a
+    recording with no persisted bin count, or (for the 2F harmonic
+    specifically) a group with no paired 2F analysis at all, which
+    `read_fourier_results_as_full_fourier_df` surfaces as `Q_2f = NaN`.
+    Falls back to the uncorrected null (`eps=0.0`) rather than raising, so
+    callers looping over many recordings (some of which may lack a 2F
+    group) don't need their own per-row NaN guard.
+    """
+    if pd.isna(Q):
+        return 0.0
+    return get_epsilon(Q)
 
 
 def normalized_Fourier_PDF_corrected(q_vals, r_vals, p_r_vals, eps):
@@ -228,10 +244,27 @@ def interpolate_corrected_CDF(R, CDF, points):
     return np.interp(points, R[1:], CDF)
 
 
+@functools.lru_cache(maxsize=None)
+def _corrected_null_grid(eps):
+    """Cached (R, CDF) for `inverse_Rayleigh_CDF`'s `eps>0` branch.
+
+    `normalized_Fourier_PDF_corrected` is an O(len(support)^2) convolution
+    loop -- genuinely expensive, unlike `get_epsilon(M)` itself (one-line
+    closed form). Callers of `suspect_count_significance` (Fig2/Fig3/Fig4)
+    call this once per recording, and many recordings share the same Q_frac
+    -> same M -> same `eps`, so caching on `eps` avoids rebuilding an
+    identical distribution for every recording in a session/species loop.
+    """
+    R, YY_uncorrected = normalized_Fourier_PDF()
+    PDF = normalized_Fourier_PDF_corrected(R, R, YY_uncorrected, eps)
+    CDF = normalized_Fourier_CDF_corrected(PDF, R)
+    return R, CDF
+
+
 def inverse_Rayleigh_CDF(CDF_point:float, eps:float=0.0):
     """in: CDF value (quantile)
     out: distribution value (c-hat)
-    Note: This is necessarily quantized. 
+    Note: This is necessarily quantized.
     Parameters
     ----------
     CDF_point: (float)  CDF value in (0,1)
@@ -240,20 +273,17 @@ def inverse_Rayleigh_CDF(CDF_point:float, eps:float=0.0):
     """
     assert CDF_point > 0 and CDF_point < 1, "CDF must be in (0,1)"
     if eps == 0.0:
-        return np.sqrt(-2 * np.log(1-CDF_point)) 
+        return np.sqrt(-2 * np.log(1-CDF_point))
     elif eps > 0.0:
-        # Corrected distribution
-        R, YY_uncorrected = normalized_Fourier_PDF()
-
-        PDF = normalized_Fourier_PDF_corrected(R, R, YY_uncorrected, eps)
-        CDF = normalized_Fourier_CDF_corrected(PDF, R)
+        # Corrected distribution (cached per distinct eps -- see _corrected_null_grid)
+        R, CDF = _corrected_null_grid(float(eps))
 
         # Find point in CDF function estimate
         changepoint = np.where(np.diff(CDF > CDF_point))[0]
 
         # Find the R value corresponding to this CDF value
         inv_CDF = R[1:][changepoint]
-        
+
         return inv_CDF
 
 
@@ -1381,17 +1411,25 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
                 
                 # raw data
                 freq = recdf.freq.unique()[0]
-                
+
                 # Confidence bounds
-                # Set by rounding up on order of magnitude of number of units in each recording; 
+                # Set by rounding up on order of magnitude of number of units in each recording;
                 # less than  one in a thousand.
                 sig_thres = 0.99 # Set by the number of recordings; less than one in 100
-                
-                n_empirical,    _, f_lo, f_hi = suspect_count_significance(recdf["rr"].values,    sig_thres, conf_int_α=0.05)
+
+                # eps corrects the null distribution for the same finite-Q
+                # dependent-sampling effect that per-unit pp/2f_pp already
+                # account for (see fit_fourier_sig) -- without this, the
+                # excess-count line plotted here would be checked against
+                # an uncorrected Rayleigh null while the p-values reported
+                # elsewhere for the same units use the corrected one.
+                eps_1f = eps_from_Q(recdf["Q"].iloc[0]) if "Q" in recdf.columns else 0.0
+                n_empirical,    _, f_lo, f_hi = suspect_count_significance(recdf["rr"].values,    sig_thres, conf_int_α=0.05, eps=eps_1f)
                 conf_ax.hlines(n_empirical,    counter+.25, counter+0.75, "black", zorder=2, linewidth=1, alpha=0.9)
 
                 if ~np.all(np.isnan(recdf["2f_rr"].values)):
-                    n_empirical_2f, _, _,    _    = suspect_count_significance(recdf["2f_rr"].values, sig_thres, conf_int_α=0.05)
+                    eps_2f = eps_from_Q(recdf["Q_2f"].iloc[0]) if "Q_2f" in recdf.columns else 0.0
+                    n_empirical_2f, _, _,    _    = suspect_count_significance(recdf["2f_rr"].values, sig_thres, conf_int_α=0.05, eps=eps_2f)
                     conf_ax.hlines(n_empirical_2f, counter+.25, counter+0.75, "red", zorder=2, linewidth=1, alpha=0.9)
                 
                 conf_ax.plot(

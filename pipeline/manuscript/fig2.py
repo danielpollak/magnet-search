@@ -58,13 +58,22 @@ def flag_sessions_with_excess_suspects(df, freq_harmonic=1):
     for (_), recdf in df.groupby(["species", "area", "rec"]):
         if freq_harmonic==1:
             vals= recdf.rr.values
+            Q_col = "Q"
         elif freq_harmonic==2:
             vals= recdf['2f_rr'].values
+            Q_col = "Q_2f"
         else:
             raise ValueError("freq_harmonic must be 1 or 2")
 
+        # eps corrects the null distribution for the same finite-Q
+        # dependent-sampling effect already baked into the per-unit pp/
+        # 2f_pp p-values (see fit_fourier_sig) -- without this, "excess
+        # suspects" here would be flagged against an uncorrected Rayleigh
+        # null while the p-value uniformity panels use the corrected one.
+        eps = (statistics.eps_from_Q(recdf[Q_col].iloc[0])
+               if Q_col in recdf.columns else 0.0)
         n_empirical, f_expected, f_lo, f_hi = statistics.suspect_count_significance(
-            vals, 0.99, conf_int_α=0.05)
+            vals, 0.99, conf_int_α=0.05, eps=eps)
 
         diff_list.append(1 if n_empirical > f_hi else 0)
     return diff_list
