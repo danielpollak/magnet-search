@@ -41,7 +41,7 @@ def normalized_Fourier_CDF(X):
 
 """Corrected Fourier coefficient distributions"""
 def modulated_normalized_Fourier_PDF(r, u=0.0, v=1.0):
-    """Calculate the probability density function of the normalized Fourier coefficient c-hat.
+    """Calculate the probability density function of the normalized Fourier coefficient NFC.
 
     Parameters
     ----------
@@ -54,7 +54,7 @@ def modulated_normalized_Fourier_PDF(r, u=0.0, v=1.0):
     Returns
     -------
     float
-        The probability density P(c-hat = r).
+        The probability density P(NFC = r).
     """
     if r <= 0:
         return 0.0  # support is r > 0
@@ -146,7 +146,7 @@ def normalized_Fourier_CDF_corrected(PDF_vals, r_vals):
 
 
 def corrected_pvalues(NFC, Q):
-    """P-value for each c-hat in `NFC`, using the null distribution corrected
+    """P-value for each NFC value, using the null distribution corrected
     for finite-Q reference-frequency sampling (see get_epsilon)."""
     eps = get_epsilon(Q)
     R, YY = normalized_Fourier_PDF()
@@ -242,7 +242,7 @@ def bins_for_fraction(freq, fraction, resolution, *, min_bins=MIN_FOURIER_BINS,
 
 def interpolate_corrected_CDF(R, CDF, points):
     """
-    Evaluate CDF at a specific point (ie, c-hat value)
+    Evaluate CDF at a specific point (ie, NFC value)
     """
     return np.interp(points, R[1:], CDF)
 
@@ -266,7 +266,7 @@ def _corrected_null_grid(eps):
 
 def inverse_Rayleigh_CDF(CDF_point:float, eps:float=0.0):
     """in: CDF value (quantile)
-    out: distribution value (c-hat)
+    out: distribution value (NFC)
     Note: This is necessarily quantized.
     Parameters
     ----------
@@ -463,7 +463,7 @@ def get_sgm(fou_alt_c):
     return sgm
 
 
-def get_c_hat(fou0, fou_alt_c):
+def get_NFC(fou0, fou_alt_c):
     sgm = get_sgm(fou_alt_c)
     # Normalize the normal distribution
     return np.abs(fou0.flatten()) / sgm
@@ -538,9 +538,9 @@ def fourier_analysis(spks, freq, idealized_or_empirical="ideal", phase_l=None, Q
     fou_alt = allfouriers(spks, ff_alt) / T
     fou_alt_c = np.dstack((np.real(fou_alt), np.imag(fou_alt)))
     
-    c_hat = get_c_hat(fou0, fou_alt_c)
+    NFC = get_NFC(fou0, fou_alt_c)
 
-    return (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, c_hat)
+    return (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, NFC)
 
 
 def suspect_count_significance(NFC, crossing_percentile:float, conf_int_α:float=0.05, eps:float=0.0):
@@ -1160,7 +1160,7 @@ def fit_fourier_sig(df, Q_frac, sr=30_000, method="ideal", diagnostics=True):
         # Run Fourier 1F
         (C, T, nn, fff,
          i0, ff_alt, fou0,
-         fou_alt, fou_alt_c, c_hat) = fourier_analysis(
+         fou_alt, fou_alt_c, NFC) = fourier_analysis(
             spks, frq, idealized_or_empirical=method,
             phase_l=phase_l, Q=M_1f, sr=sr, T=group_T
         )
@@ -1176,7 +1176,7 @@ def fit_fourier_sig(df, Q_frac, sr=30_000, method="ideal", diagnostics=True):
         # Run Fourier 2F
         (twoF_C, twoF_T, twoF_nn, twoF_fff,
          twoF_i0, twoF_ff_alt, twoF_fou0,
-         twoF_fou_alt, twoF_fou_alt_c, twoF_c_hat) = fourier_analysis(
+         twoF_fou_alt, twoF_fou_alt_c, NFC_2f) = fourier_analysis(
             spks, frq * 2, idealized_or_empirical="ideal",
             phase_l=phase_l, Q=M_2f, sr=sr, T=group_T
         )
@@ -1201,17 +1201,17 @@ def fit_fourier_sig(df, Q_frac, sr=30_000, method="ideal", diagnostics=True):
         PDF_1f = normalized_Fourier_PDF_corrected(
             R[1:], R[1:], YY_uncorrected[1:], eps_1f)
         CDF_1f = normalized_Fourier_CDF_corrected(PDF_1f, R[1:])
-        pp = 1 - np.interp(c_hat, R[2:], CDF_1f)
+        pp = 1 - np.interp(NFC, R[2:], CDF_1f)
 
         eps_2f = get_epsilon(M_2f)
         PDF_2f = normalized_Fourier_PDF_corrected(
             R[1:], R[1:], YY_uncorrected[1:], eps_2f)
         CDF_2f = normalized_Fourier_CDF_corrected(PDF_2f, R[1:])
-        twof_pp = 1 - np.interp(twoF_c_hat, R[2:], CDF_2f)
+        twof_pp = 1 - np.interp(NFC_2f, R[2:], CDF_2f)
 
         fourier_l.append(pd.DataFrame({
-            "id": ids, "p_value":pp, "spk_count":nn, "NFC":c_hat,
-            "freq":frq, "rec":rec, "2f_NFC":twoF_c_hat, "2f_p_value":twof_pp,
+            "id": ids, "p_value":pp, "spk_count":nn, "NFC":NFC,
+            "freq":frq, "rec":rec, "2f_NFC":NFC_2f, "2f_p_value":twof_pp,
             "sens":nn/T/2/sigma_1F, "sens_2f":nn/T/2/sigma_2F,
             "Q": M_1f}))  # bin count behind THIS row's NFC/p_value (1F)
 
@@ -1282,7 +1282,7 @@ def visualize_detectability(mod_rr, spk_count, T):
     return fig
 
 
-def draw_hist(c_hat, ax, xlim=12.5, title=False, inset=True, invert=False, eps=None):
+def draw_hist(NFC, ax, xlim=12.5, title=False, inset=True, invert=False, eps=None):
     """
     eps: (float, optional) If given, also overlay the eps-corrected null
         distribution (see get_epsilon/normalized_Fourier_PDF_corrected)
@@ -1291,7 +1291,7 @@ def draw_hist(c_hat, ax, xlim=12.5, title=False, inset=True, invert=False, eps=N
     # Histogram
     XX, YY = normalized_Fourier_PDF()
     YY_corrected = normalized_Fourier_PDF_corrected(XX, XX, YY, eps) if eps else None
-    vals, bins = np.histogram(c_hat, bins=np.arange(0, 12, 0.2), density=True)
+    vals, bins = np.histogram(NFC, bins=np.arange(0, 12, 0.2), density=True)
     if not invert:
         ax.bar(bins[:-1], vals, width=np.diff(bins)[0], align="edge")
         ax.plot(XX, YY, label="uncorrected null", color="k", linewidth=1)
@@ -1327,11 +1327,11 @@ def draw_hist(c_hat, ax, xlim=12.5, title=False, inset=True, invert=False, eps=N
         ax.set_xlim((0, xlim))
 
     if title:
-        ax.set_title(f"N={len(c_hat)}")
+        ax.set_title(f"N={len(NFC)}")
 
     if inset:
         ax.annotate(
-            f"N={len(c_hat)}", xy=(1,1), xycoords="axes fraction",
+            f"N={len(NFC)}", xy=(1,1), xycoords="axes fraction",
             xytext=(0,0), textcoords="offset points", ha="right", va="top")
 
     return vals, bins
@@ -1876,10 +1876,10 @@ def var_projection_GCaMP(var_projection_ax, tiff1, tiff2, stat, cell_inds):
     return stacked_img
 
 from scipy.stats import rice
-# compute p-value from c-hat
-def compute_p_value(c_hat, u=0):
-    """ Compute p-value from c-hat using Rice distribution with parameter u."""
-    return 1 - rice.cdf(c_hat, u)
+# compute p-value from NFC
+def compute_p_value(NFC, u=0):
+    """ Compute p-value from NFC using Rice distribution with parameter u."""
+    return 1 - rice.cdf(NFC, u)
 
 def storey_qvalues(pvals, lambda_=0.5):
     """
@@ -1914,34 +1914,6 @@ def storey_qvalues(pvals, lambda_=0.5):
         qvals[order[i]] = min(q_raw[i], qvals[order[i + 1]])
 
     return qvals, pi0
-
-
-from .MM_Plot_Utils import plot
-def p_and_q_from_chat(c_hat,  u=0):
-    """
-    Compute and plot p-values and q-values in ascending order
-    from c-hat using Storey's method.
-    
-    Parameters
-    ----------
-    c_hat : array-like
-        Array of c-hat values.
-    u : float, optional
-        Parameter for the Rice distribution, by default 0.
-    """
-    
-    pval = compute_p_value(c_hat, u)
-    qval, pi0 = storey_qvalues(pval, lambda_=0.5)
-    print(f"Estimated pi0: {pi0:.4f}")
-    
-    axes=plot(np.sort(pval), fmts=['b.'], xlabel='Neuron (ranked)', ylabel='p-value', markersize=0.5);
-    plot([0, len(qval)], [0, 1], fmts=['k:'], linewidth=0.5, axes=axes);  # Add diagonal line
-    
-    axes=plot(np.sort(qval), fmts=['g.'], xlabel='Neuron (ranked)', ylabel='q-value', markersize=0.5);
-    plot([0, len(qval)], [0, 1], fmts=['k:'], linewidth=0.5, axes=axes);  # Add diagonal line
-
-    return np.array(pval), np.array(qval)
-
 
 
 def Fig1_NPIX_data(modulation_df_full, CONTINGENCY, unitrow, freq):

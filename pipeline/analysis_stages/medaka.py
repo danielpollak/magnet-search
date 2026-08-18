@@ -73,9 +73,9 @@ def compute_fourier_results(cfg, verbose=True):
     _p(f"[medaka] {cfg.name}: {len(F)} cells after iscell/npix filter + flatline removal")
 
     # Magnetic frequency (keep intermediates for diagnostics)
-    chat_b, onb, offb, freq_win_b, M_b, avg_b = fit_Fourier(F, T=T, f=f_b, Q_frac=Q_frac_b)
+    NFC_b, onfreq_coef_b, offfreq_coef_b, freq_win_b, M_b, avg_signal_b = fit_Fourier(F, T=T, f=f_b, Q_frac=Q_frac_b)
     # Visual frequency
-    chat_v, onv, offv, freq_win_v, M_v, avg_v = fit_Fourier(F, T=T, f=_VISUAL_FREQ, Q_frac=_VISUAL_Q_FRAC)
+    NFC_v, onfreq_coef_v, offfreq_coef_v, freq_win_v, M_v, avg_signal_v = fit_Fourier(F, T=T, f=_VISUAL_FREQ, Q_frac=_VISUAL_Q_FRAC)
 
     contingency = "positive control" if "no_magneto" in cfg.name else "mag"
     n_frames = int(120 * (F.shape[1] // 60))
@@ -86,18 +86,18 @@ def compute_fourier_results(cfg, verbose=True):
     rec_name = os.path.basename(cfg.session_path.rstrip("/\\")) + ".tif"
 
     rows = []
-    for chat_l, freq, M, off, avg_signal_l in [
-        (chat_b, f_b, M_b, offb, avg_b),
-        (chat_v, _VISUAL_FREQ, M_v, offv, avg_v),
+    for NFC_l, freq, M, off_coef, avg_signal_l in [
+        (NFC_b, f_b, M_b, offfreq_coef_b, avg_signal_b),
+        (NFC_v, _VISUAL_FREQ, M_v, offfreq_coef_v, avg_signal_v),
     ]:
-        NFC   = np.array(chat_l)
+        NFC   = np.array(NFC_l)
         # Same sens = avg_signal / (2*sigma) as engert.py -- see that
         # module for why this replaced the earlier (redundant with `NFC`)
         # |onfreq|/sigma formula.
-        sigma = np.sqrt(0.5 * np.mean(np.abs(np.array(off)) ** 2, axis=1))
+        sigma = np.sqrt(0.5 * np.mean(np.abs(np.array(off_coef)) ** 2, axis=1))
         sens  = avg_signal_l / np.where(sigma > 0, 2 * sigma, np.nan)
         rows.append(pd.DataFrame({
-            "id":          np.arange(len(chat_l)),
+            "id":          np.arange(len(NFC_l)),
             "p_value":     corrected_pvalues(NFC, M),
             "n_frames":    n_frames,
             "NFC":         NFC,
@@ -117,8 +117,8 @@ def compute_fourier_results(cfg, verbose=True):
         "F": F, "roi_df": roi_df, "included_mask": included_mask,
         "imaging_dims": imaging_dims, "fourier_df": fourier_df,
         "f_b": f_b, "Q_b": M_b, "Q_v": M_v, "T": T, "rec_name": rec_name,
-        "freq_win_b": freq_win_b, "onb": onb, "offb": offb,
-        "freq_win_v": freq_win_v, "onv": onv, "offv": offv,
+        "freq_win_b": freq_win_b, "onfreq_coef_b": onfreq_coef_b, "offfreq_coef_b": offfreq_coef_b,
+        "freq_win_v": freq_win_v, "onfreq_coef_v": onfreq_coef_v, "offfreq_coef_v": offfreq_coef_v,
     }
 
 
@@ -126,13 +126,13 @@ def run_analysis(cfg):
     r = compute_fourier_results(cfg)
     F, roi_df, included_mask, imaging_dims = r["F"], r["roi_df"], r["included_mask"], r["imaging_dims"]
     fourier_df, f_b, Q_b, Q_v, T, rec_name = r["fourier_df"], r["f_b"], r["Q_b"], r["Q_v"], r["T"], r["rec_name"]
-    freq_win_b, onb, offb = r["freq_win_b"], r["onb"], r["offb"]
-    freq_win_v, onv, offv = r["freq_win_v"], r["onv"], r["offv"]
+    freq_win_b, onfreq_coef_b, offfreq_coef_b = r["freq_win_b"], r["onfreq_coef_b"], r["offfreq_coef_b"]
+    freq_win_v, onfreq_coef_v, offfreq_coef_v = r["freq_win_v"], r["onfreq_coef_v"], r["offfreq_coef_v"]
 
     # ── NWB write (see .claude/plans — NWB replatform, Phase 4) ────────────
     # Magnetic and visual are two INDEPENDENT groups (not 1F/2F harmonics of
     # each other), so each gets its own write_imaging_fourier_results call —
-    # no onfreq_pow_2f/offfreq_pow_2f pairing, matching medaka's own
+    # no onfreq_coef_2f/offfreq_coef_2f pairing, matching medaka's own
     # from-scratch (not paired-row) fourier_df construction above. The 5
     # extra medaka-only columns (date/area/ID/species/contingency) are NOT
     # persisted in the shared table (they're per-cfg constants, not Fourier
@@ -145,12 +145,12 @@ def run_analysis(cfg):
                 nwbfile, rec=rec_name, freq=f_b, Q=Q_b,
                 T_duration=F.shape[1] * T,
                 fourier_df_rows=fourier_df.loc[fourier_df.freq == f_b],
-                onfreq_pow=onb, offfreq_pow=offb, freq_win=freq_win_b),
+                onfreq_coef=onfreq_coef_b, offfreq_coef=offfreq_coef_b, freq_win=freq_win_b),
             nwb_io.write_imaging_fourier_results(
                 nwbfile, rec=rec_name, freq=_VISUAL_FREQ, Q=Q_v,
                 T_duration=F.shape[1] * T,
                 fourier_df_rows=fourier_df.loc[fourier_df.freq == _VISUAL_FREQ],
-                onfreq_pow=onv, offfreq_pow=offv, freq_win=freq_win_v),
+                onfreq_coef=onfreq_coef_v, offfreq_coef=offfreq_coef_v, freq_win=freq_win_v),
         ],
     )
     print(f"[medaka] {cfg.name}: saved -> {cfg.nwb_path()}  ({len(fourier_df)} rows)")
@@ -163,5 +163,5 @@ def run_analysis(cfg):
     fourier_df_b = fourier_df.loc[fourier_df.freq == f_b].reset_index(drop=True)
     plot_engert_diagnostics(
         cfg, F, fourier_df_b, freq_win_b,
-        onb, offb, diag_dir,
+        onfreq_coef_b, offfreq_coef_b, diag_dir,
         roi_df=roi_df, included_mask=included_mask, imaging_dims=imaging_dims)

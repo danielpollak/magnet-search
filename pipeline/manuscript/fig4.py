@@ -104,10 +104,10 @@ def compute_ci_df(spks):
                     modulated[spk_i] = statistics.warp_mod(spkt, A, 1 / FREQ, 0)
                 else:
                     modulated[spk_i] = spkt
-            (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, c_hats) = \
+            (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, NFCs) = \
                 statistics.fourier_analysis(modulated, FREQ, "ideal", None, Q=FOURIER_Q)
             n_empirical, f_expected, l_bound, h_bound = \
-                statistics.suspect_count_significance(c_hats, 0.99, conf_int_α=0.05, eps=eps)
+                statistics.suspect_count_significance(NFCs, 0.99, conf_int_α=0.05, eps=eps)
             data_d["mod"].append(A)
             data_d["ci"].append((l_bound, h_bound))
             data_d["mid"].append(n_empirical)
@@ -118,20 +118,20 @@ def compute_ci_df(spks):
 def compute_fr_df(spks):
     T = statistics.latesttime(spks) - statistics.earliesttime(spks)
     rows = []
-    for A in tqdm.tqdm([0, 0.3, 0.6], desc="FR vs c_hat"):
+    for A in tqdm.tqdm([0, 0.3, 0.6], desc="FR vs NFC"):
         modulated = [statistics.modulate(spkt, FREQ, A) for spkt in spks]
-        (C, _, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, c_hats) = \
+        (C, _, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, NFCs) = \
             statistics.fourier_analysis(modulated, FREQ, "ideal", None)
         rows.append(pd.DataFrame({
             "mod": A,
             "FR": [len(spkt) / T for spkt in spks],
-            "c_hat": c_hats,
+            "NFC": NFCs,
             "id": np.arange(len(modulated)),
         }))
     return pd.concat(rows)
 
 
-def plot_fig4(ci_df, c_hat_modulation_FR_df, spks, out_dir: Path):
+def plot_fig4(ci_df, NFC_modulation_FR_df, spks, out_dir: Path):
     example_spk = spks[len(spks) // 2]
 
     font = {"family": FP.FONT_FAMILY, "size": FP.FS_BODY_XL}
@@ -154,7 +154,7 @@ def plot_fig4(ci_df, c_hat_modulation_FR_df, spks, out_dir: Path):
 
     for mod_i, A in enumerate([0, 0.5, 1]):
         warped = statistics.warp_mod(example_spk, A, 1 / FREQ, 0)
-        (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, c_hat) = \
+        (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, NFC) = \
             statistics.fourier_analysis([warped], freq=FREQ)
 
         spectra_axes[mod_i].plot(ff_alt, fou_alt.real.T, ".", color="orange")
@@ -195,7 +195,7 @@ def plot_fig4(ci_df, c_hat_modulation_FR_df, spks, out_dir: Path):
     ax_B.set_xlabel("5 Hz modulation amplitude")
     ax_B.set_ylabel("Excess suspects")
 
-    sns.scatterplot(data=c_hat_modulation_FR_df, x="FR", y="c_hat", hue="mod",
+    sns.scatterplot(data=NFC_modulation_FR_df, x="FR", y="NFC", hue="mod",
                     palette="Set1", size=0.5, alpha=FP.ALPHA_SCATTER, ax=ax_C)
     handles, labels = ax_C.get_legend_handles_labels()
     mod_vals = [0, 0.3, 0.6]
@@ -272,14 +272,14 @@ def main():
 
     if not args.recompute and Path(FR_DF_CACHE).exists():
         print(f"Loading cached FR df from {FR_DF_CACHE}")
-        c_hat_modulation_FR_df = pd.read_pickle(FR_DF_CACHE)
+        NFC_modulation_FR_df = pd.read_pickle(FR_DF_CACHE)
     else:
-        print("Computing FR vs c_hat...")
-        c_hat_modulation_FR_df = compute_fr_df(spks)
-        c_hat_modulation_FR_df.to_pickle(FR_DF_CACHE)
+        print("Computing FR vs NFC...")
+        NFC_modulation_FR_df = compute_fr_df(spks)
+        NFC_modulation_FR_df.to_pickle(FR_DF_CACHE)
         print(f"Cached -> {FR_DF_CACHE}")
 
-    plot_fig4(ci_df, c_hat_modulation_FR_df, spks, out_dir)
+    plot_fig4(ci_df, NFC_modulation_FR_df, spks, out_dir)
 
 
 if __name__ == "__main__":

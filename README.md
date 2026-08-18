@@ -80,7 +80,7 @@ python pipeline/aggregate.py
 # Generate manuscript figures
 python pipeline/manuscript/fig1.py    # Exemplar NPIX + GCaMP + p-value diagnostics
 python pipeline/manuscript/fig2.py    # P-value and q-value uniformity
-python pipeline/manuscript/fig3.py    # Excess-count barplots and c-hat distributions
+python pipeline/manuscript/fig3.py    # Excess-count barplots and NFC distributions
 python pipeline/manuscript/fig4.py    # Modulation sensitivity simulation
 ```
 

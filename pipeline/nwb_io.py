@@ -958,7 +958,7 @@ def write_fourier_results(nwbfile, fourier_df, log_dict):
         )
         null_table.add_column("Q", "off-frequency half-window size")
         null_table.add_column("eps", "get_epsilon(Q) correction factor")
-        null_table.add_column("support_r", "PDF/CDF support grid (c-hat values)", index=True)
+        null_table.add_column("support_r", "PDF/CDF support grid (NFC values)", index=True)
         null_table.add_column("pdf_corrected", "corrected null PDF, same grid as support_r", index=True)
         null_table.add_column("cdf_corrected", "corrected null CDF, same grid as support_r", index=True)
         already_have = set()
@@ -1026,8 +1026,8 @@ def write_fourier_results(nwbfile, fourier_df, log_dict):
         unit_table.add_column("unit_id", "Kilosort cluster id (matches Units table id)")
         unit_table.add_column("p_value", "p-value, 1F")
         unit_table.add_column("spk_count", "spike count")
-        unit_table.add_column("NFC", "c-hat, 1F")
-        unit_table.add_column("2f_NFC", "c-hat, 2F")
+        unit_table.add_column("NFC", "NFC, 1F")
+        unit_table.add_column("2f_NFC", "NFC, 2F")
         unit_table.add_column("2f_p_value", "p-value, 2F")
         unit_table.add_column("sens", "detection sensitivity, 1F")
         unit_table.add_column("sens_2f", "detection sensitivity, 2F")
@@ -1310,8 +1310,8 @@ def read_roi_data(nwbfile):
 
 
 def write_imaging_fourier_results(nwbfile, rec, freq, Q, T_duration, fourier_df_rows,
-                                   onfreq_pow, offfreq_pow, freq_win,
-                                   onfreq_pow_2f=None, offfreq_pow_2f=None, Q_2f=None):
+                                   onfreq_coef, offfreq_coef, freq_win,
+                                   onfreq_coef_2f=None, offfreq_coef_2f=None, Q_2f=None):
     """Persist `fit_Fourier()`'s per-cell results into the SAME
     null_distribution_models/fourier_group_results/per_unit_fourier_results
     schema `write_fourier_results` (ephys) uses, so
@@ -1326,29 +1326,29 @@ def write_imaging_fourier_results(nwbfile, rec, freq, Q, T_duration, fourier_df_
     `fourier_df_rows` (the caller's own already-computed, legacy-pickle-
     matching DataFrame slice for this group) rather than recomputed here --
     recomputing them independently risks a subtly different formula (e.g.
-    `fit_Fourier`'s own `normalize_chat` has no epsilon guard against
+    `fit_Fourier`'s own `compute_NFC` has no epsilon guard against
     `sigma==0`, while the analysis stage's `sens` computation does;
     duplicating that logic here would be a second place for the two to
     drift apart). Only the previously-discarded intermediates (`fou0`,
-    `fou_alt`, `sigma`) are computed fresh here, from onfreq_pow/offfreq_pow.
+    `fou_alt`, `sigma`) are computed fresh here, from onfreq_coef/offfreq_coef.
 
     Parameters
     ----------
     rec, freq, Q, T_duration : this (rec, freq) group's identity/duration (s).
     fourier_df_rows : pd.DataFrame, this group's rows exactly as the caller
-        already built them (same row order as onfreq_pow/offfreq_pow),
+        already built them (same row order as onfreq_coef/offfreq_coef),
         columns id/p_value/n_frames/NFC/2f_NFC/2f_p_value/sens/sens_2f --
         NOT the original suite2p ROI index (see module design notes);
         verify_outputs.py parity depends on reusing these columns unchanged.
-    onfreq_pow, offfreq_pow : `fit_Fourier`'s `onfreq_pow_l`/`offfreq_pow_l`
+    onfreq_coef, offfreq_coef : `fit_Fourier`'s `onfreq_coef_l`/`offfreq_coef_l`
         for the base (1F) call, used only to persist fou0/fou_alt/sigma.
-    onfreq_pow_2f, offfreq_pow_2f : optional, the SAME for a paired 2F call
+    onfreq_coef_2f, offfreq_coef_2f : optional, the SAME for a paired 2F call
         (engert only) -- when given, this call's unit-table rows link both
         1F and 2F groups (matching write_fourier_results's group_1f_index/
         group_2f_index pairing); when omitted, group_2f_index is -1 (no 2F),
         matching medaka's independent-group (no-harmonic-pairing) usage.
     Q_2f : optional, the off-frequency bin count for the paired 2F group
-        (only meaningful when onfreq_pow_2f is given). Under the Q_frac
+        (only meaningful when onfreq_coef_2f is given). Under the Q_frac
         (bin fraction) policy the fraction is applied independently at each
         analyzed frequency, so the 2F group generally has a DIFFERENT bin
         count than the 1F group's `Q` (M_2f ~= 2*M_1f) -- falls back to `Q`
@@ -1379,12 +1379,12 @@ def write_imaging_fourier_results(nwbfile, rec, freq, Q, T_duration, fourier_df_
         )
         null_table.add_column("Q", "off-frequency half-window size")
         null_table.add_column("eps", "get_epsilon(Q) correction factor")
-        null_table.add_column("support_r", "PDF/CDF support grid (c-hat values)", index=True)
+        null_table.add_column("support_r", "PDF/CDF support grid (NFC values)", index=True)
         null_table.add_column("pdf_corrected", "corrected null PDF, same grid as support_r", index=True)
         null_table.add_column("cdf_corrected", "corrected null CDF, same grid as support_r", index=True)
         already_have = set()
 
-    distinct_Ms = sorted({int(Q)} | ({int(Q_2f)} if onfreq_pow_2f is not None else set()))
+    distinct_Ms = sorted({int(Q)} | ({int(Q_2f)} if onfreq_coef_2f is not None else set()))
     R, YY_uncorrected = normalized_Fourier_PDF()
     for M in distinct_Ms:
         if M in already_have:
@@ -1413,8 +1413,8 @@ def write_imaging_fourier_results(nwbfile, rec, freq, Q, T_duration, fourier_df_
         group_table.add_column("ff_alt", "off-frequencies analyzed, Hz", index=True)
 
     C = len(fourier_df_rows)
-    assert C == len(onfreq_pow), (
-        f"fourier_df_rows ({C} rows) and onfreq_pow ({len(onfreq_pow)}) must "
+    assert C == len(onfreq_coef), (
+        f"fourier_df_rows ({C} rows) and onfreq_coef ({len(onfreq_coef)}) must "
         f"describe the same cells in the same order")
     group_table.add_row(
         rec=rec, frequency=float(freq), harmonic="1F", Q=int(Q),
@@ -1422,10 +1422,10 @@ def write_imaging_fourier_results(nwbfile, rec, freq, Q, T_duration, fourier_df_
     idx_1f = len(group_table) - 1
 
     idx_2f = -1
-    if onfreq_pow_2f is not None:
+    if onfreq_coef_2f is not None:
         group_table.add_row(
             rec=rec, frequency=float(freq) * 2, harmonic="2F", Q=int(Q_2f),
-            T=float(T_duration), C=int(len(onfreq_pow_2f)), ff_alt=np.asarray(freq_win, dtype=float))
+            T=float(T_duration), C=int(len(onfreq_coef_2f)), ff_alt=np.asarray(freq_win, dtype=float))
         idx_2f = len(group_table) - 1
 
     if "per_unit_fourier_results" in module.data_interfaces:
@@ -1441,8 +1441,8 @@ def write_imaging_fourier_results(nwbfile, rec, freq, Q, T_duration, fourier_df_
         unit_table.add_column("unit_id", "sequential id matching legacy full_fourier_df's id column")
         unit_table.add_column("p_value", "p-value, 1F")
         unit_table.add_column("n_frames", "frame count")
-        unit_table.add_column("NFC", "c-hat, 1F")
-        unit_table.add_column("2f_NFC", "c-hat, 2F")
+        unit_table.add_column("NFC", "NFC, 1F")
+        unit_table.add_column("2f_NFC", "NFC, 2F")
         unit_table.add_column("2f_p_value", "p-value, 2F")
         unit_table.add_column("sens", "detection sensitivity, 1F")
         unit_table.add_column("sens_2f", "detection sensitivity, 2F")
@@ -1452,9 +1452,9 @@ def write_imaging_fourier_results(nwbfile, rec, freq, Q, T_duration, fourier_df_
         unit_table.add_column("fou_alt_imag", "off-freq coefficients, imag parts, 1F", index=True)
         unit_table.add_column("sigma", "sqrt(0.5 * mean(|off-freq coeffs|^2)), 1F")
 
-    onfreq_pow = np.asarray(onfreq_pow)
+    onfreq_coef = np.asarray(onfreq_coef)
     sigma = np.array([
-        np.sqrt(0.5 * np.mean(np.abs(np.asarray(offfreq_pow[i])) ** 2))
+        np.sqrt(0.5 * np.mean(np.abs(np.asarray(offfreq_coef[i])) ** 2))
         for i in range(C)
     ])
 
@@ -1470,9 +1470,9 @@ def write_imaging_fourier_results(nwbfile, rec, freq, Q, T_duration, fourier_df_
             group_1f_index=idx_1f, group_2f_index=idx_2f, unit_id=int(row["id"]),
             p_value=float(row["p_value"]), n_frames=int(row["n_frames"]), NFC=float(row["NFC"]),
             sens=float(row.get("sens", np.nan)), sens_2f=float(row.get("sens_2f", np.nan)),
-            fou0_real=float(np.real(onfreq_pow[i])), fou0_imag=float(np.imag(onfreq_pow[i])),
-            fou_alt_real=np.real(np.asarray(offfreq_pow[i])),
-            fou_alt_imag=np.imag(np.asarray(offfreq_pow[i])),
+            fou0_real=float(np.real(onfreq_coef[i])), fou0_imag=float(np.imag(onfreq_coef[i])),
+            fou_alt_real=np.real(np.asarray(offfreq_coef[i])),
+            fou_alt_imag=np.imag(np.asarray(offfreq_coef[i])),
             sigma=float(sigma[i]),
         )
         row_kwargs["2f_NFC"] = float(row["2f_NFC"]) if has_2f_cols else np.nan
@@ -1613,7 +1613,7 @@ def read_log_dict_equivalent(nwbfile):
     persists PER-UNIT Fourier coefficients (fou_alt_real/imag, fou0_real/
     imag) for the 1F harmonic (see `write_fourier_results`'s unit_table
     columns), so a reconstructed 2F entry has no `fou_alt`/`fou0`/
-    `fou_alt_c` keys. This is enough for a 2F c-hat histogram (only needs
+    `fou_alt_c` keys. This is enough for a 2F NFC histogram (only needs
     the bin count `M`, via the `"Q"` column -- which always means "bin
     count," not the config fraction, see .claude/plans), but not for a
     per-unit 2F Fourier-coefficient spectrum plot; `plot_analysis_diagnostics`

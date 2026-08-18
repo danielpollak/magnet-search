@@ -771,10 +771,10 @@ def ecdf_wfs(fourier_df, waveform_d):
     argsorted = np.argsort(fourier_df.NFC.values)
     n_units = len(fourier_df)
 
-    for w_i, chat in enumerate(fourier_df.NFC.values[argsorted]):
+    for w_i, nfc in enumerate(fourier_df.NFC.values[argsorted]):
         waveforms = waveform_d[fourier_df.id[argsorted][w_i]]
         waveform = np.mean(waveforms, axis=0)
-        x = np.linspace(-0.5, 0.5, len(waveform)) + chat
+        x = np.linspace(-0.5, 0.5, len(waveform)) + nfc
         
         quantile = w_i / n_units
         transformed_waveform = waveform/max(waveform)/n_units + quantile

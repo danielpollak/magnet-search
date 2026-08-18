@@ -2,15 +2,15 @@
 Engert GCaMP diagnostic plots.
 
 plot_engert_diagnostics  — single multi-page PDF:
-  Page 1: c-hat histogram vs Rayleigh null + inset (1F)
+  Page 1: NFC histogram vs Rayleigh null + inset (1F)
   Page 2: Fourier coefficient spectrum (real + imaginary vs frequency, subsampled cells) (1F)
-  Page 3: 2F c-hat histogram (skipped for medaka, which has no 1F/2F harmonic
+  Page 3: 2F NFC histogram (skipped for medaka, which has no 1F/2F harmonic
           pairing, and for 1F frequencies above half-Nyquist, where
           analysis_stages/engert.py skips 2F entirely)
   Page 4: 2F Fourier coefficient spectrum (same skip conditions as Page 3)
-  Page 5: Fluorescence heatmap (cells sorted by c-hat descending, rasterized),
+  Page 5: Fluorescence heatmap (cells sorted by NFC descending, rasterized),
           with a period-duration scale bar so cycles can be counted by eye
-  Page 6: Cell mask FOV — excluded cells gray, included cells colored by c-hat
+  Page 6: Cell mask FOV — excluded cells gray, included cells colored by NFC
   Page 7: P(iscell) x npix joint histogram with ECDF marginals
 """
 from pathlib import Path
@@ -27,10 +27,10 @@ from pipeline.diagnostics.analysis import _subsample_units, _rasterize_ax
 
 
 def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
-                             onfreq_pow_l, offfreq_pow_l, save_dir,
+                             onfreq_coef_l, offfreq_coef_l, save_dir,
                              roi_df=None, included_mask=None, imaging_dims=None,
-                             freq_win_2f=None, onfreq_pow_2f=None,
-                             offfreq_pow_2f=None, Q_2f=None):
+                             freq_win_2f=None, onfreq_coef_2f=None,
+                             offfreq_coef_2f=None, Q_2f=None):
     """Write a multi-page PDF of GCaMP analysis diagnostics.
 
     Parameters
@@ -41,8 +41,8 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
                      (iscell/npix threshold + flatline removal)
     fourier_df     : pd.DataFrame  with columns [NFC, freq, rec, ...]
     freq_win       : np.ndarray  off-frequencies (Hz), 1F
-    onfreq_pow_l   : np.ndarray  (n_cells,) complex on-frequency coefficients, 1F
-    offfreq_pow_l  : list of np.ndarray  per-cell off-frequency complex coefficients, 1F
+    onfreq_coef_l  : np.ndarray  (n_cells,) complex on-frequency coefficients, 1F
+    offfreq_coef_l : list of np.ndarray  per-cell off-frequency complex coefficients, 1F
     save_dir       : Path-like
     roi_df         : pd.DataFrame, optional -- ALL suite2p ROIs (unfiltered),
                      from `nwb_io.read_roi_data` (columns p_iscell, npix, x,
@@ -62,13 +62,13 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
                      separate iscell/npix-only mask with `>=` instead of the
                      analysis stage's own `>`).
     imaging_dims   : (Ly, Lx) tuple, optional, from `nwb_io.get_imaging_dims`.
-    freq_win_2f, onfreq_pow_2f, offfreq_pow_2f, Q_2f : optional, the SAME as
-                     freq_win/onfreq_pow_l/offfreq_pow_l/(bin count) but for
+    freq_win_2f, onfreq_coef_2f, offfreq_coef_2f, Q_2f : optional, the SAME as
+                     freq_win/onfreq_coef_l/offfreq_coef_l/(bin count) but for
                      the 2F harmonic -- only meaningful for engert (medaka's
                      magnetic/visual legs are independent groups, not 1F/2F
                      harmonics of each other, so its caller never passes
                      these). Page 3 (2F diagnostics) is skipped if
-                     `onfreq_pow_2f` is None.
+                     `onfreq_coef_2f` is None.
     """
     save_dir = Path(save_dir)
     out_path = save_dir / f"{cfg.name}_analysis_diagnostics.pdf"
@@ -77,9 +77,9 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
 
     with PdfPages(out_path) as pdf:
 
-        # ── Page 1: c-hat histogram ──────────────────────────────────────────
+        # ── Page 1: NFC histogram ────────────────────────────────────────────
         fig, ax = plt.subplots(figsize=(7, 5))
-        fig.suptitle(f"{cfg.name}  |  {freq} Hz  —  c-hat distribution", fontsize=9)
+        fig.suptitle(f"{cfg.name}  |  {freq} Hz  —  NFC distribution", fontsize=9)
         if len(NFC) >= 2:
             Q = fourier_df["Q"].iloc[0] if "Q" in fourier_df.columns else None
             eps = get_epsilon(Q) if Q else None
@@ -95,10 +95,10 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
         plt.close(fig)
 
         # ── Page 2: Fourier coefficient spectrum ─────────────────────────────
-        fou_alt = np.array(offfreq_pow_l)   # (C, 2Q-1) complex
+        fou_alt = np.array(offfreq_coef_l)   # (C, 2Q-1) complex
         kk = _subsample_units(len(fou_alt), max_units=30)
         fou_alt_sub = fou_alt[kk]
-        onfreq_sub  = np.array(onfreq_pow_l)[kk]
+        onfreq_sub  = np.array(onfreq_coef_l)[kk]
 
         fig, axes = plt.subplots(2, 1, figsize=(10, 6))
         fig.suptitle(f"{cfg.name}  |  {freq} Hz  —  Fourier spectrum (ΔF/F)", fontsize=9)
@@ -125,13 +125,13 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
         # ── Pages 3 & 4: 2F diagnostics (skipped if 2F wasn't computed -- see
         #    analysis_stages/engert.py's Nyquist check, and medaka, which
         #    never passes these at all) ────────────────────────────────────
-        if onfreq_pow_2f is not None:
+        if onfreq_coef_2f is not None:
             NFC_2f_all = fourier_df["2f_NFC"].values if "2f_NFC" in fourier_df.columns else np.array([])
             NFC_2f = NFC_2f_all[~np.isnan(NFC_2f_all)] if len(NFC_2f_all) else NFC_2f_all
 
             if len(NFC_2f) >= 2:
                 fig, ax = plt.subplots(figsize=(7, 5))
-                fig.suptitle(f"{cfg.name}  |  {freq * 2} Hz (2F)  —  c-hat distribution",
+                fig.suptitle(f"{cfg.name}  |  {freq * 2} Hz (2F)  —  NFC distribution",
                              fontsize=9)
                 eps_2f = get_epsilon(Q_2f) if Q_2f else None
                 vals, bins = draw_hist(NFC_2f, ax, xlim=9, inset=False, eps=eps_2f)
@@ -142,10 +142,10 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
                 pdf.savefig(fig, dpi=150)
                 plt.close(fig)
 
-            fou_alt_2f = np.array(offfreq_pow_2f)
+            fou_alt_2f = np.array(offfreq_coef_2f)
             kk2 = _subsample_units(len(fou_alt_2f), max_units=30)
             fou_alt_2f_sub = fou_alt_2f[kk2]
-            onfreq_2f_sub = np.array(onfreq_pow_2f)[kk2]
+            onfreq_2f_sub = np.array(onfreq_coef_2f)[kk2]
 
             fig, axes = plt.subplots(2, 1, figsize=(10, 6))
             fig.suptitle(f"{cfg.name}  |  {freq * 2} Hz (2F)  —  Fourier spectrum (ΔF/F)",
@@ -170,7 +170,7 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
             pdf.savefig(fig, dpi=150)
             plt.close(fig)
 
-        # ── Page 5: Fluorescence heatmap sorted by c-hat ─────────────────────
+        # ── Page 5: Fluorescence heatmap sorted by NFC ───────────────────────
         sort_idx = np.argsort(NFC)[::-1]
         F_sorted = F[sort_idx]
         N_frames = int(120 * (F.shape[1] // 60))
@@ -183,7 +183,7 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
         F_norm = (F_display - row_min) / denom
 
         fig, ax = plt.subplots(figsize=(12, 6))
-        fig.suptitle(f"{cfg.name}  |  {freq} Hz  —  ΔF/F sorted by c-hat (high → low)",
+        fig.suptitle(f"{cfg.name}  |  {freq} Hz  —  ΔF/F sorted by NFC (high → low)",
                      fontsize=9)
         im = ax.imshow(F_norm, aspect="auto", cmap="viridis",
                        interpolation="none", rasterized=True)
@@ -237,7 +237,7 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
                 ypix, xpix = _pixels(pixel_mask)
                 img[ypix, xpix, :] = 0.25
 
-            # Included ROIs colored by c-hat -- roi_df[included_mask]'s row
+            # Included ROIs colored by NFC -- roi_df[included_mask]'s row
             # order matches NFC's order exactly: both the iscell/npix mask
             # and remove_flatlines's inclusion_inds preserve relative order,
             # and included_mask was built by composing the two the same way
@@ -258,7 +258,7 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
                 cmap=cmap_cells,
                 norm=plt.Normalize(vmin=NFC.min(), vmax=NFC.max()))
             sm.set_array([])
-            plt.colorbar(sm, ax=ax, label="c-hat", shrink=0.6, pad=0.02)
+            plt.colorbar(sm, ax=ax, label="NFC", shrink=0.6, pad=0.02)
             fig.tight_layout()
             pdf.savefig(fig, dpi=150)
             plt.close(fig)
