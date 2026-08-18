@@ -3,7 +3,6 @@ import functools
 import numpy as np
 import pandas as pd
 import scipy.stats
-from tqdm.auto import trange
 from scipy.integrate import quad
 from scipy.stats import norm
 from .utils import save_and_close
@@ -354,27 +353,6 @@ def fourier(ss, freq):
     '''
     return np.sum(np.exp(-2 * np.pi * 1j * np.array(ss) * freq))
 
-def fourier_empirical(phases):
-    '''Calculates the complex fourier component of the point process SS at frequency `freq`.
-    Must only be used for the on-frequency calculation.
-    Parameters
-    ----------
-    phases: list
-        Spiketrain in phases (radians)
-    
-    Returns
-    -------
-    Output: numpy.complex128
-        Fourier coefficient, $\hat{c}$
-    
-    Notes
-    -----
-    z = FOURIER(phases)
-    Result is _not_ normalized to the number of spikes.
-    '''
-    return np.sum( np.exp( -1j * np.array( phases ) ) )
-
-
 def fouriers(ss, freqs):
     """ 
     Run `fourier()` on collection of spiketrains `ss` for each `freq` in `freqs`
@@ -431,25 +409,6 @@ def allfouriers(spks, freqs):
     return np.array([fouriers(ss, freqs) for ss in spks])
 
 
-def allfourier_empirical(phase_l):
-    """Returns complex Fourier coefficients at frequency `freq` for each spiketrain `ss` in `spks`
-    
-    Is at a given frequency, no need to specify it.
-    
-    Parameters
-    ----------
-    phase_l: list(lists)
-        List of spiketrains in phases (radians)
-    
-    
-    Returns
-    -------
-    Output: np.array
-        Array of complex Fourier coefficients for each spiketrain `ss` at frequency `freq`
-    """
-    return np.array([fourier_empirical(phases) for phases in phase_l])
-
-
 def frequencies(T, sr=30_000):
     """
     Returns a list of frequencies that can be analyzed given the length of the recording `T`
@@ -469,19 +428,15 @@ def get_NFC(fou0, fou_alt_c):
     return np.abs(fou0.flatten()) / sgm
 
 
-def fourier_analysis(spks, freq, idealized_or_empirical="ideal", phase_l=None, Q=100, sr=30_000, T=None, log=False):
+def fourier_analysis(spks, freq, Q=100, sr=30_000, T=None, log=False):
     """Returns a tuple of various combinations of fourier coefficients
-    
+
     Parameters
     ----------
     spks: list(np.array)
         List of spiketrains in seconds
     freq: int/float
         Stimulus frequency
-    idealized_or_empirical: ("ideal"/"empiric")
-        obvious
-    phase_l: (array)
-        array of phases
     Q: int
         Determines window size
     
@@ -527,12 +482,7 @@ def fourier_analysis(spks, freq, idealized_or_empirical="ideal", phase_l=None, Q
     ff_alt = np.array([ fff[i] for i in range(i0-Q, i0+Q+1) if (i != i0) and (i >= 0) ])
 
     # Get Fourier coefficients for the stimulus frequency for each spiketrain
-    if idealized_or_empirical == "ideal":
-        fou0 = allfourier(spks, freq).reshape(C,1) / T
-    elif idealized_or_empirical == "empiric":
-        fou0 = allfourier_empirical(phase_l).reshape(C,1) / T
-    else:
-        raise ValueError("`idealized_or_empirical` must be 'ideal' or 'empiric'")
+    fou0 = allfourier(spks, freq).reshape(C,1) / T
 
     # Fourier coefficients for all off-frequencies
     fou_alt = allfouriers(spks, ff_alt) / T
@@ -608,36 +558,6 @@ def modulate(tt, f0, A, phi=None):
     return tt1
 
 
-def modulate_phase(tt, A):
-    """
-    Parameters
-    ----------
-    tt: array-like
-        List of instantaneous phases for spikes
-    A: float
-        Modulation strength
-
-    Returns
-    -------
-    tt1: array-like
-        modulated spike train (in radians)
-    """
-    tt1=tt.copy()
-
-    # Modulation probabilities
-    pp = (np.cos(tt1) + 1) * A / 2
-
-    # Random range
-    xx = np.random.random(tt1.shape)
-
-    # Shift over by half a phase probablistically
-    tt1[xx<pp] += np.pi
-
-    # Modulus back into the range of radians
-    tt1 = tt1 % (np.pi*2)
-    return tt1
-
-
 def gaussianinterp(xx, dat_x, dat_y, smo_x, err=False):
     '''GAUSSIANINTERP - Interpolate data using a Gaussian window
     
@@ -678,50 +598,6 @@ def gaussianinterp(xx, dat_x, dat_y, smo_x, err=False):
     return yy, sy
 
     
-def simulate_modulation_power(modulation_df, full_log_dict, key, mods=np.arange(.01, 0.51, 0.01), Z=1000):
-    """
-    Parameters
-    ----------
-    modulation_df: pandas.DataFrame
-        Output of _____
-    full_log_dict: pandas.DataFrame
-        Output of ____
-    key: (string, int)
-        (recording, frequency)
-    Z: int
-        Number of bootstrap iterations
-    mods: array-like
-        Modulation levels
-    
-    Outputs
-    -------
-    NFC: modulated spiking level
-    """
-    # Patience required, this takes about an hour on my laptop
-    theta_spks = [subdf.phase.values for _, subdf in modulation_df.loc[modulation_df.rec==key[0]].groupby("id")]
-
-    sgm = np.std(full_log_dict[key]["fou_alt_c"], (1,2))
-    
-    M = len(mods)
-
-    # Initialize 3d matrix of data
-    C = len(theta_spks)
-    T = np.floor(latesttime([modulation_df.spk.values]) - earliesttime([modulation_df.spk.values]))
-
-    NFC = np.zeros((C,M,Z))
-
-    # For each modulation level,
-    for m in trange(M):
-        # For each bootstrap interval,
-        for z in trange(Z, leave=False):
-            # Modulation each spiketrain at mod level
-            theta_spks_mod = [ modulate_phase(sp, mods[m]) for sp in theta_spks]
-
-            # Get Fourier coeffient normalized and apparently divided by T...
-            NFC[:,m,z] = np.abs(allfourier_empirical(theta_spks_mod)) / T / sgm
-    return NFC
-
-
 def get_confidence_limits(mod_r, modulation_df, full_log_dict, key, p = 0.05, Z=1000, mods=np.arange(0.01, 0.501, 0.01)):
     """
     Parameters
@@ -1112,7 +988,7 @@ def sanity_check_raw_data(θ, period_crossings, sts, n_representative_units=7, s
     return fig, axes
 
 
-def fit_fourier_sig(df, Q_frac, sr=30_000, method="ideal", diagnostics=True):
+def fit_fourier_sig(df, Q_frac, sr=30_000, diagnostics=True):
     """Runs fourier_analysis on a dataframe of spiking data
 
     Parameters
@@ -1138,15 +1014,14 @@ def fit_fourier_sig(df, Q_frac, sr=30_000, method="ideal", diagnostics=True):
 
         # Put it into form fourier_analysis asks
         # Get even trials for test
-        spks_and_ids_and_phases = [
+        spks_and_ids = [
             (
-                id_, np.sort(id_subdf.spk.values), id_subdf.phase.values
+                id_, np.sort(id_subdf.spk.values)
             ) for id_, id_subdf in subdf.groupby("id")]
 
         # If empty, add a single spike
-        spks = [spks if len(spks) > 0  else np.array([0]) for (_, spks, _) in spks_and_ids_and_phases]
-        phase_l = [phases if len(phases) > 0 else np.array([0]) for (_, _, phases) in spks_and_ids_and_phases]
-        ids = [id_ for (id_, _, _) in spks_and_ids_and_phases]
+        spks = [spks if len(spks) > 0  else np.array([0]) for (_, spks) in spks_and_ids]
+        ids = [id_ for (id_, _) in spks_and_ids]
 
         # Bin resolution (Hz/bin) is 1/T -- same T feeds both the 1F and 2F
         # fourier_analysis calls below, so the fraction->bins conversion for
@@ -1161,8 +1036,7 @@ def fit_fourier_sig(df, Q_frac, sr=30_000, method="ideal", diagnostics=True):
         (C, T, nn, fff,
          i0, ff_alt, fou0,
          fou_alt, fou_alt_c, NFC) = fourier_analysis(
-            spks, frq, idealized_or_empirical=method,
-            phase_l=phase_l, Q=M_1f, sr=sr, T=group_T
+            spks, frq, Q=M_1f, sr=sr, T=group_T
         )
 
         sigma_1F = get_sgm(fou_alt_c)
@@ -1177,8 +1051,7 @@ def fit_fourier_sig(df, Q_frac, sr=30_000, method="ideal", diagnostics=True):
         (twoF_C, twoF_T, twoF_nn, twoF_fff,
          twoF_i0, twoF_ff_alt, twoF_fou0,
          twoF_fou_alt, twoF_fou_alt_c, NFC_2f) = fourier_analysis(
-            spks, frq * 2, idealized_or_empirical="ideal",
-            phase_l=phase_l, Q=M_2f, sr=sr, T=group_T
+            spks, frq * 2, Q=M_2f, sr=sr, T=group_T
         )
         sigma_2F = get_sgm(twoF_fou_alt_c)
 

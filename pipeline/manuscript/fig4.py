@@ -105,7 +105,7 @@ def compute_ci_df(spks):
                 else:
                     modulated[spk_i] = spkt
             (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, NFCs) = \
-                statistics.fourier_analysis(modulated, FREQ, "ideal", None, Q=FOURIER_Q)
+                statistics.fourier_analysis(modulated, FREQ, Q=FOURIER_Q)
             n_empirical, f_expected, l_bound, h_bound = \
                 statistics.suspect_count_significance(NFCs, 0.99, conf_int_α=0.05, eps=eps)
             data_d["mod"].append(A)
@@ -121,7 +121,7 @@ def compute_fr_df(spks):
     for A in tqdm.tqdm([0, 0.3, 0.6], desc="FR vs NFC"):
         modulated = [statistics.modulate(spkt, FREQ, A) for spkt in spks]
         (C, _, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, NFCs) = \
-            statistics.fourier_analysis(modulated, FREQ, "ideal", None)
+            statistics.fourier_analysis(modulated, FREQ)
         rows.append(pd.DataFrame({
             "mod": A,
             "FR": [len(spkt) / T for spkt in spks],
