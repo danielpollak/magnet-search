@@ -39,7 +39,7 @@ NWB_DRIFT_ATOL = 1e-9
 # fit_fourier_sig's vectorized ops) shifts float64 summation order, producing
 # differences that scale with a column's own magnitude, not a fixed
 # absolute size. Confirmed on real data (20220916's sens/sens_2f columns,
-# not O(1) like pp/rr): up to ~1.5e-8 absolute but only ~1e-11 *relative* --
+# not O(1) like p_value/NFC): up to ~1.5e-8 absolute but only ~1e-11 *relative* --
 # atol alone can't cover every column's scale without being loose enough to
 # risk hiding a real bug in the O(1) columns.
 NWB_DRIFT_RTOL = 1e-6
@@ -146,6 +146,23 @@ def _load(path):
         return pickle.load(f)
 
 
+# The frozen MagnetSearch/data/*_full_fourier_df.pickle fixtures permanently use the
+# pre-rename column names (this refactor renamed the live pipeline's columns but the
+# fixtures themselves are never touched -- see CLAUDE.md). Alias them right after loading
+# so downstream column-intersection logic (`cols = [c for c in nwb_anal_df.columns if c in
+# old_anal_df.columns]`) still finds and compares these columns instead of silently
+# dropping them. All ephys -- `nn` always maps to `spk_count` here, never `n_frames`.
+_OLD_TO_NEW_ANALYSIS_COLS = {"pp": "p_value", "nn": "spk_count", "rr": "NFC",
+                              "2f_rr": "2f_NFC", "2f_pp": "2f_p_value"}
+
+
+def _load_old_analysis_fixture(path):
+    df = _load(path)
+    if df is not None:
+        df = df.rename(columns=_OLD_TO_NEW_ANALYSIS_COLS)
+    return df
+
+
 def _frames_equal_sorted(a, b, sort_cols, atol=0.0, rtol=0.0):
     """Sorts both frames by `sort_cols` first, then compares, with an
     optional numeric tolerance.
@@ -160,7 +177,7 @@ def _frames_equal_sorted(a, b, sort_cols, atol=0.0, rtol=0.0):
     `sens`/`sens_2f` columns) that excluding MUA units reorders the array
     feeding fit_fourier_sig's vectorized ops, shifting float64 summation
     order enough to produce ~1.5e-8 absolute (but only ~1e-11 *relative*)
-    differences in columns whose values aren't O(1) like pp/rr are --
+    differences in columns whose values aren't O(1) like p_value/NFC are --
     atol alone can't cover every column's scale without also being loose
     enough to hide a real bug in the O(1) columns. Default 0 for the
     strict/PASS-tier check (see _compare_tiered), non-zero only for the
@@ -313,7 +330,7 @@ def _reconcile_under_current_Q_semantics(name, old_proc_df, nwb_anal_df):
     # reordering units (e.g. excluding MUA from the NWB Units table changes
     # dict/array iteration order feeding fit_fourier_sig) shifts float64
     # summation order enough to produce ~1e-13-relative-magnitude
-    # differences in `pp`/`rr` -- the exact same class of harmless
+    # differences in `p_value`/`NFC` -- the exact same class of harmless
     # numerical noise NWB_DRIFT_ATOL already exists to absorb elsewhere,
     # not a real correctness difference (values match to 10+ significant
     # digits).
@@ -336,7 +353,7 @@ def verify_experiment(name, old_proc_file, old_anal_file, verbose=True):
     old_anal_path = os.path.join(OLD_DATA, old_anal_file)
 
     old_proc_df = _load(old_proc_path)
-    old_anal_df = _load(old_anal_path)
+    old_anal_df = _load_old_analysis_fixture(old_anal_path)
 
     if not os.path.exists(nwb_path):
         results["processing"] = "SKIP (no .nwb yet)"

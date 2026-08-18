@@ -39,7 +39,7 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
     F              : np.ndarray  (n_cells, n_frames) fluorescence traces
                      -- already filtered to this analysis run's population
                      (iscell/npix threshold + flatline removal)
-    fourier_df     : pd.DataFrame  with columns [rr, freq, rec, ...]
+    fourier_df     : pd.DataFrame  with columns [NFC, freq, rec, ...]
     freq_win       : np.ndarray  off-frequencies (Hz), 1F
     onfreq_pow_l   : np.ndarray  (n_cells,) complex on-frequency coefficients, 1F
     offfreq_pow_l  : list of np.ndarray  per-cell off-frequency complex coefficients, 1F
@@ -73,19 +73,19 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
     save_dir = Path(save_dir)
     out_path = save_dir / f"{cfg.name}_analysis_diagnostics.pdf"
     freq = cfg.analysis.f
-    rr = fourier_df["rr"].values
+    NFC = fourier_df["NFC"].values
 
     with PdfPages(out_path) as pdf:
 
         # ── Page 1: c-hat histogram ──────────────────────────────────────────
         fig, ax = plt.subplots(figsize=(7, 5))
         fig.suptitle(f"{cfg.name}  |  {freq} Hz  —  c-hat distribution", fontsize=9)
-        if len(rr) >= 2:
+        if len(NFC) >= 2:
             Q = fourier_df["Q"].iloc[0] if "Q" in fourier_df.columns else None
             eps = get_epsilon(Q) if Q else None
-            vals, bins = draw_hist(rr, ax, xlim=9, inset=False, eps=eps)
+            vals, bins = draw_hist(NFC, ax, xlim=9, inset=False, eps=eps)
             inset_hist(ax, vals, bins, eps=eps)
-            ax.set_title(f"N = {len(rr)} cells")
+            ax.set_title(f"N = {len(NFC)} cells")
         else:
             ax.text(0.5, 0.5, "insufficient data", ha="center", va="center",
                     transform=ax.transAxes)
@@ -126,17 +126,17 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
         #    analysis_stages/engert.py's Nyquist check, and medaka, which
         #    never passes these at all) ────────────────────────────────────
         if onfreq_pow_2f is not None:
-            rr_2f_all = fourier_df["2f_rr"].values if "2f_rr" in fourier_df.columns else np.array([])
-            rr_2f = rr_2f_all[~np.isnan(rr_2f_all)] if len(rr_2f_all) else rr_2f_all
+            NFC_2f_all = fourier_df["2f_NFC"].values if "2f_NFC" in fourier_df.columns else np.array([])
+            NFC_2f = NFC_2f_all[~np.isnan(NFC_2f_all)] if len(NFC_2f_all) else NFC_2f_all
 
-            if len(rr_2f) >= 2:
+            if len(NFC_2f) >= 2:
                 fig, ax = plt.subplots(figsize=(7, 5))
                 fig.suptitle(f"{cfg.name}  |  {freq * 2} Hz (2F)  —  c-hat distribution",
                              fontsize=9)
                 eps_2f = get_epsilon(Q_2f) if Q_2f else None
-                vals, bins = draw_hist(rr_2f, ax, xlim=9, inset=False, eps=eps_2f)
+                vals, bins = draw_hist(NFC_2f, ax, xlim=9, inset=False, eps=eps_2f)
                 inset_hist(ax, vals, bins, eps=eps_2f)
-                ax.set_title(f"N = {len(rr_2f)} cells")
+                ax.set_title(f"N = {len(NFC_2f)} cells")
                 _rasterize_ax(ax)
                 fig.tight_layout()
                 pdf.savefig(fig, dpi=150)
@@ -171,7 +171,7 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
             plt.close(fig)
 
         # ── Page 5: Fluorescence heatmap sorted by c-hat ─────────────────────
-        sort_idx = np.argsort(rr)[::-1]
+        sort_idx = np.argsort(NFC)[::-1]
         F_sorted = F[sort_idx]
         N_frames = int(120 * (F.shape[1] // 60))
         F_display = F_sorted[:, :N_frames]
@@ -212,7 +212,7 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
             n_included = int(included_mask.sum())
             n_excl = len(roi_df) - n_included
 
-            rr_norm = (rr - rr.min()) / max(rr.max() - rr.min(), 1e-10)
+            NFC_norm = (NFC - NFC.min()) / max(NFC.max() - NFC.min(), 1e-10)
             cmap_cells = plt.cm.plasma
 
             img = np.zeros((Ly, Lx, 3), dtype=np.float32)
@@ -238,13 +238,13 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
                 img[ypix, xpix, :] = 0.25
 
             # Included ROIs colored by c-hat -- roi_df[included_mask]'s row
-            # order matches rr's order exactly: both the iscell/npix mask
+            # order matches NFC's order exactly: both the iscell/npix mask
             # and remove_flatlines's inclusion_inds preserve relative order,
             # and included_mask was built by composing the two the same way
             # the analysis stage itself did.
             for rank, pixel_mask in enumerate(roi_df.loc[included_mask, "pixel_mask"]):
                 ypix, xpix = _pixels(pixel_mask)
-                color = np.array(cmap_cells(rr_norm[rank])[:3], dtype=np.float32)
+                color = np.array(cmap_cells(NFC_norm[rank])[:3], dtype=np.float32)
                 img[ypix, xpix, :] = color
 
             fig, ax = plt.subplots(figsize=(8, 8 * Ly / Lx))
@@ -256,7 +256,7 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
             ax.axis("off")
             sm = plt.cm.ScalarMappable(
                 cmap=cmap_cells,
-                norm=plt.Normalize(vmin=rr.min(), vmax=rr.max()))
+                norm=plt.Normalize(vmin=NFC.min(), vmax=NFC.max()))
             sm.set_array([])
             plt.colorbar(sm, ax=ax, label="c-hat", shrink=0.6, pad=0.02)
             fig.tight_layout()

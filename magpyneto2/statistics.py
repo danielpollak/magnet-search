@@ -145,14 +145,17 @@ def normalized_Fourier_CDF_corrected(PDF_vals, r_vals):
     return np.cumsum(PDF_vals[1:]* np.diff(r_vals))
 
 
-def corrected_pvalues(rr, Q):
-    """P-value for each c-hat in `rr`, using the null distribution corrected
+def corrected_pvalues(NFC, Q):
+    """P-value for each c-hat in `NFC`, using the null distribution corrected
     for finite-Q reference-frequency sampling (see get_epsilon)."""
     eps = get_epsilon(Q)
     R, YY = normalized_Fourier_PDF()
     PDF = normalized_Fourier_PDF_corrected(R[1:], R[1:], YY[1:], eps)
     CDF = normalized_Fourier_CDF_corrected(PDF, R[1:])
-    return 1 - np.interp(rr, R[2:], CDF)
+    # Note: does not give np.nan, but rather the max CDF value (1.0) for any NFC > max(R) --
+    #  which is correct, since the null distribution is defined only on the support R, and
+    #  any NFC > max(R) is in the extreme tail of the null.
+    return 1 - np.interp(NFC, R[2:], CDF)
 
 
 # Floor on off-frequency bins per side of the analyzed frequency. Below this,
@@ -488,7 +491,7 @@ def fourier_analysis(spks, freq, idealized_or_empirical="ideal", phase_l=None, Q
         Number of units
     T: int
         Latest spike time of all units, rounded up to nearest second
-    nn: np.array
+    spk_count: np.array
         Number of spikes
     fff: np.array
         Frequencies to analyze
@@ -510,9 +513,9 @@ def fourier_analysis(spks, freq, idealized_or_empirical="ideal", phase_l=None, Q
         T = np.ceil(latesttime(spks) - earliesttime(spks))
         
     # Get number of spikes of each spike train
-    nn = np.array([ len(s) for s in spks])
+    spk_count = np.array([ len(s) for s in spks])
     if log:
-        print(f'{np.mean(nn):.1f} ± {np.std(nn):.1f} spikes in {C} cells. T: {T}')
+        print(f'{np.mean(spk_count):.1f} ± {np.std(spk_count):.1f} spikes in {C} cells. T: {T}')
     
     # Available frequencies
     fff = frequencies(T, sr=sr)
@@ -537,19 +540,19 @@ def fourier_analysis(spks, freq, idealized_or_empirical="ideal", phase_l=None, Q
     
     c_hat = get_c_hat(fou0, fou_alt_c)
 
-    return (C, T, nn, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, c_hat)
+    return (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, c_hat)
 
 
-def suspect_count_significance(rr, crossing_percentile:float, conf_int_α:float=0.05, eps:float=0.0):
+def suspect_count_significance(NFC, crossing_percentile:float, conf_int_α:float=0.05, eps:float=0.0):
     """
     Puts confidence bounds on excess counts
-    
+
     Parameters
     ----------
-    rr: (np.array) Normalized Fourier coefficient magnitudes
+    NFC: (np.array) Normalized Fourier coefficient magnitudes
     crossing_percentile: (float) Percentile above which to count crossings empirically and theoretically
-    α: (float) significance level for confidence intervals 
-        
+    α: (float) significance level for confidence intervals
+
     Outputs
     -------
     n_empirical: (int) Number of coefficients above the confidence bound
@@ -557,20 +560,20 @@ def suspect_count_significance(rr, crossing_percentile:float, conf_int_α:float=
     f_{lo/hi}: (floats)
     eps: default=None (float) Correction factor for dependent samples. If None, no correction is applied.
     """
-    # Clean rr of nans
-    rr = rr[~np.isnan(rr)]
+    # Clean NFC of nans
+    NFC = NFC[~np.isnan(NFC)]
     # Theoretical stats
-    K = len(rr)
+    K = len(NFC)
     f_expected = K * (1-crossing_percentile)
 
     binom = scipy.stats.binom(K, 1-crossing_percentile)
-    f_lo = binom.ppf(conf_int_α/2) 
-    f_hi = binom.ppf(1-conf_int_α/2) 
-    
-    # 
+    f_lo = binom.ppf(conf_int_α/2)
+    f_hi = binom.ppf(1-conf_int_α/2)
+
+    #
     inverse_cdf_val = inverse_Rayleigh_CDF(crossing_percentile, eps=eps)
-        
-    n_empirical = len(rr[rr>inverse_cdf_val])
+
+    n_empirical = len(NFC[NFC>inverse_cdf_val])
 
     return n_empirical, f_expected, f_lo, f_hi
 
@@ -692,7 +695,7 @@ def simulate_modulation_power(modulation_df, full_log_dict, key, mods=np.arange(
     
     Outputs
     -------
-    rr: modulated spiking level
+    NFC: modulated spiking level
     """
     # Patience required, this takes about an hour on my laptop
     theta_spks = [subdf.phase.values for _, subdf in modulation_df.loc[modulation_df.rec==key[0]].groupby("id")]
@@ -705,7 +708,7 @@ def simulate_modulation_power(modulation_df, full_log_dict, key, mods=np.arange(
     C = len(theta_spks)
     T = np.floor(latesttime([modulation_df.spk.values]) - earliesttime([modulation_df.spk.values]))
 
-    rr = np.zeros((C,M,Z))
+    NFC = np.zeros((C,M,Z))
 
     # For each modulation level,
     for m in trange(M):
@@ -713,10 +716,10 @@ def simulate_modulation_power(modulation_df, full_log_dict, key, mods=np.arange(
         for z in trange(Z, leave=False):
             # Modulation each spiketrain at mod level
             theta_spks_mod = [ modulate_phase(sp, mods[m]) for sp in theta_spks]
-            
+
             # Get Fourier coeffient normalized and apparently divided by T...
-            rr[:,m,z] = np.abs(allfourier_empirical(theta_spks_mod)) / T / sgm
-    return rr
+            NFC[:,m,z] = np.abs(allfourier_empirical(theta_spks_mod)) / T / sgm
+    return NFC
 
 
 def get_confidence_limits(mod_r, modulation_df, full_log_dict, key, p = 0.05, Z=1000, mods=np.arange(0.01, 0.501, 0.01)):
@@ -734,20 +737,20 @@ def get_confidence_limits(mod_r, modulation_df, full_log_dict, key, p = 0.05, Z=
     # Normalizing factor
     sgm = np.std(full_log_dict[key]["fou_alt_c"], (1,2))
 
-    # Renormalize to match rr
-    r0 = np.abs(full_log_dict[key]["fou0"][:,0])/sgm 
+    # Renormalize to match NFC
+    r0 = np.abs(full_log_dict[key]["fou0"][:,0])/sgm
 
 
     # Unknown
     K = 10
 
     # Number of spikes for each unit
-    nn = [len(subdf) for id, subdf in key_df.groupby("id")]
+    spk_count = [len(subdf) for id, subdf in key_df.groupby("id")]
 
     # Number of cells
-    C = len(nn)
+    C = len(spk_count)
 
-    # 
+    #
     rr1 = mod_r.reshape(C,50,K,Z//K)
 
     # Get T
@@ -758,19 +761,19 @@ def get_confidence_limits(mod_r, modulation_df, full_log_dict, key, p = 0.05, Z=
 
     for c in range(C):
         for k in range(K):
-            if nn[c]>=T * 0.5:
+            if spk_count[c]>=T * 0.5:
                 pp = np.mean(rr1[c,:,k,:] < r0[c], -1)
                 where = np.argwhere(pp>p)
                 if len(where)==0:
                     mm[c,k] = mods[0]
                 else:
-                    mmax = np.max(where) 
+                    mmax = np.max(where)
                     mm[c,k] = mods[mmax] + .01
 
     m0 = mm.mean(-1) #  + np.random.random(C)*.01-.005
-    dm = mm.std(-1)   
-    
-    return m0, dm, nn, T
+    dm = mm.std(-1)
+
+    return m0, dm, spk_count, T
 
 """VIZ"""
 def lighten(cc, factor=2):
@@ -930,27 +933,27 @@ def plot_coefficient_cdf(ff_alt, fou_alt, kk=None, ax=None):
     return ax
 
 
-def Moments_vs_FR(nn, fou_alt_c, T, ax=None):
+def Moments_vs_FR(spk_count, fou_alt_c, T, ax=None):
     """
     Plots first four moments (mean, STD, skewness, and kurtosis) of fourier coefficients (real and imaginary pushed together) against firing rate
     Figures 5C through 5F
     Parameters
     ----------
-    nn: np.ndarray
+    spk_count: np.ndarray
         Array of firing rates
     fou_alt_c: np.ndarray
         Concatenated list of real and imaginary components of Fourier coefficients for all cells in a recording at a given stimulus frequency
-    
+
     Returns
         ax: plt.axis
             Figure axis
     """
-    
+
     if ax is None:
         _, axes = plt.subplots(4,1, figsize=(5, 10))
-    
+
     # Use (i.e., filter)
-    use = nn > 0.5*T
+    use = spk_count > 0.5*T
     
     # Shape
     C,N,X=fou_alt_c.shape
@@ -984,8 +987,8 @@ def Moments_vs_FR(nn, fou_alt_c, T, ax=None):
         
         # Plot
         ax.semilogx(
-            nn[use], 
-            function(*arg)[use], 
+            spk_count[use],
+            function(*arg)[use],
             "o", color=(0,.4,1)
         )
         
@@ -1165,7 +1168,7 @@ def fit_fourier_sig(df, Q_frac, sr=30_000, method="ideal", diagnostics=True):
         sigma_1F = get_sgm(fou_alt_c)
 
         log_dict[(rec, frq)] = {
-            "C": C, "T":T, "nn":nn, "fff":fff,
+            "C": C, "T":T, "spk_count":nn, "fff":fff,
             "i0":i0, "ff_alt":ff_alt, "fou0":fou0,
             "fou_alt": fou_alt, "fou_alt_c": fou_alt_c, "M": M_1f, "args":(spks, frq, M_1f)
         }
@@ -1181,7 +1184,7 @@ def fit_fourier_sig(df, Q_frac, sr=30_000, method="ideal", diagnostics=True):
 
 
         log_dict[("twoF_" + rec, "twoF_"+str(frq))] = {
-            "C": twoF_C, "T":twoF_T, "nn":twoF_nn, "fff":twoF_fff,
+            "C": twoF_C, "T":twoF_T, "spk_count":twoF_nn, "fff":twoF_fff,
             "i0":twoF_i0, "ff_alt":twoF_ff_alt, "fou0":twoF_fou0,
             "fou_alt": twoF_fou_alt, "fou_alt_c": twoF_fou_alt_c,
             "M": M_2f, "args":(spks, frq * 2, M_2f)
@@ -1207,58 +1210,58 @@ def fit_fourier_sig(df, Q_frac, sr=30_000, method="ideal", diagnostics=True):
         twof_pp = 1 - np.interp(twoF_c_hat, R[2:], CDF_2f)
 
         fourier_l.append(pd.DataFrame({
-            "id": ids, "pp":pp, "nn":nn, "rr":c_hat,
-            "freq":frq, "rec":rec, "2f_rr":twoF_c_hat, "2f_pp":twof_pp,
+            "id": ids, "p_value":pp, "spk_count":nn, "NFC":c_hat,
+            "freq":frq, "rec":rec, "2f_NFC":twoF_c_hat, "2f_p_value":twof_pp,
             "sens":nn/T/2/sigma_1F, "sens_2f":nn/T/2/sigma_2F,
-            "Q": M_1f}))  # bin count behind THIS row's rr/pp (1F)
+            "Q": M_1f}))  # bin count behind THIS row's NFC/p_value (1F)
 
     fourier_df = pd.concat(fourier_l)
     return fourier_df, log_dict
 
 
-def visualize_modulations(mod_rr, m0, dm, nn, T):
+def visualize_modulations(mod_rr, m0, dm, spk_count, T):
     fig, ax = plt.subplots(figsize=(10,7))
     for c in range(len(mod_rr)):
         plt.semilogx(
-            nn[c]/T, m0[c],
-            np.zeros(2)+nn[c]/T, [m0[c]-dm[c], m0[c]+dm[c]], # Removing confidence intervals
+            spk_count[c]/T, m0[c],
+            np.zeros(2)+spk_count[c]/T, [m0[c]-dm[c], m0[c]+dm[c]], # Removing confidence intervals
              'k')
-    
-    plt.semilogx(nn/T, m0, 'k.')
+
+    plt.semilogx(spk_count/T, m0, 'k.')
     plt.xlabel('Firing rate (/s)')
     plt.ylabel('95% conf lim on modulation')
-    plt.title(f"5% detection level, {np.round(T)} s duration, \n {len(nn)} units")
+    plt.title(f"5% detection level, {np.round(T)} s duration, \n {len(spk_count)} units")
     ax.hlines(0, *ax.get_xlim())
     return fig, ax
 
 
-def visualize_detectability(mod_rr, nn, T):
+def visualize_detectability(mod_rr, spk_count, T):
     """
-    rr: (array) Fourier coefficients
-    nn: (array) spike numbers
+    mod_rr: (array) Fourier coefficients
+    spk_count: (array) spike numbers
     T: (float) duration
     """
-    
+
     mods=np.arange(0.01, 0.501, 0.01)
-    pp = 1 - inverse_Rayleigh_CDF(mod_rr)
+    p_value = 1 - inverse_Rayleigh_CDF(mod_rr)
 
     fig = plt.figure(figsize=(10,7))
     plt.clf()
     cc = [(0,0,.5), (1,.5,0), (.2,.7,.5)]
-    nn = np.array(nn)
-    C = len(nn)
+    spk_count = np.array(spk_count)
+    C = len(spk_count)
 
     for f, alpha in enumerate([.0001, .001, .01]):
-        confid = np.mean(pp[:,:,:] < alpha, -1)
+        confid = np.mean(p_value[:,:,:] < alpha, -1)
         confid = np.hstack((confid, np.ones((C,1))))
         midx = np.argmax(confid>=.5, -1)
         midx[midx>=len(mods)] = -1
         mm = mods[midx]
         mm[midx<0] = .5
 
-        use = np.logical_and(nn > .5*T, midx>=0)
+        use = np.logical_and(spk_count > .5*T, midx>=0)
         plt.semilogx(
-            nn[use]/T, mm[use], 'o', 
+            spk_count[use]/T, mm[use], 'o',
             color=cc[f], alpha=.4,
              markersize=4)
         xx = 10**np.arange(np.log10(.6), np.log10(90), .02)
@@ -1266,16 +1269,16 @@ def visualize_detectability(mod_rr, nn, T):
         # Ensure accurate interpolation:
         pass # change xx so that the min is >= min FR
 
-        yy = gaussianinterp(np.log10(xx), np.log10(nn[use]/T), mm[use], .1)
+        yy = gaussianinterp(np.log10(xx), np.log10(spk_count[use]/T), mm[use], .1)
         plt.plot(xx, yy, color=cc[f])
-        use = np.logical_and(nn > .5*T, midx<0)
-        plt.semilogx(nn[use]/T, mm[use], '^', color=cc[f], alpha=.4)
-    
+        use = np.logical_and(spk_count > .5*T, midx<0)
+        plt.semilogx(spk_count[use]/T, mm[use], '^', color=cc[f], alpha=.4)
+
     plt.hlines(0, *plt.xlim())
     plt.xlabel('Firing rate (/s)')
     plt.ylabel("Minimum detectable modulation")
     plt.legend(('','α = 0.0001','', '','α = 0.001','', '','α = 0.01',''))
-    plt.title(f"{np.round(T)} s duration, {len(nn)} units")
+    plt.title(f"{np.round(T)} s duration, {len(spk_count)} units")
     return fig
 
 
@@ -1400,18 +1403,18 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
                 sig_thres = 0.99 # Set by the number of recordings; less than one in 100
 
                 # eps corrects the null distribution for the same finite-Q
-                # dependent-sampling effect that per-unit pp/2f_pp already
-                # account for (see fit_fourier_sig) -- without this, the
-                # excess-count line plotted here would be checked against
+                # dependent-sampling effect that per-unit p_value/2f_p_value
+                # already account for (see fit_fourier_sig) -- without this,
+                # the excess-count line plotted here would be checked against
                 # an uncorrected Rayleigh null while the p-values reported
                 # elsewhere for the same units use the corrected one.
                 eps_1f = eps_from_Q(recdf["Q"].iloc[0]) if "Q" in recdf.columns else 0.0
-                n_empirical,    _, f_lo, f_hi = suspect_count_significance(recdf["rr"].values,    sig_thres, conf_int_α=0.05, eps=eps_1f)
+                n_empirical,    _, f_lo, f_hi = suspect_count_significance(recdf["NFC"].values,    sig_thres, conf_int_α=0.05, eps=eps_1f)
                 conf_ax.hlines(n_empirical,    counter+.25, counter+0.75, "black", zorder=2, linewidth=1, alpha=0.9)
 
-                if ~np.all(np.isnan(recdf["2f_rr"].values)):
+                if ~np.all(np.isnan(recdf["2f_NFC"].values)):
                     eps_2f = eps_from_Q(recdf["Q_2f"].iloc[0]) if "Q_2f" in recdf.columns else 0.0
-                    n_empirical_2f, _, _,    _    = suspect_count_significance(recdf["2f_rr"].values, sig_thres, conf_int_α=0.05, eps=eps_2f)
+                    n_empirical_2f, _, _,    _    = suspect_count_significance(recdf["2f_NFC"].values, sig_thres, conf_int_α=0.05, eps=eps_2f)
                     conf_ax.hlines(n_empirical_2f, counter+.25, counter+0.75, "red", zorder=2, linewidth=1, alpha=0.9)
                 
                 conf_ax.plot(
@@ -1507,8 +1510,8 @@ def plot_combo_scatterplot(subdf:pd.DataFrame, ax:plt.Axes.axes,
         f1_arr, f2_arr = [], []
         for _, id_df in subdf.groupby("id"):
             if (freqs[0] in id_df.freq.values) and (freq2 in id_df.freq.values):
-                f1_arr.append(id_df.loc[id_df.freq==freqs[0], "rr"].values[0])
-                f2_arr.append(id_df.loc[id_df.freq==freq2, "rr"].values[0])
+                f1_arr.append(id_df.loc[id_df.freq==freqs[0], "NFC"].values[0])
+                f2_arr.append(id_df.loc[id_df.freq==freq2, "NFC"].values[0])
                     
         values = np.array([f1_arr, f2_arr]).T
         ax.scatter(
@@ -1552,7 +1555,7 @@ def get_poscontrols_negresults(all_fourier_df:pd.DataFrame):
     """
 
     # high spike count, permit lower for owl recordings
-    nn_filter = ((all_fourier_df.nn.values > 50) | (all_fourier_df.species.values == "Owl"))
+    nn_filter = ((all_fourier_df.spk_count.values > 50) | (all_fourier_df.species.values == "Owl"))
     include_fish = np.array([("fish" in elem) or (elem == "medaka") for elem in all_fourier_df.species.values])
 
 

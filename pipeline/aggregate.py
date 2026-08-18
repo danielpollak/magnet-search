@@ -235,6 +235,20 @@ for _fish_tag, _date in [
         ANNOT_D[f"engert_{_fish_tag}_no-magneto_{_i}"] = [_date, _fish_tag, "whole brain", "zebrafish", "positive control"]
 
 
+# Legacy pickle-era column names -> current names. These frozen files
+# (data/precomputed/mouse_analysis.pickle, owl_analysis.pickle, and any
+# stale pre-Phase-7 *_analysis.pickle leftover) must never be edited on
+# disk, but they still carry the OLD column names (they're ephys-style --
+# engert/medaka never wrote a standalone pickle even before the NWB
+# cutover -- so `nn` always maps to `spk_count` here, never `n_frames`).
+_LEGACY_PICKLE_COL_RENAME = {"pp": "p_value", "nn": "spk_count", "rr": "NFC",
+                              "2f_rr": "2f_NFC", "2f_pp": "2f_p_value"}
+
+
+def _rename_legacy_pickle_columns(df):
+    return df.rename(columns=_LEGACY_PICKLE_COL_RENAME)
+
+
 def _read_nwb_analysis_df(nwb_path):
     """Reconstruct an analysis-pickle-shaped DataFrame directly from an NWB
     file -- the primary read path for every experiment as of the Phase 7
@@ -292,6 +306,7 @@ def build_all_fourier_df(data_dir: str) -> pd.DataFrame:
             if not isinstance(df, pd.DataFrame):
                 print(f"  skip {os.path.basename(f)}: not a DataFrame")
                 continue
+            df = _rename_legacy_pickle_columns(df)
             dfs.append(df)
         except Exception as exc:
             print(f"  skip {os.path.basename(f)}: {exc}")
@@ -309,6 +324,7 @@ def build_all_fourier_df(data_dir: str) -> pd.DataFrame:
             if not isinstance(df, pd.DataFrame):
                 print(f"  skip precomputed/{os.path.basename(f)}: not a DataFrame")
                 continue
+            df = _rename_legacy_pickle_columns(df)
             if "contingency" not in df.columns:
                 # infer: owl control row gets "control" (will be dropped later); rest → "mag"
                 df = df.copy()

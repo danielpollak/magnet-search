@@ -199,28 +199,28 @@ def plot_fig1_composite(modulation_df, fourier_df, udf, out_dir: Path):
     statistics.raw_GECI(vis_calcium_ax, vis_F, VIS_CELL_IND)
 
     # ── Plot Row 2: Magnetic stimulation ──────────────────────────────────────
-    (C, T, nn, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, exemplar_c_hat) = mag_exemplar_fourier
+    (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, exemplar_c_hat) = mag_exemplar_fourier
     statistics.plot_spectrum(mag_spectra_ax, fou_alt.flatten(), ff_alt, 5, fou0, legend=False)
     mag_spectra_ax.set_ylabel("Amplitude")
     mag_spectra_ax.set_xlabel("Frequency (Hz)")
     statistics.boundary_ticks(mag_spectra_ax)
     statistics.nestle_labels(mag_spectra_ax, y=True, x=True, x_offset=-0.05)
 
-    statistics.draw_hist(fourier_df.loc[fourier_df.rec == MAG_CONTINGENCY, "rr"], mag_dist_ax, xlim=9, inset=True)
+    statistics.draw_hist(fourier_df.loc[fourier_df.rec == MAG_CONTINGENCY, "NFC"], mag_dist_ax, xlim=9, inset=True)
     mag_dist_ax.annotate("", (exemplar_c_hat, 0.6), xytext=(exemplar_c_hat, 0.8),
                          textcoords="data", arrowprops=dict(facecolor="black", arrowstyle="->"))
     statistics.boundary_ticks(mag_dist_ax, yprec=1)
     statistics.nestle_labels(mag_dist_ax, x_offset=-0.05, y_offset=-0.05)
 
     # ── Plot Row 3: Visual stimulation ────────────────────────────────────────
-    (C, T, nn, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, exemplar_c_hat_vis) = vis_exemplar_fourier
+    (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, exemplar_c_hat_vis) = vis_exemplar_fourier
     statistics.plot_spectrum(vis_spectra_ax, fou_alt.flatten(), ff_alt, 3, fou0, legend=False)
     vis_spectra_ax.set_ylabel("Amplitude")
     vis_spectra_ax.set_xlabel("Frequency (Hz)")
     statistics.boundary_ticks(vis_spectra_ax)
     statistics.nestle_labels(vis_spectra_ax, y=True, x=True, x_offset=-0.05)
 
-    statistics.draw_hist(fourier_df.loc[fourier_df.rec == VIS_CONTINGENCY + "_90", "rr"],
+    statistics.draw_hist(fourier_df.loc[fourier_df.rec == VIS_CONTINGENCY + "_90", "NFC"],
                          vis_dist_ax, xlim=9, inset=True)
     vis_dist_ax.annotate("", (exemplar_c_hat_vis, 0.2), xytext=(exemplar_c_hat_vis, 0.4),
                          textcoords="data", arrowprops=dict(facecolor="black", arrowstyle="->"))
@@ -228,8 +228,8 @@ def plot_fig1_composite(modulation_df, fourier_df, udf, out_dir: Path):
     statistics.nestle_labels(vis_dist_ax, x_offset=-0.05, y_offset=-0.05)
 
     # ── Kolmogorov-Smirnov diagnostic plot ────────────────────────────────────
-    mag_c_hat = fourier_df.loc[fourier_df.rec == MAG_CONTINGENCY, "rr"].values
-    vis_c_hat = fourier_df.loc[fourier_df.rec == VIS_CONTINGENCY + "_90", "rr"].values
+    mag_c_hat = fourier_df.loc[fourier_df.rec == MAG_CONTINGENCY, "NFC"].values
+    vis_c_hat = fourier_df.loc[fourier_df.rec == VIS_CONTINGENCY + "_90", "NFC"].values
 
     # Convert c-hat to p-values
     mag_pvals = 1 - normalized_Fourier_CDF(mag_c_hat)

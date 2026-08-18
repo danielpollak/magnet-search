@@ -78,7 +78,7 @@ def compute_fourier_results(cfg, verbose=True):
     chat_v, onv, offv, freq_win_v, M_v, avg_v = fit_Fourier(F, T=T, f=_VISUAL_FREQ, Q_frac=_VISUAL_Q_FRAC)
 
     contingency = "positive control" if "no_magneto" in cfg.name else "mag"
-    nn = int(120 * (F.shape[1] // 60))
+    n_frames = int(120 * (F.shape[1] // 60))
 
     # Use basename + ".tif" so get_poscontrols_negresults() rec-name patterns match:
     #   magneto_0.tif → mag experiment
@@ -90,17 +90,17 @@ def compute_fourier_results(cfg, verbose=True):
         (chat_b, f_b, M_b, offb, avg_b),
         (chat_v, _VISUAL_FREQ, M_v, offv, avg_v),
     ]:
-        rr    = np.array(chat_l)
+        NFC   = np.array(chat_l)
         # Same sens = avg_signal / (2*sigma) as engert.py -- see that
-        # module for why this replaced the earlier (redundant with `rr`)
+        # module for why this replaced the earlier (redundant with `NFC`)
         # |onfreq|/sigma formula.
         sigma = np.sqrt(0.5 * np.mean(np.abs(np.array(off)) ** 2, axis=1))
         sens  = avg_signal_l / np.where(sigma > 0, 2 * sigma, np.nan)
         rows.append(pd.DataFrame({
             "id":          np.arange(len(chat_l)),
-            "pp":          corrected_pvalues(rr, M),
-            "nn":          nn,
-            "rr":          rr,
+            "p_value":     corrected_pvalues(NFC, M),
+            "n_frames":    n_frames,
+            "NFC":         NFC,
             "freq":        freq,
             "rec":         rec_name,
             "sens":        sens,
