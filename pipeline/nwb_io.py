@@ -1093,6 +1093,21 @@ def read_fourier_results_as_full_fourier_df(nwbfile):
     Q = (group_df.loc[unit_df["group_1f_index"], "Q"].values
          if len(group_df) else np.nan)
 
+    # group_2f_index is -1 for any unit with no paired 2F group (medaka's
+    # independent mag/visual groups, or a 1F-only analysis) -- group_df.loc
+    # with a -1 label would raise (or silently mis-index), so mask those out
+    # rather than indexing group_df with the raw column. This surfaces the
+    # 2F bin count that write_fourier_results/write_imaging_fourier_results
+    # already persist per-harmonic in fourier_group_results, but which this
+    # reader previously dropped on the floor -- callers that need eps for
+    # the 2F harmonic's null distribution (e.g. suspect_count_significance)
+    # had no way to reconstruct it from all_fourier_df before this.
+    group_2f_idx = unit_df["group_2f_index"].values
+    Q_2f = np.full(len(unit_df), np.nan)
+    has_2f = group_2f_idx >= 0
+    if len(group_df) and has_2f.any():
+        Q_2f[has_2f] = group_df.loc[group_2f_idx[has_2f], "Q"].values
+
     return pd.DataFrame({
         "id": unit_df["unit_id"].values,
         "pp": unit_df["pp"].values,
@@ -1105,6 +1120,7 @@ def read_fourier_results_as_full_fourier_df(nwbfile):
         "sens": unit_df["sens"].values,
         "sens_2f": unit_df["sens_2f"].values,
         "Q": Q,
+        "Q_2f": Q_2f,
     })
 
 
