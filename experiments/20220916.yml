@@ -1,5 +1,9 @@
 name: "20220916"
 paradigm: "openephys_multistim"
+date: "20220916"
+subject_id: "B32♀"
+species: "zebra finch"
+area: "wulst"
 good: True
 cntlbarcodes: True
 stream_id: "0"
@@ -51,4 +55,4 @@ auxiliary_stimuli:
     sourcebarcode: "A2"
     frequency: 0.8
     duration_s: 5.0
-    wn_legacy_formula: true
+    wn_legacy_formula: True

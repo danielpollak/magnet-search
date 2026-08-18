@@ -1,5 +1,9 @@
 name: "Q117_20221213"
 paradigm: "gutfreund"
+date: "20221213"
+subject_id: "Q117"
+species: "Quail"
+area: "thalamus"
 good: True
 aggregated_path: '\\datanas\family\data_aggregated\Gutfreund\Q117_npxl_2022-12-13_s02_magnetD7'
 analysis:

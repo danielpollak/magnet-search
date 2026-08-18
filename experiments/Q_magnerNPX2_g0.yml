@@ -1,5 +1,9 @@
 name: "magnerNPX2_g0"
 paradigm: "spikeglx_direct"
+date: "20240625"
+subject_id: "QNPX2"
+species: "Quail"
+area: "nidopallium"
 good: True
 aggregated_path: '\\datanas\family\data_aggregated\Gutfreund\magnetNPXL2\magnerNPX2_g0'
 nidaq_channels: 9

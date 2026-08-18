@@ -1,9 +1,13 @@
 name: "20220408"
 paradigm: "openephys"
+date: "20220408"
+subject_id: "V649♀"
+species: "zebra finch"
+area: "NCM"
 good: True
 cntlbarcodes: False
 # per-row stream_ids matching the cat_df rows; null entries skip that row
-streams: ["2","2",null,"2","2","2","2",null,"2","2","2",null,"2","2","2"]
+streams: ["2", "2", null, "2", "2", "2", "2", null, "2", "2", "2", null, "2", "2", "2"]
 aggregated_path: '\\datanas\family\data_aggregated\20220408'
 metadata_csv: '\\datanas\family\data_aggregated\20220408metadata.csv'
 threshold: 300

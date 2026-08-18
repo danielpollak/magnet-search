@@ -1,5 +1,9 @@
 name: "20220228_firstsite"
 paradigm: "openephys"
+date: "20220228_firstsite"
+subject_id: "V649♀"
+species: "zebra finch"
+area: "NCM"
 good: True
 cntlbarcodes: False
 stream_id: "2"

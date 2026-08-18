@@ -77,7 +77,6 @@ def compute_fourier_results(cfg, verbose=True):
     # Visual frequency
     NFC_v, onfreq_coef_v, offfreq_coef_v, freq_win_v, M_v, avg_signal_v = fit_Fourier(F, T=T, f=_VISUAL_FREQ, Q_frac=_VISUAL_Q_FRAC)
 
-    contingency = "positive control" if "no_magneto" in cfg.name else "mag"
     n_frames = int(120 * (F.shape[1] // 60))
 
     # Use basename + ".tif" so get_poscontrols_negresults() rec-name patterns match:
@@ -106,10 +105,10 @@ def compute_fourier_results(cfg, verbose=True):
             "sens":        sens,
             "Q":           M,
             "date":        cfg.date,
-            "area":        "wholebrain",
+            "area":        cfg.area,
             "ID":          cfg.subject_id,
-            "species":     "medaka",
-            "contingency": contingency,
+            "species":     cfg.species,
+            "contingency": cfg.contingency,
         }))
     fourier_df = pd.concat(rows, ignore_index=True)
 
@@ -134,10 +133,11 @@ def run_analysis(cfg):
     # each other), so each gets its own write_imaging_fourier_results call —
     # no onfreq_coef_2f/offfreq_coef_2f pairing, matching medaka's own
     # from-scratch (not paired-row) fourier_df construction above. The 5
-    # extra medaka-only columns (date/area/ID/species/contingency) are NOT
+    # extra metadata columns (date/area/ID/species/contingency) are NOT
     # persisted in the shared table (they're per-cfg constants, not Fourier
-    # intermediates) -- callers needing them re-derive from cfg, same as
-    # aggregate.py's ANNOT_D fallback already does for the legacy pickle.
+    # intermediates, and every other paradigm's analysis stage skips them too)
+    # -- aggregate.py's _annotate_experiment_df re-derives them from each
+    # experiment's own YAML instead.
     nwb_io.rebuild_and_replace_analysis(
         cfg.nwb_path(),
         lambda nwbfile: [

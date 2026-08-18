@@ -1,5 +1,9 @@
 name: "20230415"
 paradigm: "openephys_multistim"
+date: "20230415"
+subject_id: "W1R"
+species: "Pigeon"
+area: "HP"
 good: True
 cntlbarcodes: True
 stream_id: "2"

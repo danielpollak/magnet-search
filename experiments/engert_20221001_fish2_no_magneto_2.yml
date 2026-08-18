@@ -1,6 +1,10 @@
 name: "engert_20221001_fish2_no_magneto_2"
 paradigm: "engert"
-
+date: "20221001"
+subject_id: "20221001_fish2"
+species: "zebrafish"
+area: "WB"
+contingency: "positive control"
 session_path: "//datanas/family/data_aggregated/Engert/2022_10_01-fish2_cytoGCaMP"
 tiff_name: "2022_10_01_fish2_no_magneto_2.tif"
 sample_period: 1.0

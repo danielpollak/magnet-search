@@ -60,10 +60,11 @@ GZIP_LEVEL = 4  # empirically: level 4 vs 9 made no measurable difference on
 def create_nwbfile(cfg, session_start_time=None):
     """Build a fresh, empty NWBFile for `cfg`, filling required metadata.
 
-    A `Subject` is attached only if `cfg.subject_id` is set — kept optional
-    so the pilot doesn't require editing every experiment YAML up front
-    (subject/date backfill from `aggregate.py`'s ANNOT_D is a later, separate
-    task; NWBFile itself doesn't require a Subject).
+    A `Subject` is attached only if `cfg.subject_id` is set. Every experiment
+    YAML now sets date/subject_id/species/area/contingency (see
+    pipeline/aggregate.py's `_annotate_experiment_df`, which is what actually
+    consumes these fields today), but the check stays defensive rather than
+    required -- NWBFile itself doesn't need a Subject.
     """
     if session_start_time is None:
         session_start_time = _infer_session_start_time(cfg)
