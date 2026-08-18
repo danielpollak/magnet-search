@@ -1187,24 +1187,6 @@ def fit_fourier_sig(df, Q_frac, sr=30_000, method="ideal", diagnostics=True):
             "M": M_2f, "args":(spks, frq * 2, M_2f)
         }
 
-        if diagnostics:
-            # Save diagnostic plots
-            ax = plot_power_by_freq(ff_alt, fou_alt, fou0, frq)
-            plt.gca().set_title(f"{frq}, {rec}")
-            save_and_close(plt.gcf(), rec, f"power_by_freq_Q{M_1f}", frq)
-
-            ax = plot_coefficient_cdf(ff_alt, fou_alt)
-            plt.gca().set_title(f"{frq}, {rec}")
-            save_and_close(plt.gcf(), rec, f"coefficient_cdf_Q{M_1f}", frq)
-
-            ax = plot_magnitude_pdf(ff_alt, fou_alt)
-            plt.gca().set_title(f"{frq}, {rec}")
-            save_and_close(plt.gcf(), rec, "magnitude_pdf", frq)
-
-            ax = Moments_vs_FR(nn, fou_alt_c, T)
-            plt.gca().set_title(f"{frq}, {rec}")
-            save_and_close(plt.gcf(), rec, f"Moments_vs_fr_Q{M_1f}", frq)
-
 
         # Standard deviation of the surrounding frequencies' coefficients --
         # 1F and 2F now generally have DIFFERENT bin counts (M_2f ~= 2*M_1f,
