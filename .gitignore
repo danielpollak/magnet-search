@@ -12,11 +12,14 @@ data/MM_*.pickle
 # tracked while its inputs aren't would be inconsistent.
 data/*.nwb
 data/manuscript/all_fourier_df.parquet
-# data/fig1_raw/: raw-voltage snippets for Fig1's exemplar-unit panels,
-# extracted from NAS by pipeline/manuscript/fig1_extract_raw_snippets.py --
-# same "not source, regenerable, disseminate via Release" reasoning as the
-# .nwb files above.
+# data/fig1_raw/ and data/fig1_raw_auditory/: raw-voltage snippets for Fig1's
+# exemplar-unit panels (current visual-gratings version and the previous
+# auditory version, respectively), extracted from NAS by
+# pipeline/manuscript/fig1_extract_raw_snippets.py and
+# fig1_auditory_extract_raw_snippets.py -- same "not source, regenerable,
+# disseminate via Release" reasoning as the .nwb files above.
 data/fig1_raw/
+data/fig1_raw_auditory/
 logs/
 *.xlsx
 __pycache__/
