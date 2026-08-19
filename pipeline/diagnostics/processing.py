@@ -19,7 +19,12 @@ _KIND_STYLE = {
     "visual_gratings": ("darkorange",  0.20),
     "white_noise":     ("dimgray",     0.15),
     "visual_bars":     ("forestgreen", 0.20),
-    "oddball":         ("teal",        0.20),
+    "oddball":           ("teal",          0.20),
+    "oddball_long_on":   ("crimson",       0.20),
+    # goldenrod, not darkorange (visual_gratings' color above) -- a session
+    # combining visual_gratings + oddball would otherwise be ambiguous here.
+    "oddball_long_off":  ("goldenrod",     0.20),
+    "oddball_long_both": ("mediumorchid",  0.20),
 }
 
 
@@ -108,7 +113,7 @@ def _timeline_from_nwb(cfg, nwbfile, save_dir, cat_df=None):
         t0, t1 = float(epoch["start_time"]), float(epoch["stop_time"])
         analyzed_recs.append(epoch["rec"])
 
-        ax.axvspan(t0, t1, color=color, alpha=alpha, zorder=0)
+        ax.axvspan(t0, t1, facecolor=color, edgecolor="none", alpha=alpha, zorder=0)
 
         if kind not in legend_handles:
             legend_handles[kind] = mpatches.Patch(
@@ -137,7 +142,7 @@ def _timeline_from_nwb(cfg, nwbfile, save_dir, cat_df=None):
                           for k in analyzed_recs)
             if covered:
                 continue
-            ax.axvspan(t0, t1, color="lightgray", alpha=0.35, zorder=-1)
+            ax.axvspan(t0, t1, facecolor="lightgray", edgecolor="none", alpha=0.35, zorder=-1)
             ax.text((t0 + t1) / 2, n_units + 0.5, f"{recname} (not analyzed)",
                     ha="center", va="top", fontsize=8, rotation=-90,
                     clip_on=False, color="dimgray")
@@ -194,7 +199,7 @@ def _timeline_from_modulation_df(cfg, modulation_df, save_dir):
         spk_sub = modulation_df.loc[modulation_df.rec == rec, "spk"]
         t0, t1 = spk_sub.min(), spk_sub.max()
         color = _FALLBACK_COLORS[rec_i % len(_FALLBACK_COLORS)]
-        ax.axvspan(t0, t1, color=color, alpha=0.15, zorder=0)
+        ax.axvspan(t0, t1, facecolor=color, edgecolor="none", alpha=0.15, zorder=0)
         legend_handles.append(
             mpatches.Patch(facecolor=color, alpha=0.5,
                            label=rec if len(rec) <= 30 else rec[-30:]))

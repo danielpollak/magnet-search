@@ -37,7 +37,22 @@ def run_analysis(cfg):
         nwb_results.append((full_fourier_df, log_dict))
     else:
         mag_mask = [a.mag_rec_substring in rec for rec in modulation_df.rec]
-        visual_mask = [a.visual_rec_substring in rec for rec in modulation_df.rec]
+        # oddball's long_on/long_off/long_both recs (rec ==
+        # "{recname}_long_on" etc, see _handle_oddball/_emit_oddball_epoch)
+        # also contain visual_rec_substring ("oddball" is the usual value) --
+        # split them out entirely rather than double-processing them under
+        # the visual bucket too. Unlike mag/visual/WN, none of them get a
+        # Q_frac/fit_fourier_sig call at all: each is far too sparse (a
+        # handful of trials vs. hundreds of standard ones) for any fraction
+        # to clear bins_for_fraction's minimum-bins floor. They're still
+        # full NWB epochs (see _emit_oddball_epoch) and covered by the trial
+        # diagnostics -- just not Fourier-analyzed.
+        oddball_long_suffixes = ("_long_on", "_long_off", "_long_both")
+        is_oddball_long = [rec.endswith(oddball_long_suffixes) for rec in modulation_df.rec]
+        visual_mask = [
+            (a.visual_rec_substring in rec) and not is_long
+            for rec, is_long in zip(modulation_df.rec, is_oddball_long)
+        ]
         wn_mask = [a.wn_rec_substring in rec for rec in modulation_df.rec]
 
         for mask, frac, label in [

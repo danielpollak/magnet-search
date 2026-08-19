@@ -244,7 +244,9 @@ def write_epochs_table(nwbfile, epochs, sampling_rate=AP_SR):
     epochs : list of dict, each with keys:
         rec              : str
         stim_type        : str  ("magnetic" | "visual_gratings" |
-                                  "white_noise" | "oddball" | "visual_bars")
+                                  "white_noise" | "oddball" | "oddball_long_on" |
+                                  "oddball_long_off" | "oddball_long_both" |
+                                  "visual_bars")
         frequency        : float
         start_time       : float (s)
         stop_time        : float (s)
@@ -320,8 +322,25 @@ def write_epochs_table(nwbfile, epochs, sampling_rate=AP_SR):
             each disjoint real window to pull spikes from
             (`window_starts[i]`, `window_stops[i]`, both strict/exclusive
             bounds matching the legacy `>`/`<` comparisons) and the sample
-            offset added after subtracting `window_starts[i]` to place that
+            offset added after subtracting `phase_anchors[i]` (or
+            `window_starts[i]` if `phase_anchors` is absent) to place that
             window's spikes on the shared synthetic timeline.
+        phase_anchors : np.ndarray[int], optional
+            Only used by "stitched_*" modes — parallel array (same length as
+            window_starts), the per-window subtraction reference used
+            INSTEAD of `window_starts[i]` when placing spikes on the
+            synthetic timeline. Defaults to `window_starts` when omitted
+            (every non-oddball "stitched_*" caller — white_noise multi-
+            window, visual_bars — has always had its phase-zero point BE its
+            own window's inclusion boundary, so this stays a no-op change for
+            them). oddball needs these to differ: `window_starts` is
+            padding-inclusive (real spikes before the stimulus's own onset
+            must still be counted), but phase must be measured from the
+            stimulus's own onset — the evoked response is locked to onset,
+            not to wherever padding happens to start (confirmed: anchoring
+            at `window_starts` instead made pre-pad clip to ~0 for every
+            trial, since the padded window's own unpadded edge always sits
+            exactly at the neighboring trial's own on-span boundary).
         synthetic_period_markers : np.ndarray[float], optional
             Only used by "stitched_crossings_unnorm" — a marker sequence
             already in the *synthetic*-timeline seconds domain (not a real
@@ -336,7 +355,7 @@ def write_epochs_table(nwbfile, epochs, sampling_rate=AP_SR):
                      "instead of being stored per spike.",
     )
     table.add_column("rec", "recording/trial-block name (join key, matches legacy `rec`)")
-    table.add_column("stim_type", "magnetic | visual_gratings | white_noise | oddball | visual_bars")
+    table.add_column("stim_type", "magnetic | visual_gratings | white_noise | oddball | oddball_long_on | oddball_long_off | oddball_long_both | visual_bars")
     table.add_column("frequency", "stimulus frequency, Hz")
     table.add_column("orientation_deg", "grating/bar orientation in degrees, NaN if n/a")
     table.add_column("skips", "number of leading period crossings skipped")
@@ -410,6 +429,7 @@ def write_epochs_table(nwbfile, epochs, sampling_rate=AP_SR):
 
     has_phase_crossings = _any_nonempty("phase_crossings")
     has_window_starts = _any_nonempty("window_starts")
+    has_phase_anchors = _any_nonempty("phase_anchors")
     has_synthetic_markers = _any_nonempty("synthetic_period_markers")
 
     if has_phase_crossings:
@@ -428,8 +448,16 @@ def write_epochs_table(nwbfile, epochs, sampling_rate=AP_SR):
             "window_offsets",
             "'stitched_*'-only: sample offset (s-equivalent, i.e. divided by "
             "sampling_rate like everything else here) added after subtracting "
-            "window_starts[i], placing that window's spikes on the shared "
-            "synthetic timeline", index=True)
+            "phase_anchors[i] (or window_starts[i] if absent), placing that "
+            "window's spikes on the shared synthetic timeline", index=True)
+    if has_phase_anchors:
+        table.add_column(
+            "phase_anchors",
+            "'stitched_*'-only, optional: per-window subtraction reference "
+            "used INSTEAD of window_starts[i] (oddball: each trial's own "
+            "stimulus onset, so phase is locked to onset even though "
+            "window_starts is padding-inclusive and extends earlier)",
+            index=True)
     if has_synthetic_markers:
         table.add_column(
             "synthetic_period_markers",
@@ -476,6 +504,14 @@ def write_epochs_table(nwbfile, epochs, sampling_rate=AP_SR):
             row_kwargs["window_starts"] = np.asarray(ep.get("window_starts", []), dtype=np.float64) / sampling_rate
             row_kwargs["window_stops"] = np.asarray(ep.get("window_stops", []), dtype=np.float64) / sampling_rate
             row_kwargs["window_offsets"] = np.asarray(ep.get("window_offsets", []), dtype=np.float64) / sampling_rate
+        if has_phase_anchors:
+            # Fall back to THIS epoch's own window_starts when it didn't set
+            # phase_anchors itself (white_noise/visual_bars rows sharing a
+            # file with an oddball epoch that does) -- reproduces the
+            # pre-existing "anchor == window_starts[i]" behavior for them
+            # exactly, even though the column now exists globally.
+            row_kwargs["phase_anchors"] = np.asarray(
+                ep.get("phase_anchors", ep.get("window_starts", [])), dtype=np.float64) / sampling_rate
         if has_synthetic_markers:
             row_kwargs["synthetic_period_markers"] = np.asarray(
                 ep.get("synthetic_period_markers", []), dtype=np.float64)
@@ -486,7 +522,8 @@ def write_epochs_table(nwbfile, epochs, sampling_rate=AP_SR):
         # ("inhomogeneous shape" -- confirmed on real data). Catch it at the
         # source epoch instead.
         for _ragged_col in ("period_crossings", "phase_crossings", "window_starts",
-                             "window_stops", "window_offsets", "synthetic_period_markers"):
+                             "window_stops", "window_offsets", "phase_anchors",
+                             "synthetic_period_markers"):
             if _ragged_col in row_kwargs and np.asarray(row_kwargs[_ragged_col]).ndim != 1:
                 raise ValueError(
                     f"epoch rec={ep.get('rec')!r}: '{_ragged_col}' must be 1-D, got shape "
@@ -536,21 +573,31 @@ def _ragged_samples(epoch_row, column, sampling_rate, round_to_int=True):
     return values * sampling_rate
 
 
-def _stitch_synthetic_samples(spike_samples, window_starts, window_stops, window_offsets):
+def _stitch_synthetic_samples(spike_samples, window_starts, window_stops, window_offsets,
+                               phase_anchors=None):
     """Re-index spikes from N disjoint real windows onto one synthetic
     timeline: for window i, spikes in (window_starts[i], window_stops[i])
     (strict/exclusive, matching every "stitched" legacy handler's `>`/`<`)
-    map to `spike - window_starts[i] + window_offsets[i]`. Windows are
-    processed in order and concatenated, matching legacy's per-window-loop-
-    then-concatenate order (`np.concatenate([...])`) exactly -- callers
-    should not assume the result is sorted.
+    map to `spike - anchors[i] + window_offsets[i]`, where `anchors[i]` is
+    `phase_anchors[i]` if given, else `window_starts[i]` (every non-oddball
+    caller). Windows are processed in order and concatenated, matching
+    legacy's per-window-loop-then-concatenate order (`np.concatenate([...])`)
+    exactly -- callers should not assume the result is sorted.
+
+    Inclusion (which spikes count) and the subtraction reference (where
+    phase's zero-point sits) are deliberately separate: oddball's
+    window_starts is padding-inclusive (extends earlier than the stimulus's
+    own onset so pre-stimulus spikes are counted), but phase must still be
+    measured from the stimulus's own onset, not from wherever padding starts.
     """
     if len(window_starts) == 0:
         return np.array([], dtype=np.int64)
+    if phase_anchors is None or len(phase_anchors) == 0:
+        phase_anchors = window_starts
     out = []
-    for w_start, w_stop, w_offset in zip(window_starts, window_stops, window_offsets):
+    for w_start, w_stop, w_offset, anchor in zip(window_starts, window_stops, window_offsets, phase_anchors):
         in_window = spike_samples[(spike_samples > w_start) & (spike_samples < w_stop)]
-        out.append(in_window - w_start + w_offset)
+        out.append(in_window - anchor + w_offset)
     return np.concatenate(out)
 
 
@@ -738,6 +785,7 @@ def build_modulation_frame(nwbfile, rec=None, good_only=True, min_spikes=50):
             window_starts = _ragged_samples(epoch, "window_starts", sr, round_to_int=False)
             window_stops = _ragged_samples(epoch, "window_stops", sr, round_to_int=False)
             window_offsets = _ragged_samples(epoch, "window_offsets", sr, round_to_int=False)
+            phase_anchors = _ragged_samples(epoch, "phase_anchors", sr, round_to_int=False)
             if len(window_starts) == 0:
                 continue
             period_s = period_s_of(epoch)
@@ -747,7 +795,8 @@ def build_modulation_frame(nwbfile, rec=None, good_only=True, min_spikes=50):
                 out_id = int(unit["cluster_id"]) if "cluster_id" in unit else int(unit_id)
                 spike_samples = np.round(np.asarray(unit["spike_times"]) * sr).astype(np.int64)
                 synthetic = _stitch_synthetic_samples(
-                    spike_samples, window_starts, window_stops, window_offsets)
+                    spike_samples, window_starts, window_stops, window_offsets,
+                    phase_anchors=phase_anchors)
                 if (len(synthetic) <= min_spikes if exclusive_min_spikes
                         else len(synthetic) < min_spikes):
                     continue
