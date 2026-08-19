@@ -1613,7 +1613,7 @@ def normalize_timeseries(arr):
 
 
 def raw_NPIX(raw_NPIX_ax, ldr, spks, unitrow, window, freq, label=0.100, DX=1000, DY=.1,
-             trace=None, spike_sr=None, raster_lw=2, max_phasors=None):
+             trace=None, spike_sr=None, raster_lw=2, max_phasors=None, phase_cmap="twilight"):
     """GENERATE RAW DATA VISUALIZATION WITH PERIODS AND PHASORS
     Parameters
     ----------
@@ -1644,7 +1644,11 @@ def raw_NPIX(raw_NPIX_ax, ldr, spks, unitrow, window, freq, label=0.100, DX=1000
         ticks still show every spike). Phasor arrowheads have a roughly
         fixed minimum rendered size regardless of `DX`, so windows dense
         enough to pack many arrows into the same panel width otherwise
-        overlap into an unreadable solid mass."""
+        overlap into an unreadable solid mass.
+    phase_cmap : str or Colormap, optional
+        Cyclic colormap used to color each phasor arrow by its own phase
+        (0 to 2*pi) -- pair with `plot_phase_colorwheel` (same `cmap`) to
+        give the reader a legend for what the arrow colors mean."""
     # Window
     t_on, t_off = window
 
@@ -1678,11 +1682,13 @@ def raw_NPIX(raw_NPIX_ax, ldr, spks, unitrow, window, freq, label=0.100, DX=1000
         idx = np.linspace(0, len(subspks) - 1, max_phasors).round().astype(int)
         phasor_spks, phasor_phases = subspks.values[idx], phases.values[idx]
 
+    cmap = cm.get_cmap(phase_cmap)
     for spk, phase in zip(phasor_spks, phasor_phases):
         dx, dy = DX * np.cos(phase), DY * np.sin(phase),
+        color = cmap((phase % (2 * np.pi)) / (2 * np.pi))
 
         raw_NPIX_ax.annotate("", xy=(spk+dx, -.1+dy), xycoords='data', xytext=(spk-dx, -.1-dy),
-                             textcoords='data', arrowprops=dict(facecolor='black',  arrowstyle="->"))
+                             textcoords='data', arrowprops=dict(facecolor=color, edgecolor=color, arrowstyle="->"))
         
     raw_NPIX_ax.axis("off")
 
@@ -1694,6 +1700,44 @@ def raw_NPIX(raw_NPIX_ax, ldr, spks, unitrow, window, freq, label=0.100, DX=1000
     raw_NPIX_ax.annotate(label_text, (t_on, -.3+0.05))
     raw_NPIX_ax.hlines(-.3, t_on, t_on + spike_sr * label, "k")
 
+
+def plot_phase_colorwheel(wheel_ax, cmap="twilight", size=200, label="phase"):
+    """Draws a circular colorwheel legend mapping phase (0 to 2*pi, one
+    stimulus period) to color -- pairs with `raw_NPIX`'s `phase_cmap` (pass
+    the SAME `cmap` to both) so a reader can decode what each phasor arrow's
+    color means. Plotted on a plain (non-polar) axes via a masked image, so
+    it composes with `Axes.inset_axes` (which doesn't support arbitrary
+    projections) -- e.g. `wheel_ax = some_ax.inset_axes([...])`.
+
+    Parameters
+    ----------
+    wheel_ax : matplotlib.axes
+        Axis to plot on (its aspect is set to 1 and ticks/spines removed).
+    cmap : str or Colormap, optional
+        Cyclic colormap, same as passed to `raw_NPIX`'s `phase_cmap`.
+    size : int, optional
+        Resolution (pixels per side) of the underlying wheel image.
+    label : str, optional
+        Title text above the wheel (e.g. "phase"); pass `None`/`""` to omit.
+    """
+    x = np.linspace(-1, 1, size)
+    xx, yy = np.meshgrid(x, x)
+    theta = np.arctan2(yy, xx) % (2 * np.pi)
+    r = np.sqrt(xx ** 2 + yy ** 2)
+
+    rgba = cm.get_cmap(cmap)(theta / (2 * np.pi))
+    rgba[..., 3] = (r <= 1).astype(float)  # mask to a filled disk
+
+    wheel_ax.imshow(rgba, extent=[-1, 1, -1, 1], origin="lower")
+    for ang, txt in [(0, "0"), (np.pi / 2, "T/4"), (np.pi, "T/2"), (3 * np.pi / 2, "3T/4")]:
+        wheel_ax.text(1.3 * np.cos(ang), 1.3 * np.sin(ang), txt,
+                       ha="center", va="center", fontsize=5)
+    if label:
+        wheel_ax.set_title(label, fontsize=6, pad=1)
+    wheel_ax.set_xlim(-1.6, 1.6)
+    wheel_ax.set_ylim(-1.6, 1.6)
+    wheel_ax.set_aspect("equal")
+    wheel_ax.axis("off")
 
 
 def raw_GECI(raw_GECI_ax, F, cell_ind):
@@ -1820,10 +1864,12 @@ def storey_qvalues(pvals, lambda_=0.5):
 def Fig1_NPIX_data(modulation_df_full, CONTINGENCY, unitrow, freq):
     contingency_path = r"\\datanas\family\data_raw\20230413\first_site" + f"\\{CONTINGENCY}"
 
-    if "visual" in CONTINGENCY:
-        modulation_df = modulation_df_full.loc[modulation_df_full.rec==CONTINGENCY + "_90",:]
-    else:
-        modulation_df = modulation_df_full.loc[modulation_df_full.rec == CONTINGENCY,:]
+    # No more hardcoded "visual" -> "+_90" special-case: that was a leftover
+    # from the original exemplar, which only ever used a fixed 90-degree
+    # orientation. Callers now pass the fully orientation-qualified rec name
+    # directly (e.g. "...visual_2Hz_315") when CONTINGENCY is a visual-
+    # gratings condition.
+    modulation_df = modulation_df_full.loc[modulation_df_full.rec == CONTINGENCY, :]
 
     # Get number of spikes per unit
     for id, iddf in modulation_df.groupby("id"):
