@@ -1612,28 +1612,47 @@ def normalize_timeseries(arr):
     return (arr - np.min(arr)) / (np.max(arr) - np.min(arr))
 
 
-def raw_NPIX(raw_NPIX_ax, ldr, spks, unitrow, window, freq, label=0.100, DX=1000, DY=.1):
+def raw_NPIX(raw_NPIX_ax, ldr, spks, unitrow, window, freq, label=0.100, DX=1000, DY=.1,
+             trace=None, spike_sr=None, raster_lw=2, max_phasors=None):
     """GENERATE RAW DATA VISUALIZATION WITH PERIODS AND PHASORS
     Parameters
     ----------
     raw_NPIX_ax : matplotlib.axes
         Axis to plot on
     ldr : openEphysio.Loader
-        loader object for recording
+        loader object for recording. Ignored if `trace`/`spike_sr` are both
+        given (pass `None` for `ldr`/`unitrow` in that case) -- lets this
+        function plot from a pre-extracted raw-voltage snippet (e.g. a cached
+        .npy) without needing NAS access at all.
     spks : np.ndarray
         Spike times
     unitrow : pd.Series
-        Row of the unit
+        Row of the unit. Only `.ch` is used, and only when `trace` is None.
     window : tuple, optional
-        Window to plot, by default """
+        Window to plot, by default
+    trace : np.ndarray, optional
+        Pre-extracted raw-voltage snippet for `unitrow.ch` over `window`, in
+        place of reading it from `ldr`.
+    spike_sr : float, optional
+        Sampling rate to use when `trace` is given (since there's no `ldr` to
+        query it from).
+    raster_lw : float, optional
+        Line width of the spike-raster tick marks (eventplot), by default 2.
+    max_phasors : int, optional
+        If given and more spikes than this fall in `window`, draw phasor
+        arrows for only an evenly-spaced subset of that size (the raster
+        ticks still show every spike). Phasor arrowheads have a roughly
+        fixed minimum rendered size regardless of `DX`, so windows dense
+        enough to pack many arrows into the same panel width otherwise
+        overlap into an unreadable solid mass."""
     # Window
     t_on, t_off = window
 
     # Plot Timeseries
-    
-    spike_sr = ldr.samplingrate(ldr.spikestream())
-    # trace = spike_recording.get_traces(start_frame=int(t_on * spike_sr), end_frame=int(t_off * spike_sr), channel_ids=[f"AP{unitrow.ch + 1}"])
-    trace = ldr.data(ldr.spikestream())[int(t_on * spike_sr):int(t_off * spike_sr), unitrow.ch]
+    if trace is None:
+        spike_sr = ldr.samplingrate(ldr.spikestream())
+        # trace = spike_recording.get_traces(start_frame=int(t_on * spike_sr), end_frame=int(t_off * spike_sr), channel_ids=[f"AP{unitrow.ch + 1}"])
+        trace = ldr.data(ldr.spikestream())[int(t_on * spike_sr):int(t_off * spike_sr), unitrow.ch]
     raw_NPIX_ax.plot(normalize_timeseries(trace), "k")
 
     # Set linewidths
@@ -1649,21 +1668,30 @@ def raw_NPIX(raw_NPIX_ax, ldr, spks, unitrow, window, freq, label=0.100, DX=1000
     subspks = subspks * spike_sr
 
     # Plot spike rasters
-    raw_NPIX_ax.eventplot(subspks, linelengths=.1, color="blue", linewidths=2, lineoffsets= 1.1)
+    raw_NPIX_ax.eventplot(subspks, linelengths=.1, color="blue", linewidths=raster_lw, lineoffsets= 1.1)
     raw_NPIX_ax.set_xticklabels(np.round(raw_NPIX_ax.get_xticks(),2))
     raw_NPIX_ax.set_xlabel("")
 
-    # make them into phasors
-    for spk, phase in zip(subspks, phases):
-        dx, dy = DX * np.cos(phase), DY * np.sin(phase), 
+    # make them into phasors (optionally subsampled -- see max_phasors above)
+    phasor_spks, phasor_phases = subspks, phases
+    if max_phasors is not None and len(subspks) > max_phasors:
+        idx = np.linspace(0, len(subspks) - 1, max_phasors).round().astype(int)
+        phasor_spks, phasor_phases = subspks.values[idx], phases.values[idx]
+
+    for spk, phase in zip(phasor_spks, phasor_phases):
+        dx, dy = DX * np.cos(phase), DY * np.sin(phase),
 
         raw_NPIX_ax.annotate("", xy=(spk+dx, -.1+dy), xycoords='data', xytext=(spk-dx, -.1-dy),
                              textcoords='data', arrowprops=dict(facecolor='black',  arrowstyle="->"))
         
     raw_NPIX_ax.axis("off")
 
-    # NPIX Scale bar
-    raw_NPIX_ax.annotate(f"{int(label * 1000)} ms",(t_on, -.3+0.05))
+    # NPIX Scale bar. `label` is a duration in seconds (e.g. a stimulus
+    # period, 1/freq) -- render in ms below 1s, otherwise in s, so a
+    # multi-second period (e.g. a slow white-noise cycle) doesn't show as an
+    # ungainly 4-digit ms count.
+    label_text = f"{label:.3g} s" if label >= 1 else f"{int(round(label * 1000))} ms"
+    raw_NPIX_ax.annotate(label_text, (t_on, -.3+0.05))
     raw_NPIX_ax.hlines(-.3, t_on, t_on + spike_sr * label, "k")
 
 
