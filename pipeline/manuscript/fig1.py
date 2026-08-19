@@ -1,23 +1,69 @@
-"""Fig 1 — composite: NPIX null result + NPIX positive result + spectra + p-value ECDFs.
+"""Fig 1 (visual variant) — composite: NPIX null result + NPIX positive result + spectra + p-value ECDFs.
 
-Both the null (magnetic stimulus) and positive (white noise) panels come from
-the SAME exemplar unit (cluster 106, experiment 20230415, Pigeon W1R,
-hippocampus) -- it's non-significant across all 6 of its own magnetic-stimulus
-trials and both visual-grating conditions, yet strongly significant to white
-noise (NFC=12.26). Using one neuron/session/probe for both panels is a
-stronger story than two different units from two different sessions: it
-preempts the "maybe that channel just wasn't picking up signal" critique,
-since the same channel clearly does pick up signal (for WN) but just doesn't
-respond to the magnet.
+Both the null (magnetic stimulus) and positive (visual gratings) panels come from
+the SAME exemplar unit (cluster 540, experiment 20230413_secondsite, Pigeon W25R,
+hippocampus) -- it's non-significant across all 7 of its own magnetic-stimulus
+trials (and both white-noise recs), yet significant at 3 of its 8 visual-gratings
+orientations (all 3Hz: 45 degrees p<0.0001 NFC=7.79; 315 degrees p<0.0001 NFC=4.52;
+270 degrees p=0.019 NFC=2.84). Using one neuron/session/probe for both panels is
+a stronger story than two different units from two different sessions: it
+preempts the "maybe that channel just wasn't picking up signal" critique, since
+the same channel clearly does pick up signal (for the visual grating) but just
+doesn't respond to the magnet.
+
+This unit fires only modestly (~1.7-3.1Hz) -- a deliberate change from an
+earlier iteration of this worktree (cluster 566, same experiment, ~20-27Hz),
+which turned out to be a mistake for this figure's purpose despite satisfying
+an earlier "prefer higher firing" request. The phasor-arrow colors in panels
+B/C encode phase *relative to each panel's own window*, so a genuinely
+stimulus-locked spike train should show arrows clustering on one dominant hue,
+not a rainbow -- that's the whole visual point of the colorwheel. Cluster 566
+was significant (p=0.0035) purely because of its very high spike count (n=1794
+at 45 degrees); its actual phase concentration (circular resultant length
+R=0.075) was tiny, so its arrows in panels B/C looked like uniform noise even
+across 6 stimulus cycles -- a real "just significant, not astronomical" effect
+can still be too visually diffuse to see by eye. Cluster 540, despite far fewer
+spikes, has R=0.457 at 45 degrees (the tightest concentration found among this
+experiment's null-to-mag, significant-to-visual candidates) -- its panel-C
+arrows visibly cluster on warm hues (red/orange/yellow) across 15 stimulus
+cycles, while panel B's arrows (mag, null) stay scattered across the whole
+wheel. Firing rate and phase concentration turned out to trade off against each
+other among this experiment's candidate units; satisfying "see a pattern by
+eye" took priority here since that was the more recent, more specific request.
+
+Choice of experiment matters here as much as choice of unit: unlike
+20230414_firstsite (a previous iteration of this same worktree, cluster 100),
+whose visual-gratings *population* only had 4.9-12.1% of units significant at
+any given orientation -- a fairly weak "positive control" for the population
+histogram in panel H -- 20230413_secondsite's visual_movinggratings3Hz
+population has up to 22.0% of units significant at a single orientation (45
+or 90 degrees), while its own mag recs stay near the ~2-9% chance rate. That
+makes the population-level story in panels D-I honestly stronger, not just
+the single-exemplar story in panels B/C. (Population significance fractions
+per rec were scanned across all NPIX experiments with visual-gratings data;
+see git history / session notes for the full comparison table.)
+
+The best null (Mag3) and best positive (visual_movinggratings3Hz, orientation
+45) conditions are both at 3Hz, so this comparison isolates modality rather
+than confounding it with frequency.
+
+Phasor arrows in panels B/C are colored by phase (cyclic `hsv` colormap, 0 to
+one stimulus period) -- see the colorwheel legend inset in panel A.
+
+This is a worktree variant of the main-line Fig1 (which instead compares
+magnetic stimulation to the 0.8Hz auditory white-noise condition, using a
+different exemplar unit, cluster 106/experiment 20230415) -- see
+.claude/plans (or git log) on the `oddball-on-off-trial-classification` branch
+for that version.
 
 Requires pipeline outputs:
-  data/20230415.nwb
+  data/20230413_secondsite.nwb
 
 Requires pre-extracted raw-voltage snippets (see fig1_extract_raw_snippets.py,
 which is the only piece of this figure that needs NAS access):
   data/fig1_raw/mag_trace.npy
-  data/fig1_raw/wn_trace.npy
-  data/fig1_raw/wn_waveforms.npy
+  data/fig1_raw/vis_trace.npy
+  data/fig1_raw/vis_waveforms.npy
 
 Usage:
     python pipeline/manuscript/fig1.py
@@ -52,33 +98,58 @@ from pipeline.schema import load_experiment
 import format_parameters as FP
 #%%
 # ── NAS paths (only used by fig1_extract_raw_snippets.py, not this script) ──
-RAW_DATA_ROOT = r"\\datanas\family\data_raw\20230415"
-AGGREGATED_PATH = r"\\datanas\family\data_aggregated\20230415"
+# (Unlike 20230414_firstsite's stale YAML `folder:` root in a previous
+# iteration of this worktree, 20230413_secondsite's YAML root matches the
+# actual NAS layout -- confirmed by listing the NAS directly.)
+RAW_DATA_ROOT = r"\\datanas\family\data_raw\20230413\second_site"
+AGGREGATED_PATH = r"\\datanas\family\data_aggregated\20230413_secondsite"
 
 # ── Experiment / exemplar unit ────────────────────────────────────────────────
-EXPERIMENT = "20230415"
-CLUSTER_ID = 106  # single unit, used for both the null and positive panels
+EXPERIMENT = "20230413_secondsite"
+CLUSTER_ID = 540  # single unit, used for both the null and positive panels
 
-MAG_CONTINGENCY = "2023-04-15_15-56-12_W1R_mag2"
-MAG_FREQ = 2
-# 2Hz, not 8Hz: this unit's session has mag trials at 2/3/8Hz (plus inclined
-# variants) -- 2Hz sits much closer to the WN frequency (0.8Hz) than 8Hz did,
-# making the null-vs-positive comparison less confounded by a stark frequency
-# mismatch. Confirmed non-significant here too (NFC=1.13, p=0.53); the other
-# 5 mag trials for this cluster (3Hz, 8Hz, and their "inclined" variants) are
-# all also non-significant if a different frequency is ever needed instead.
-MAG_WINDOW = (63.158, 64.158)  # 1s window = 2 cycles at 2Hz (period 0.5s)
+MAG_CONTINGENCY = "2023-04-13_17-17-14_W25R_second_site_mag3"
+MAG_FREQ = 3
+# Non-significant (p=0.708, NFC=0.83) across this unit's mag3 trial -- of this
+# unit's 7 null magnetic trials (p 0.374-0.916, all non-significant), this is
+# the 3Hz one, chosen to match VIS_FREQ below so the null-vs-positive
+# comparison isolates modality, not frequency.
+# 15 cycles at 3Hz (period 1/3 s), not 1 -- with the phasor arrows now
+# phase-colored, a single-cycle window is diagnostically uninformative: phase
+# is computed as time-since-window-start mod period, which for a window no
+# longer than one period trivially increases monotonically for ANY spike
+# train (locked or not) since real time itself is monotonic. Only across
+# multiple cycles can the reader actually compare whether phase/color repeats
+# consistently cycle-to-cycle (locked) or drifts (not). This unit fires only
+# ~1.7Hz here, so 15 cycles (5s) -- rather than a smaller cycle count -- is
+# needed just to get a handful of spikes to look at; see the module docstring
+# for why a sparser-but-tighter-locking unit was chosen over a denser one.
+MAG_WINDOW = (49.143, 54.143)  # 5s = 15 cycles at 3Hz, ~8 spikes
 
-WN_CONTINGENCY = "2023-04-15_16-37-23_W1R_3D_WN_Samechan"
-WN_FREQ = 0.8
-# 2.5s = 2 cycles at 0.8Hz (period 1.25s) -- same "2 stimulus periods shown"
-# convention as the mag panel above.
-WN_WINDOW = (144.813, 147.313)
+# Visual gratings: recname is NOT orientation-split in the raw OpenEphys
+# folder (all 8 orientations are one continuous recording, played back to
+# back as 8 long single-orientation blocks) -- the "_45" suffix only exists
+# in modulation_df/fourier_df's post-hoc orientation split.
+VIS_CONTINGENCY = "2023-04-13_17-31-40_W25R_second_site_visual_movinggratings3Hz_45"
+# The raw OpenEphys folder itself has no orientation suffix (only
+# modulation_df/fourier_df's post-hoc orientation split does) -- used only by
+# fig1_extract_raw_snippets.py to open the right raw folder.
+VIS_RAW_RECNAME = "2023-04-13_17-31-40_W25R_second_site_visual_movinggratings3Hz"
+VIS_FREQ = 3
+# Best-NFC of this unit's 3 significant visual-gratings orientations (all
+# 3Hz: 45 degrees p<0.0001 NFC=7.79, 315 degrees p<0.0001 NFC=4.52, 270
+# degrees p=0.019 NFC=2.84) -- also the tightest phase concentration
+# (circular resultant length R=0.457) found among this experiment's
+# null-to-mag, visual-significant candidates, which is what actually makes
+# the phasor-arrow colors in panel C visibly cluster by eye (see module
+# docstring). Also 3Hz, matching MAG_FREQ, so the null-vs-positive comparison
+# isolates modality, not frequency.
+VIS_WINDOW = (91.789, 96.789)  # 5s = 15 cycles at 3Hz (see MAG_WINDOW comment), ~16 spikes
 
 # Sampling rates for the pre-extracted raw-voltage snippets (see
 # fig1_extract_raw_snippets.py, which prints these when it runs).
 MAG_TRACE_SR = 30000
-WN_TRACE_SR = 30000
+VIS_TRACE_SR = 30000
 
 # Spike-raster tick linewidth, shared by both raw_NPIX panels (default is 2,
 # which reads as visually heavy/blocky once many ticks are packed into a
@@ -86,15 +157,25 @@ WN_TRACE_SR = 30000
 RASTER_LW = 0.5
 
 # Phasor-arrow half-length (samples), shared since both raw_NPIX panels are
-# now sized proportional to their own window duration (see row0_width_ratios
-# in plot_fig1_composite) -- spikes-per-pixel is comparable between the two
+# now sized proportional to their own window duration (see row0_gs in
+# plot_fig1_composite) -- spikes-per-pixel is comparable between the two
 # panels, so there's no need to shrink DX or subsample phasors for either.
 MAG_DX = 300
-WN_DX = 300
+VIS_DX = 300
+
+# Cyclic colormap for phase-coloring the phasor arrows in both raw_NPIX
+# panels -- paired with a colorwheel legend (statistics.plot_phase_colorwheel)
+# drawn as an inset in the cartoon panel (A). "twilight" (matplotlib's usual
+# cyclic recommendation) has a built-in near-white anchor at phase=0, which
+# makes those arrows nearly invisible against this figure's white background
+# -- "hsv" has no light/white point anywhere in its cycle, staying visible
+# throughout, at the cost of being less perceptually uniform.
+PHASE_CMAP = "hsv"
 
 # ── Average spike-waveform panel ──────────────────────────────────────────────
 # 100 randomly-sampled raw waveforms (seeded for reproducibility) for this
-# unit, drawn from the WN recording (largest spike count of the two).
+# unit, drawn from the visual-gratings recording (larger spike count of the
+# two: 204 vs 95 for the mag trial).
 N_WAVEFORMS = 100
 WAVEFORM_HALFWIDTH_MS = 1.0
 WAVEFORM_SEED = 0
@@ -117,16 +198,16 @@ def plot_fig1_composite(modulation_df, fourier_df, out_dir: Path):
 
     mag_allspks, mag_spks, mag_exemplar_fourier, _ = \
         statistics.Fig1_NPIX_data(modulation_df, MAG_CONTINGENCY, unitrow, MAG_FREQ)
-    wn_allspks, wn_spks, wn_exemplar_fourier, _ = \
-        statistics.Fig1_NPIX_data(modulation_df, WN_CONTINGENCY, unitrow, WN_FREQ)
+    vis_allspks, vis_spks, vis_exemplar_fourier, _ = \
+        statistics.Fig1_NPIX_data(modulation_df, VIS_CONTINGENCY, unitrow, VIS_FREQ)
 
     # Pre-extracted raw-voltage snippets (see fig1_extract_raw_snippets.py) --
     # the only NAS-derived inputs to this figure, cached locally so this
     # script itself needs no NAS access.
     raw_dir = Path(FP.DATA_DIR) / "fig1_raw"
     mag_trace = np.load(raw_dir / "mag_trace.npy")
-    wn_trace = np.load(raw_dir / "wn_trace.npy")
-    waveforms = np.load(raw_dir / "wn_waveforms.npy")  # (N_WAVEFORMS, n_samples)
+    vis_trace = np.load(raw_dir / "vis_trace.npy")
+    waveforms = np.load(raw_dir / "vis_waveforms.npy")  # (N_WAVEFORMS, n_samples)
 
     font = {"family": FP.FONT_FAMILY, "size": FP.FS_BODY}
     matplotlib.rc("font", **font)
@@ -134,28 +215,30 @@ def plot_fig1_composite(modulation_df, fourier_df, out_dir: Path):
     fig = plt.figure(figsize=FP.FIGSIZE_FIG1, tight_layout=True)
     outer_gs = gridspec.GridSpec(3, 1, left=0, bottom=0, right=1, top=1, hspace=0.4)
 
-    # ── Row 1: Cartoon + Mag raw NPIX (null) + WN raw NPIX (positive) ───────
+    # ── Row 1: Cartoon + Mag raw NPIX (null) + Visual raw NPIX (positive) ───
     # The two raw-trace panels' column widths are proportional to their own
-    # displayed window duration -- otherwise a much-wider WN window gets
-    # squeezed into the same column width as the narrower mag window and
-    # looks compressed/dense. The cartoon isn't a time-domain panel, so its
-    # width is a small fixed ratio (independent of the window durations,
+    # displayed window duration -- otherwise a much-wider window gets
+    # squeezed into the same column width as a narrower one and looks
+    # compressed/dense. The cartoon isn't a time-domain panel, so its width
+    # is a small fixed ratio (independent of the window durations,
     # deliberately squished) rather than matching either panel's width, so
-    # the two raw-trace panels get most of the row.
+    # the two raw-trace panels get most of the row. (Here mag_dur==vis_dur==
+    # 2s, so the two raw-trace panels end up equal width -- unlike the
+    # auditory-WN version, which used very different window durations.)
     CARTOON_WIDTH_RATIO = 0.5
     mag_dur = MAG_WINDOW[1] - MAG_WINDOW[0]
-    wn_dur = WN_WINDOW[1] - WN_WINDOW[0]
-    row0_gs = outer_gs[0].subgridspec(1, 3, width_ratios=[CARTOON_WIDTH_RATIO, mag_dur, wn_dur], wspace=0.15)
+    vis_dur = VIS_WINDOW[1] - VIS_WINDOW[0]
+    row0_gs = outer_gs[0].subgridspec(1, 3, width_ratios=[CARTOON_WIDTH_RATIO, mag_dur, vis_dur], wspace=0.15)
     cartoon_ax = fig.add_subplot(row0_gs[0, 0])
     mag_raw_ax = fig.add_subplot(row0_gs[0, 1])
-    wn_raw_ax = fig.add_subplot(row0_gs[0, 2])
+    vis_raw_ax = fig.add_subplot(row0_gs[0, 2])
 
-    # ── Rows 2-3: Mag/WN spectra + distributions + combined ECDF ────────────
+    # ── Rows 2-3: Mag/Vis spectra + distributions + combined ECDF ───────────
     rows12_gs = outer_gs[1:3].subgridspec(2, 6, wspace=0.35, hspace=0.4)
     mag_spectra_ax = fig.add_subplot(rows12_gs[0, 0])
     mag_dist_ax = fig.add_subplot(rows12_gs[0, 1])
-    wn_spectra_ax = fig.add_subplot(rows12_gs[1, 0])
-    wn_dist_ax = fig.add_subplot(rows12_gs[1, 1])
+    vis_spectra_ax = fig.add_subplot(rows12_gs[1, 0])
+    vis_dist_ax = fig.add_subplot(rows12_gs[1, 1])
     # Combined ECDF (spans both rows, columns 2-end)
     ecdf_ax = fig.add_subplot(rows12_gs[0:2, 2:])
 
@@ -170,12 +253,17 @@ def plot_fig1_composite(modulation_df, fourier_df, out_dir: Path):
     # Mag raw NPIX (null result) -- scale bar shows one stimulus period (1/freq)
     statistics.raw_NPIX(mag_raw_ax, None, mag_spks, None, MAG_WINDOW, MAG_FREQ,
                          label=1 / MAG_FREQ, DX=MAG_DX, trace=mag_trace, spike_sr=MAG_TRACE_SR,
-                         raster_lw=RASTER_LW)
+                         raster_lw=RASTER_LW, phase_cmap=PHASE_CMAP)
 
-    # WN raw NPIX (positive result) -- same unit, same primitive as the mag panel
-    statistics.raw_NPIX(wn_raw_ax, None, wn_spks, None, WN_WINDOW, WN_FREQ,
-                         label=1 / WN_FREQ, DX=WN_DX, trace=wn_trace, spike_sr=WN_TRACE_SR,
-                         raster_lw=RASTER_LW)
+    # Visual raw NPIX (positive result) -- same unit, same primitive as the mag panel
+    statistics.raw_NPIX(vis_raw_ax, None, vis_spks, None, VIS_WINDOW, VIS_FREQ,
+                         label=1 / VIS_FREQ, DX=VIS_DX, trace=vis_trace, spike_sr=VIS_TRACE_SR,
+                         raster_lw=RASTER_LW, phase_cmap=PHASE_CMAP)
+
+    # Phase colorwheel legend for the phasor arrows above -- tucked into the
+    # cartoon panel's lower-right quadrant, clear of the centered probe label.
+    wheel_ax = cartoon_ax.inset_axes([0.55, 0.15, 0.33, 0.3])
+    statistics.plot_phase_colorwheel(wheel_ax, cmap=PHASE_CMAP)
 
     # ── Plot Row 2: Magnetic stimulation (null) ──────────────────────────────
     (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, exemplar_NFC) = mag_exemplar_fourier
@@ -191,32 +279,33 @@ def plot_fig1_composite(modulation_df, fourier_df, out_dir: Path):
     statistics.boundary_ticks(mag_dist_ax, yprec=1)
     statistics.nestle_labels(mag_dist_ax, x_offset=-0.05, y_offset=-0.05)
 
-    # ── Plot Row 3: White noise (positive) ──────────────────────────────────
-    (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, exemplar_NFC_wn) = wn_exemplar_fourier
-    statistics.plot_spectrum(wn_spectra_ax, fou_alt.flatten(), ff_alt, WN_FREQ, fou0, legend=False)
-    wn_spectra_ax.set_ylabel("Amplitude")
-    wn_spectra_ax.set_xlabel("Frequency (Hz)")
-    statistics.boundary_ticks(wn_spectra_ax)
-    statistics.nestle_labels(wn_spectra_ax, y=True, x=True, x_offset=-0.05)
+    # ── Plot Row 3: Visual gratings (positive) ───────────────────────────────
+    (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, exemplar_NFC_vis) = vis_exemplar_fourier
+    statistics.plot_spectrum(vis_spectra_ax, fou_alt.flatten(), ff_alt, VIS_FREQ, fou0, legend=False)
+    vis_spectra_ax.set_ylabel("Amplitude")
+    vis_spectra_ax.set_xlabel("Frequency (Hz)")
+    statistics.boundary_ticks(vis_spectra_ax)
+    statistics.nestle_labels(vis_spectra_ax, y=True, x=True, x_offset=-0.05)
 
-    statistics.draw_hist(fourier_df.loc[fourier_df.rec == WN_CONTINGENCY, "NFC"],
-                         wn_dist_ax, xlim=16, inset=True)
-    # exemplar_NFC_wn (~13.3) sits far out in the histogram's near-empty right
-    # tail, unlike the mag panel's arrow -- point straight down at the axis
-    # floor at the exemplar's actual x position rather than reusing the mag
-    # panel's mid-height arrow coordinates.
-    wn_dist_ax.annotate("", (exemplar_NFC_wn, 0.03), xytext=(exemplar_NFC_wn, 0.25),
+    statistics.draw_hist(fourier_df.loc[fourier_df.rec == VIS_CONTINGENCY, "NFC"],
+                         vis_dist_ax, xlim=12, inset=True)
+    # exemplar_NFC_vis (~7.79) sits out in this population's right tail --
+    # consistent with this being a deliberately strong (tightly phase-
+    # concentrated), not just barely-significant, exemplar (see module
+    # docstring), on top of an already strong "positive control" population
+    # (22% of units significant at this orientation).
+    vis_dist_ax.annotate("", (exemplar_NFC_vis, 0.03), xytext=(exemplar_NFC_vis, 0.25),
                          textcoords="data", arrowprops=dict(facecolor="black", arrowstyle="->"))
-    statistics.boundary_ticks(wn_dist_ax, yprec=1)
-    statistics.nestle_labels(wn_dist_ax, x_offset=-0.05, y_offset=-0.05)
+    statistics.boundary_ticks(vis_dist_ax, yprec=1)
+    statistics.nestle_labels(vis_dist_ax, x_offset=-0.05, y_offset=-0.05)
 
     # ── Kolmogorov-Smirnov diagnostic plot ────────────────────────────────────
     mag_NFC = fourier_df.loc[fourier_df.rec == MAG_CONTINGENCY, "NFC"].values
-    wn_NFC = fourier_df.loc[fourier_df.rec == WN_CONTINGENCY, "NFC"].values
+    vis_NFC = fourier_df.loc[fourier_df.rec == VIS_CONTINGENCY, "NFC"].values
 
     # Convert NFC to p-values
     mag_pvals = 1 - normalized_Fourier_CDF(mag_NFC)
-    wn_pvals = 1 - normalized_Fourier_CDF(wn_NFC)
+    vis_pvals = 1 - normalized_Fourier_CDF(vis_NFC)
 
     # Plot mag K-S diagnostic: ECDF(x) - x with 95% CI
     mag_x, mag_lower, mag_upper = bootstrap_ecdf_band(mag_pvals)
@@ -229,16 +318,16 @@ def plot_fig1_composite(modulation_df, fourier_df, out_dir: Path):
     ecdf_ax.plot(mag_x, mag_ks_dev, color=FP.COLOR_MAG, linewidth=FP.LW_TRACE, label=f"{MAG_FREQ:g} Hz (mag)")
     ecdf_ax.fill_between(mag_x, mag_ks_lower, mag_ks_upper, color=FP.COLOR_MAG, alpha=FP.ALPHA_CONFIDENCE)
 
-    # Plot WN K-S diagnostic: ECDF(x) - x with 95% CI
-    wn_x, wn_lower, wn_upper = bootstrap_ecdf_band(wn_pvals)
+    # Plot visual K-S diagnostic: ECDF(x) - x with 95% CI
+    vis_x, vis_lower, vis_upper = bootstrap_ecdf_band(vis_pvals)
     # Empirical ECDF at sorted points
-    wn_ecdf = (np.arange(1, len(wn_pvals) + 1)) / len(wn_pvals)
+    vis_ecdf = (np.arange(1, len(vis_pvals) + 1)) / len(vis_pvals)
     # K-S deviation: empirical ECDF minus theoretical (uniform) CDF
-    wn_ks_dev = wn_ecdf - wn_x
-    wn_ks_lower = wn_lower - wn_x
-    wn_ks_upper = wn_upper - wn_x
-    ecdf_ax.plot(wn_x, wn_ks_dev, color=FP.COLOR_VIS, linewidth=FP.LW_TRACE, label=f"{WN_FREQ:g} Hz (WN)")
-    ecdf_ax.fill_between(wn_x, wn_ks_lower, wn_ks_upper, color=FP.COLOR_VIS, alpha=FP.ALPHA_CONFIDENCE)
+    vis_ks_dev = vis_ecdf - vis_x
+    vis_ks_lower = vis_lower - vis_x
+    vis_ks_upper = vis_upper - vis_x
+    ecdf_ax.plot(vis_x, vis_ks_dev, color=FP.COLOR_VIS, linewidth=FP.LW_TRACE, label=f"{VIS_FREQ:g} Hz (visual)")
+    ecdf_ax.fill_between(vis_x, vis_ks_lower, vis_ks_upper, color=FP.COLOR_VIS, alpha=FP.ALPHA_CONFIDENCE)
 
     # Plot null line (y=0, representing perfect agreement with uniform distribution)
     ecdf_ax.axhline(0, color=FP.COLOR_NULL, linestyle="--", linewidth=FP.LW_REFERENCE, alpha=0.6)
@@ -262,7 +351,7 @@ def plot_fig1_composite(modulation_df, fourier_df, out_dir: Path):
     waveform_ax = ecdf_ax.inset_axes([0.78, 0.03, 0.21, 0.27])
     n_samples = waveforms.shape[1]
     half_width_samples = n_samples // 2
-    t_ms = (np.arange(n_samples) - half_width_samples) / WN_TRACE_SR * 1000
+    t_ms = (np.arange(n_samples) - half_width_samples) / VIS_TRACE_SR * 1000
     for wf in waveforms:
         waveform_ax.plot(t_ms, wf, color="grey", linewidth=0.3, alpha=0.15)
     waveform_ax.plot(t_ms, waveforms.mean(axis=0), color="k", linewidth=1)
@@ -280,7 +369,7 @@ def plot_fig1_composite(modulation_df, fourier_df, out_dir: Path):
     _row0 = [
         (cartoon_ax, "A", -0.15),
         (mag_raw_ax, "B", -0.05),
-        (wn_raw_ax,  "C", -0.05),
+        (vis_raw_ax, "C", -0.05),
     ]
     _label_y = max(ax.get_position().y1 for ax, _, _ in _row0) + 0.01
     for _ax, _lbl, _xoff in _row0:
@@ -292,8 +381,8 @@ def plot_fig1_composite(modulation_df, fourier_df, out_dir: Path):
     mag_dist_ax.annotate("E", xy=(-0.15, 1.1), xycoords="axes fraction", fontfamily="arial", fontsize=11, weight="bold")
     ecdf_ax.annotate("F", xy=(-0.03, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=11, weight="bold")
 
-    wn_spectra_ax.annotate("G", xy=(-0.15, 1.1), xycoords="axes fraction", fontfamily="arial", fontsize=11, weight="bold")
-    wn_dist_ax.annotate("H", xy=(-0.15, 1.1), xycoords="axes fraction", fontfamily="arial", fontsize=11, weight="bold")
+    vis_spectra_ax.annotate("G", xy=(-0.15, 1.1), xycoords="axes fraction", fontfamily="arial", fontsize=11, weight="bold")
+    vis_dist_ax.annotate("H", xy=(-0.15, 1.1), xycoords="axes fraction", fontfamily="arial", fontsize=11, weight="bold")
     out_path = out_dir / "Fig1.pdf"
     fig.savefig(out_path, bbox_inches="tight", dpi=FP.DPI)
     print(f"Saved {out_path}")

@@ -1,14 +1,14 @@
-"""One-time NAS extraction for Fig 1's raw-voltage snippets.
+"""One-time NAS extraction for Fig 1's raw-voltage snippets (visual variant).
 
 Fig 1 (pipeline/manuscript/fig1.py) shows two short raw-voltage windows
-(magnetic-stimulus "null" panel + white-noise "positive" panel) plus 100
+(magnetic-stimulus "null" panel + visual-gratings "positive" panel) plus 100
 randomly-sampled raw spike waveforms, all for a single exemplar unit. Those
 are the only pieces of the whole figure that need NAS access -- everything
 else (spike times, Fourier stats) comes from the pipeline's own
-data/20230415.nwb. Rather than have fig1.py query the NAS live every time
-it's regenerated, this script extracts those snippets once (with NAS access)
-into untracked .npy files under data/fig1_raw/, which fig1.py then loads
-directly.
+data/20230413_secondsite.nwb. Rather than have fig1.py query the NAS live
+every time it's regenerated, this script extracts those snippets once (with
+NAS access) into untracked .npy files under data/fig1_raw/, which fig1.py
+then loads directly.
 
 Run manually, offline, whenever the exemplar unit/window constants below
 change (they're kept in sync with fig1.py by importing them from it):
@@ -16,8 +16,8 @@ change (they're kept in sync with fig1.py by importing them from it):
     python pipeline/manuscript/fig1_extract_raw_snippets.py
 
 Requires NAS access to:
-    \\\\datanas\\family\\data_raw\\20230415\\...
-    \\\\datanas\\family\\data_aggregated\\20230415
+    \\\\datanas\\family\\data_raw\\20230413\\second_site\\...
+    \\\\datanas\\family\\data_aggregated\\20230413_secondsite
 """
 from pathlib import Path
 
@@ -36,18 +36,19 @@ from pipeline.manuscript.fig1 import (
     MAG_WINDOW,
     N_WAVEFORMS,
     RAW_DATA_ROOT,
+    VIS_CONTINGENCY,
+    VIS_RAW_RECNAME,
+    VIS_WINDOW,
     WAVEFORM_HALFWIDTH_MS,
     WAVEFORM_SEED,
-    WN_CONTINGENCY,
-    WN_WINDOW,
 )
 import format_parameters as FP
 
 OUT_DIR = Path(__file__).resolve().parents[2] / "data" / "fig1_raw"
 
 
-def open_loader(recname: str):
-    contingency_path = (RAW_DATA_ROOT + f"\\{recname}").replace("\\", "/")
+def open_loader(raw_recname: str):
+    contingency_path = (RAW_DATA_ROOT + f"\\{raw_recname}").replace("\\", "/")
     return openEphysIO.Loader(contingency_path, cntlbarcodes=True)
 
 
@@ -85,31 +86,36 @@ def main():
     ch = int(unitrow.ch)
     print(f"cluster {CLUSTER_ID} -> channel {ch}")
 
-    for recname, window, outname in [
+    # (raw folder recname, display window, output filename) -- note the
+    # visual-gratings raw folder has no orientation suffix (see
+    # VIS_RAW_RECNAME's docstring in fig1.py), unlike VIS_CONTINGENCY (used
+    # below for modulation_df/fourier_df lookups, which IS orientation-split).
+    for raw_recname, window, outname in [
         (MAG_CONTINGENCY, MAG_WINDOW, "mag_trace.npy"),
-        (WN_CONTINGENCY, WN_WINDOW, "wn_trace.npy"),
+        (VIS_RAW_RECNAME, VIS_WINDOW, "vis_trace.npy"),
     ]:
-        ldr = open_loader(recname)
+        ldr = open_loader(raw_recname)
         trace, spike_sr = extract_snippet(ldr, window, ch)
         out_path = OUT_DIR / outname
         np.save(out_path, trace)
-        print(f"{recname}: window={window} spike_sr={spike_sr} -> {out_path} "
+        print(f"{raw_recname}: window={window} spike_sr={spike_sr} -> {out_path} "
               f"({trace.shape[0]} samples)")
 
-    # Waveforms: sampled from the WN recording (largest spike count).
+    # Waveforms: sampled from the visual-gratings recording (larger spike
+    # count than the mag trial: 614 vs 285 for this unit).
     cfg = load_experiment(Path(__file__).resolve().parents[2] / "experiments" / f"{EXPERIMENT}.yml")
     io_r, nwbfile = nwb_io.read_nwbfile(str(Path(FP.DATA_DIR) / f"{EXPERIMENT}.nwb"))
     modulation_df = nwb_io.build_modulation_frame(nwbfile, good_only=cfg.good)
     io_r.close()
     spk_times = modulation_df.loc[
-        (modulation_df.rec == WN_CONTINGENCY) & (modulation_df.id == CLUSTER_ID), "spk"
+        (modulation_df.rec == VIS_CONTINGENCY) & (modulation_df.id == CLUSTER_ID), "spk"
     ].values
 
-    wn_ldr = open_loader(WN_CONTINGENCY)
-    spike_sr = wn_ldr.samplingrate(wn_ldr.spikestream())
+    vis_ldr = open_loader(VIS_RAW_RECNAME)
+    spike_sr = vis_ldr.samplingrate(vis_ldr.spikestream())
     half_width_samples = int(round(WAVEFORM_HALFWIDTH_MS / 1000 * spike_sr))
-    waveforms, _ = extract_waveforms(wn_ldr, ch, spk_times, half_width_samples, N_WAVEFORMS, WAVEFORM_SEED)
-    out_path = OUT_DIR / "wn_waveforms.npy"
+    waveforms, _ = extract_waveforms(vis_ldr, ch, spk_times, half_width_samples, N_WAVEFORMS, WAVEFORM_SEED)
+    out_path = OUT_DIR / "vis_waveforms.npy"
     np.save(out_path, waveforms)
     print(f"waveforms: {waveforms.shape[0]} x {waveforms.shape[1]} samples "
           f"(+/-{WAVEFORM_HALFWIDTH_MS}ms) -> {out_path}")
