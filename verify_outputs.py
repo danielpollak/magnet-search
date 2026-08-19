@@ -250,7 +250,7 @@ def _compare_tiered(old_df, nwb_df, sort_cols):
     return f"FAIL: {tol_err}", exact_err
 
 
-_OK_TAGS = ("PASS", "SKIP", "STALE_OLD", "STALE_SEMANTICS", "DRIFT_TOLERATED")
+_OK_TAGS = ("PASS", "SKIP", "STALE_OLD", "STALE_SEMANTICS", "DRIFT_TOLERATED", "NEW_FEATURE")
 
 
 def _is_ok(tag):
@@ -378,6 +378,24 @@ def verify_experiment(name, old_proc_file, old_anal_file, verbose=True):
     finally:
         io_r.close()
 
+    # oddball recs (the standard rec and its long_on/long_off/long_both
+    # twins -- see _handle_oddball/_emit_oddball_epoch in
+    # pipeline/paradigms/openephys_multistim.py) permanently can't be
+    # compared against the frozen legacy fixture: onset-anchored padding
+    # means the standard population selects more spikes than the frozen
+    # fixture ever recorded, and the long_on/long_off/long_both populations
+    # didn't exist as separate recs at all when the fixture was generated
+    # (the old fixture's own "oddball" rec silently conflated everything).
+    # Same situation as engert/medaka having no legacy fixture whatsoever --
+    # excluded from the strict/reconciliation comparisons below and reported
+    # as NEW_FEATURE instead of FAIL.
+    _oddball_suffixes = ("", "_long_on", "_long_off", "_long_both")
+    oddball_recs = {
+        aux.recname + suffix
+        for aux in cfg.auxiliary_stimuli if aux.kind == "oddball"
+        for suffix in _oddball_suffixes
+    }
+
     # --- processing ---
     if old_proc_df is None:
         results["processing"] = "SKIP (old file missing)"
@@ -388,16 +406,37 @@ def verify_experiment(name, old_proc_file, old_anal_file, verbose=True):
         # only columns on top of that (e.g. gutfreund's spk_samples/label/
         # recname). Compare on nwb_proc_df's own columns only.
         cols = [c for c in nwb_proc_df.columns if c in old_proc_df.columns]
-        results["processing"], _ = _compare_tiered(old_proc_df[cols], nwb_proc_df[cols], ["rec", "id", "spk"])
+        old_proc_cmp = old_proc_df[~old_proc_df["rec"].isin(oddball_recs)] if oddball_recs else old_proc_df
+        nwb_proc_cmp = nwb_proc_df[~nwb_proc_df["rec"].isin(oddball_recs)] if oddball_recs else nwb_proc_df
+        status, _ = _compare_tiered(old_proc_cmp[cols], nwb_proc_cmp[cols], ["rec", "id", "spk"])
+        if oddball_recs and _is_ok(status):
+            status = f"{status}; oddball recs excluded (NEW_FEATURE: onset-anchored padding + on/off split, no legacy fixture)"
+        results["processing"] = status
 
     # --- analysis ---
     if old_anal_df is None:
         results["analysis"] = "SKIP (old file missing)"
     else:
-        cols = [c for c in nwb_anal_df.columns if c in old_anal_df.columns]
-        status, exact_err = _compare_tiered(old_anal_df[cols], nwb_anal_df[cols], ["rec", "id"])
+        # long_on/long_off/long_both never appear in nwb_anal_df at all (see
+        # multistim.py -- none of them are Fourier-analyzed), so this only
+        # ever matches the standard oddball rec in practice. Excluded anyway
+        # because padding means ITS row count -- more units clear
+        # fit_fourier_sig's internal min-spike-count gate -- no longer
+        # matches, and _reconcile_under_current_Q_semantics re-derives
+        # fresh_ff from old_proc_df's own UNPADDED spike selection, so it
+        # can't reproduce padding's effect either. Same set as the
+        # processing comparison above.
+        is_oddball = nwb_anal_df["rec"].isin(oddball_recs)
+        nwb_anal_cmp = nwb_anal_df[~is_oddball]
+        dev_note = (
+            f"; {int(is_oddball.sum())} oddball row(s) excluded "
+            f"(NEW_FEATURE: onset-anchored padding, no legacy fixture)"
+            if is_oddball.any() else "")
+
+        cols = [c for c in nwb_anal_cmp.columns if c in old_anal_df.columns]
+        status, exact_err = _compare_tiered(old_anal_df[cols], nwb_anal_cmp[cols], ["rec", "id"])
         if status == "PASS" or status.startswith("DRIFT_TOLERATED"):
-            results["analysis"] = status
+            results["analysis"] = status + dev_note
         elif old_proc_df is not None:
             # Check whether the discrepancy is fully explained by re-running
             # fit_fourier_sig on the old modulation_df with THIS experiment's
@@ -407,10 +446,16 @@ def verify_experiment(name, old_proc_file, old_anal_file, verbose=True):
             # an incidental algorithm change, hence STALE_SEMANTICS rather
             # than STALE_OLD (see CLAUDE.md's verify_outputs.py behaviour section).
             try:
-                ok2, _ = _reconcile_under_current_Q_semantics(name, old_proc_df, nwb_anal_df)
+                # old_proc_df must have oddball recs stripped too, or
+                # _reconcile_under_current_Q_semantics's own visual_mask
+                # would rebuild fresh_ff WITH the (unpadded) oddball rows,
+                # which nwb_anal_cmp no longer has at all.
+                old_proc_df_no_oddball = (
+                    old_proc_df[~old_proc_df["rec"].isin(oddball_recs)] if oddball_recs else old_proc_df)
+                ok2, _ = _reconcile_under_current_Q_semantics(name, old_proc_df_no_oddball, nwb_anal_cmp)
                 results["analysis"] = (
                     "STALE_SEMANTICS (Q redefined int-bins -> freq-fraction; "
-                    "new matches fresh run under current Q_frac)"
+                    "new matches fresh run under current Q_frac)" + dev_note
                     if ok2 else status)
             except Exception:
                 results["analysis"] = status

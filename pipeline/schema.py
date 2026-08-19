@@ -32,7 +32,19 @@ class AuxStimulusConfig:
     trial_gap_samples: int = 120000
     iup_min_filter: int = 0
     duration_s: float = 300.0
-    max_interval_s: float = 1.2  # oddball: keep events with inter-event gap < this
+    # oddball: each candidate trial is classified on TWO independent axes --
+    # its own stimulus-on duration (onset->offset) and its own preceding
+    # off/silence duration (previous offset->this onset) -- NOT the combined
+    # down-to-down gap _handle_oddball used to use, which silently conflated
+    # two distinct manipulations (a long-ON stimulus vs. a long-OFF/silence
+    # period before an otherwise-normal stimulus) into one "deviant" bucket.
+    # <= *_normal_max_s -> "normal" on that axis; >= *_long_min_s -> "long";
+    # in between is a dead zone, dropped (ambiguous on that axis) from every
+    # category. See _classify_oddball_trials in openephys_multistim.py.
+    on_normal_max_s: float = 0.7
+    on_long_min_s: float = 0.9
+    off_normal_max_s: float = 0.7
+    off_long_min_s: float = 0.9
     # WN multi-window: use floor-division period and normalized phase (20220916 style)
     wn_legacy_formula: bool = False
     # WN single-window: override the freq used in period/phase computation (bug-compat mode).
@@ -58,6 +70,12 @@ class AnalysisConfig:
     mag_Q_frac: float = -1.0
     visual_Q_frac: float = -1.0
     WN_Q_frac: float = -1.0
+    # oddball's long_on/long_off/long_both recs (see multistim.py) are split
+    # out of visual_mask entirely and never run through fit_fourier_sig --
+    # each is far too sparse (a handful of trials vs. hundreds of standard
+    # ones) for any Q_frac to clear bins_for_fraction's minimum-bins floor.
+    # They're still written as full NWB epochs + covered by the trial
+    # diagnostics, just NWB-epochs/diagnostics-only, no Fourier group.
     mag_rec_substring: str = "mag"
     visual_rec_substring: str = "visual"
     wn_rec_substring: str = "WN"

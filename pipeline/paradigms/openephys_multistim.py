@@ -275,8 +275,218 @@ def _handle_white_noise(cfg, aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, n
                 }))
 
 
+_ODDBALL_CATEGORIES = ("standard", "long_on", "long_off", "long_both")
+# only "standard" clears enough trials for fit_fourier_sig -- see multistim.py
+_ODDBALL_FOURIER_CATEGORIES = ("standard",)
+
+
+def _classify_oddball_trials(t_up, t_down, ap_sr, on_normal_max_s, on_long_min_s,
+                              off_normal_max_s, off_long_min_s):
+    """Classify each candidate trial (bounded by adjacent down-crossings
+    down_i-1, down_i) by its own on-duration (t_up[down_i] -> t_down[down_i],
+    the pulse itself) and off-duration (t_down[down_i-1] -> t_up[down_i], the
+    preceding silence) SEPARATELY -- not by the combined down-to-down gap
+    this function used to test as one value, which conflated two distinct
+    manipulations (a long stimulus-ON period vs. a long stimulus-OFF/silence
+    period before an otherwise-normal pulse) into one "deviant" bucket
+    (confirmed on real data: some "deviant"-by-combined-gap trials have a
+    completely standard on-duration, just preceded by an unusually long
+    silence, and vice versa; a few have BOTH elevated at once). See
+    MagnetSearch/code/notebooks/20230221_concatenated.ipynb's ball_d/
+    oddball_d split, which the original single-gap version of this ported --
+    this generalizes it along the axis the notebook never separated.
+
+    <= *_normal_max_s -> "normal" on that axis; >= *_long_min_s -> "long";
+    in between is a dead zone -- ambiguous on that axis, dropped from every
+    category (same dead-zone treatment as the original ball_d/oddball_d
+    split, just applied per-axis instead of to the combined gap).
+
+    Returns (buckets, dropped_down_idx): buckets is
+    {"standard"|"long_on"|"long_off"|"long_both": (intervals, down_indices)},
+    each `intervals` a list of (curr, prev) sample pairs and `down_indices`
+    the down_i each interval came from (parallel, same order, both empty for
+    a category with no trials).
+    """
+    buckets = {cat: ([], []) for cat in _ODDBALL_CATEGORIES}
+    dropped_down_idx = []
+    for down_i in range(1, len(t_down) - 1):
+        curr, prev = t_down[down_i], t_down[down_i - 1]
+        on_dur_s = (t_down[down_i] - t_up[down_i]) / ap_sr
+        off_dur_s = (t_up[down_i] - t_down[down_i - 1]) / ap_sr
+
+        if on_dur_s <= on_normal_max_s:
+            on_state = "normal"
+        elif on_dur_s >= on_long_min_s:
+            on_state = "long"
+        else:
+            on_state = "ambiguous"
+
+        if off_dur_s <= off_normal_max_s:
+            off_state = "normal"
+        elif off_dur_s >= off_long_min_s:
+            off_state = "long"
+        else:
+            off_state = "ambiguous"
+
+        if on_state == "ambiguous" or off_state == "ambiguous":
+            dropped_down_idx.append(down_i)
+            continue
+
+        category = {
+            ("normal", "normal"): "standard",
+            ("long", "normal"): "long_on",
+            ("normal", "long"): "long_off",
+            ("long", "long"): "long_both",
+        }[(on_state, off_state)]
+        buckets[category][0].append((curr, prev))
+        buckets[category][1].append(down_i)
+
+    return buckets, dropped_down_idx
+
+
+def _pad_oddball_windows(down_idx, t_up, t_down, ap_sr, recname):
+    """Pre/post pad each trial's window by half of THAT TRIAL'S OWN
+    on-duration (t_down[down_i] - t_up[down_i]), i.e. pre = post = on_dur/2,
+    ANCHORED AT THE STIMULUS'S OWN ONSET (t_up[down_i]) rather than at the
+    window's `prev` (previous offset) boundary -- the evoked response is
+    locked to stimulus onset, not to whenever the previous stimulus happened
+    to end (confirmed: anchoring at `prev` instead made pre-pad clip to ~0
+    for every trial, since the preceding trial's own on-span always ends
+    exactly at `prev` with zero natural room; anchoring at onset gives every
+    trial real room, bounded by ITS OWN off-duration).
+
+    Because onset is used as the anchor, pre-pad only reaches into the
+    PRECEDING trial's own stimulus-on span if the requested pad exceeds this
+    trial's own (already-natural) off-duration -- normal trials (small pad,
+    normal off-duration) essentially never clip; long_on trials (pad ~=
+    on_dur/2, often bigger than a NORMAL off-duration) clip regularly,
+    landing exactly at the preceding trial's own offset (`prev`) rather than
+    reaching any further. Post-pad is symmetric: it only reaches the
+    FOLLOWING trial's own onset if the requested pad exceeds THAT trial's
+    own off-duration.
+
+    down_idx : down-crossing indices for every candidate trial across ALL
+        categories (standard + long_on + long_off + long_both) AND the
+        dropped dead-zone ones, NOT pre-split by category -- bounds come
+        directly from t_down[down_i-1]/t_up[down_i+1], so no per-category
+        neighbor lookup is needed: every down_i, dropped or not, has a real
+        on-span at that index that must never be contaminated.
+    Returns {down_i: (padded_start, padded_stop)}, same (pre-offset) sample
+    domain as t_up/t_down.
+    """
+    windows = {}
+    for di in down_idx:
+        onset, curr = t_up[di], t_down[di]
+        on_dur_s = (curr - onset) / ap_sr
+        pad = on_dur_s / 2 * ap_sr
+
+        lo_bound = t_down[di - 1]                                      # preceding trial's own offset
+        hi_bound = t_up[di + 1] if di + 1 < len(t_up) else np.inf       # following trial's own onset
+
+        padded_start = onset - pad
+        if padded_start < lo_bound:
+            print(f"  WARNING: {recname} trial (down_i={di}) pre-pad clipped -- "
+                  f"requested {pad / ap_sr:.3f}s would include the preceding "
+                  f"trial's own stimulus-on period; clipped to "
+                  f"{(onset - lo_bound) / ap_sr:.3f}s")
+            padded_start = lo_bound
+
+        padded_stop = curr + pad
+        if padded_stop > hi_bound:
+            print(f"  WARNING: {recname} trial (down_i={di}) post-pad clipped -- "
+                  f"requested {pad / ap_sr:.3f}s would include the following "
+                  f"trial's own stimulus-on period; clipped to "
+                  f"{(hi_bound - curr) / ap_sr:.3f}s")
+            padded_stop = hi_bound
+
+        windows[di] = (padded_start, padded_stop)
+    return windows
+
+
+def _emit_oddball_epoch(intervals, down_idx, windows_by_di, t_up, epoch_rec, stim_type,
+                         st_d, offset, ap_sr, nwb_epochs, df_l, recname_for_df):
+    """Build the synthetic stitched-timeline epoch + per-unit phase rows for
+    one trial category and append them.
+
+    Phase is anchored at each trial's own onset (t_up[down_i]), NOT at the
+    (possibly padded) window start -- the response is locked to stimulus
+    onset, not to wherever padding happens to begin (see
+    _pad_oddball_windows). window_starts/window_stops (the actual spike-
+    inclusion bounds) and phase_anchors (onset) are written as separate NWB
+    columns so nwb_io._stitch_synthetic_samples keeps them decoupled at
+    analysis time too -- see write_epochs_table's phase_anchors docstring.
+
+    epoch_rec is the `rec` value written to nwb_epochs/the per-spike df --
+    it must be distinct per category so fit_fourier_sig's
+    groupby(["rec", "freq"]) doesn't mix categories together (only relevant
+    for categories in _ODDBALL_FOURIER_CATEGORIES -- multistim.py never
+    calls fit_fourier_sig on the others, but the epoch/spike data is still
+    written here so it's inspectable via build_modulation_frame and the
+    trial diagnostics).
+    """
+    if len(intervals) == 0:
+        print(f"  WARNING: no {stim_type} oddball intervals found for {recname_for_df}")
+        return
+
+    windows = [windows_by_di[di] for di in down_idx]
+    onsets = [t_up[di] for di in down_idx]
+
+    period = np.abs(np.mean(np.diff(intervals)) / ap_sr)
+    freq = 1 / period
+    periods_arr = np.arange(len(intervals)) * period
+
+    windows_arr = np.array(windows)  # columns: (padded_start, padded_stop)
+    window_starts = windows_arr[:, 0] + offset
+    window_stops = windows_arr[:, 1] + offset
+    phase_anchors = np.array(onsets) + offset
+    window_offsets = np.arange(len(intervals)) * period * ap_sr
+    nwb_epochs.append({
+        "rec": epoch_rec,
+        "stim_type": stim_type,
+        "frequency": float(freq),
+        "start_time": float(window_starts.min()) / ap_sr,
+        "stop_time": float(window_stops.max()) / ap_sr,
+        "period_crossings": np.array([window_starts.min(), window_stops.max()]),
+        "phase_method": "stitched_crossings_unnorm",
+        "window_starts": window_starts,
+        "window_stops": window_stops,
+        "window_offsets": window_offsets,
+        "phase_anchors": phase_anchors,
+        "synthetic_period_markers": periods_arr,
+    })
+
+    trial_df_l = []
+    for unit_id, st in tqdm.tqdm(st_d.items()):
+        ball_spks = []
+        for interval_ind, ((padded_start, padded_stop), onset) in enumerate(zip(windows, onsets)):
+            shifted = (st[(st > padded_start) & (st < padded_stop)] - onset
+                       + interval_ind * period * ap_sr) / ap_sr
+            ball_spks.append(shifted)
+        ball_spks = np.concatenate(ball_spks)
+        if len(ball_spks) > 50:
+            trial_df_l.append(pd.DataFrame({
+                "period": [np.sum(t > periods_arr) for t in ball_spks],
+                "spk": ball_spks,
+                "phase": ball_spks % period * 2 * np.pi,
+                "freq": freq,
+                "id": unit_id,
+                "rec": epoch_rec,
+            }))
+
+    if trial_df_l:
+        df_l.append(pd.concat(trial_df_l))
+
+
 def _handle_oddball(cfg, aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, nwb_epochs):
-    """Oddball: inter-event intervals where t_down[i] - t_down[i-1] < max_interval_s."""
+    """Oddball: classify each candidate trial (adjacent down-crossings) into
+    standard / long_on / long_off / long_both by its own on- and off-
+    durations (see _classify_oddball_trials) -- generalizes the original
+    single-gap standard/deviant split (MagnetSearch/code/notebooks/
+    20230221_concatenated.ipynb's ball_d/oddball_d) once real data showed
+    the combined down-to-down gap conflates two distinct manipulations. Only
+    "standard" is Fourier-analyzed (see multistim.py's _ODDBALL_FOURIER_CATEGORIES
+    usage); the other three are written as full NWB epochs + covered by the
+    trial diagnostics, but are each too sparse on their own for fit_fourier_sig."""
     recname = aux_cfg.recname
     st_d = contingency_d[recname]
     recording, ldr = aux_d[recname]
@@ -298,93 +508,65 @@ def _handle_oddball(cfg, aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, nwb_e
 
     ap_sr = ldr.samplingrate(ldr.spikestream())
     offset = get_MM_offset(cat_df, recname)
-    max_interval_s = getattr(aux_cfg, "max_interval_s", 1.2)
 
-    # Build intervals: (curr, prev) pairs where gap < max_interval_s.
-    # kept_idx tracks which idown POSITIONS (native aux-sample-rate indices,
-    # not npix-shifted ones) end up retained -- purely for the raw-TTL
-    # diagnostic below, so it can show which detected pulses actually feed
-    # the analysis vs. which get silently dropped for having too long a gap
-    # to the previous pulse.
-    intervals = []
-    kept_idx = set()
-    for down_i in range(1, len(t_down) - 1):
-        curr = t_down[down_i]
-        prev = t_down[down_i - 1]
-        if (curr - prev) / ap_sr < max_interval_s:
-            intervals.append((curr, prev))
-            kept_idx.add(down_i)
-            kept_idx.add(down_i - 1)
+    buckets, dropped_down_idx = _classify_oddball_trials(
+        t_up, t_down, ap_sr,
+        getattr(aux_cfg, "on_normal_max_s", 0.7), getattr(aux_cfg, "on_long_min_s", 0.9),
+        getattr(aux_cfg, "off_normal_max_s", 0.7), getattr(aux_cfg, "off_long_min_s", 0.9))
+
+    all_down_idx = sorted(
+        [di for _, idx in buckets.values() for di in idx] + dropped_down_idx)
+    windows_by_di = _pad_oddball_windows(all_down_idx, t_up, t_down, ap_sr, recname)
 
     # Raw-TTL diagnostic -- plotted regardless of whether any intervals were
     # found (empty-interval sessions are exactly when seeing the raw trace
     # matters most for debugging). t_down/idown share indexing 1:1 (t_down is
-    # just idown run through ldr.shifttime()), so kept_idx applies directly.
-    # NOTE: neither this plot nor any other part of the pipeline distinguishes
-    # standard from oddball/deviant pulses -- see plot_oddball_raw_ttl's
-    # docstring. This is a first look at the raw signal to see whether that
-    # distinction is even recoverable from the TTL trace itself.
+    # just idown run through ldr.shifttime()), so down_i applies directly.
+    # A crossing that ends one candidate trial also STARTS the next one, so
+    # it can only carry one category label here -- later assignments win;
+    # this is a rough visual aid, not authoritative (the NWB epochs/
+    # diagnostics below are keyed by down_i, never ambiguous).
     try:
         from pathlib import Path
         from pipeline.diagnostics.oddball import plot_oddball_raw_ttl
-        kept_mask = np.zeros(len(idown), dtype=bool)
-        if kept_idx:
-            kept_mask[sorted(kept_idx)] = True
+        category = np.zeros(len(idown), dtype=int)  # 0=dropped, 1..4=standard/long_on/long_off/long_both
+        code_of = {"standard": 1, "long_on": 2, "long_off": 3, "long_both": 4}
+        for cat, (_, idx) in buckets.items():
+            if not idx:
+                continue
+            code = code_of[cat]
+            category[sorted(idx)] = code
+            category[sorted(i - 1 for i in idx if i - 1 >= 0)] = code
         diag_dir = Path(cfg.data_dir).parent / "figs" / "processing"
         diag_dir.mkdir(parents=True, exist_ok=True)
         plot_oddball_raw_ttl(
             cfg, recname, viz_trace, recording.get_sampling_frequency(),
-            aux_cfg.thr_on, aux_cfg.thr_off, iup, idown, kept_mask, diag_dir)
+            aux_cfg.thr_on, aux_cfg.thr_off, iup, idown, category, diag_dir)
     except Exception as exc:
         print(f"  WARNING: oddball raw-TTL diagnostics failed ({exc})")
 
-    if len(intervals) == 0:
-        print(f"  WARNING: no oddball intervals found for {recname}")
-        return
+    # Trial-level diagnostic -- stimulus/baseline spans, dropped-trial
+    # markers, and the actual spike raster together, against the padded
+    # windows that really feed the analysis (see plot_oddball_trial_diagnostics).
+    try:
+        from pathlib import Path
+        from pipeline.diagnostics.oddball import plot_oddball_trial_diagnostics
+        diag_dir = Path(cfg.data_dir).parent / "figs" / "processing"
+        diag_dir.mkdir(parents=True, exist_ok=True)
+        plot_oddball_trial_diagnostics(
+            cfg, recname, st_d, t_up, t_down, ap_sr,
+            buckets, windows_by_di, dropped_down_idx, diag_dir)
+    except Exception as exc:
+        print(f"  WARNING: oddball trial diagnostics failed ({exc})")
 
-    period = np.abs(np.mean(np.diff(intervals)) / ap_sr)
-    freq = 1 / period
-    periods_arr = np.arange(len(intervals)) * period
-
-    intervals_arr = np.array(intervals)  # columns: (curr, prev)
-    window_starts = intervals_arr[:, 1] + offset  # prev
-    window_stops = intervals_arr[:, 0] + offset   # curr
-    window_offsets = np.arange(len(intervals)) * period * ap_sr
-    nwb_epochs.append({
-        "rec": recname,
-        "stim_type": "oddball",
-        "frequency": float(freq),
-        "start_time": float(window_starts.min()) / ap_sr,
-        "stop_time": float(window_stops.max()) / ap_sr,
-        "period_crossings": np.array([window_starts.min(), window_stops.max()]),
-        "phase_method": "stitched_crossings_unnorm",
-        "window_starts": window_starts,
-        "window_stops": window_stops,
-        "window_offsets": window_offsets,
-        "synthetic_period_markers": periods_arr,
-    })
-
-    trial_df_l = []
-    for unit_id, st in tqdm.tqdm(st_d.items()):
-        ball_spks = []
-        for interval_ind, (curr, prev) in enumerate(intervals):
-            shifted = (st[(st > prev) & (st < curr)] - prev
-                       + interval_ind * period * ap_sr) / ap_sr
-            ball_spks.append(shifted)
-        ball_spks = np.concatenate(ball_spks)
-        if len(ball_spks) > 50:
-            trial_df_l.append(pd.DataFrame({
-                "period": [np.sum(t > periods_arr) for t in ball_spks],
-                "spk": ball_spks,
-                "phase": ball_spks % period * 2 * np.pi,
-                "freq": freq,
-                "id": unit_id,
-                "rec": recname,
-            }))
-
-    if trial_df_l:
-        df_l.append(pd.concat(trial_df_l))
-
+    _emit_oddball_epoch(
+        buckets["standard"][0], buckets["standard"][1], windows_by_di, t_up,
+        recname, "oddball", st_d, offset, ap_sr, nwb_epochs, df_l, recname)
+    for cat in ("long_on", "long_off", "long_both"):
+        _emit_oddball_epoch(
+            buckets[cat][0], buckets[cat][1], windows_by_di, t_up,
+            f"{recname}_{cat}", f"oddball_{cat}", st_d, offset, ap_sr,
+            nwb_epochs, df_l, recname)
 
 def _handle_visual_bars(cfg, aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, nwb_epochs):
     """20220916-style visual bars.

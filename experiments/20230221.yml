@@ -63,4 +63,11 @@ auxiliary_stimuli:
     sourcestream: "NI-DAQmx-103.0"
     sourcebarcode: "A2"
     frequency: 1.0
-    max_interval_s: 1.2
+    # standard on/off both ~0.515s; long on/off both ~1.0s+ -- see
+    # _classify_oddball_trials. Dead zone [0.7, 0.9] safely separates both
+    # clusters with real margin (confirmed empirically: nothing in this
+    # recording falls between 0.55s and 1.0s on either axis).
+    on_normal_max_s: 0.7
+    on_long_min_s: 0.9
+    off_normal_max_s: 0.7
+    off_long_min_s: 0.9
