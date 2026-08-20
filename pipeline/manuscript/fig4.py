@@ -82,14 +82,33 @@ def load_spks(data_dir: str, experiment: str, rec_name: str):
     spks = [g.spk.values for _, g in rec_df.groupby("id") if len(g) > 5]
     spks = [spks[i] for i in np.argsort([len(s) for s in spks]).astype(int)]
     print(f"  {len(spks)} units with >5 spikes from {rec_name!r}")
-    return spks
+
+    if cfg.analysis.Q_frac <= 0:
+        raise ValueError(
+            f"{experiment}.yml has no analysis.Q_frac set (got "
+            f"{cfg.analysis.Q_frac!r}) -- Fig4's simulation derives its "
+            f"off-frequency bin count from this experiment's own Q_frac, "
+            f"same as the real per-experiment analysis."
+        )
+    return spks, cfg.analysis.Q_frac
 
 
-FOURIER_Q = 100  # fourier_analysis's own default -- made explicit here so the
-                 # eps correction below is guaranteed to match the Q actually used
+def fourier_Q_from_frac(spks, freq, Q_frac, context=""):
+    """Convert `Q_frac` (fraction of `freq`) into the raw off-frequency bin
+    count `fourier_analysis` takes as `Q` -- same `bins_for_fraction` formula
+    `fit_fourier_sig` uses for a real experiment's analysis, so Fig4's
+    synthetic-modulation simulation is expressed in the same Q_frac units as
+    every other figure instead of a literal bin count. `T` is computed the
+    same way `fourier_analysis` computes it internally when `T` isn't passed
+    explicitly (`ceil(latesttime - earliesttime)`), so the resulting M
+    matches what `fourier_analysis` would derive on its own at this Q.
+    """
+    T = np.ceil(statistics.latesttime(spks) - statistics.earliesttime(spks))
+    resolution = 1 / T
+    return statistics.bins_for_fraction(freq, Q_frac, resolution, context=context)
 
 
-def compute_ci_df(spks):
+def compute_ci_df(spks, FOURIER_Q):
     # Same corrected null the per-unit p-values elsewhere use for a real Q_frac
     # analysis (see fit_fourier_sig) -- fixed for the whole loop since every
     # call below analyzes at the same Q.
@@ -115,13 +134,13 @@ def compute_ci_df(spks):
     return pd.DataFrame(data_d)
 
 
-def compute_fr_df(spks):
+def compute_fr_df(spks, FOURIER_Q):
     T = statistics.latesttime(spks) - statistics.earliesttime(spks)
     rows = []
     for A in tqdm.tqdm([0, 0.3, 0.6], desc="FR vs NFC"):
         modulated = [statistics.modulate(spkt, FREQ, A) for spkt in spks]
         (C, _, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, NFCs) = \
-            statistics.fourier_analysis(modulated, FREQ)
+            statistics.fourier_analysis(modulated, FREQ, Q=FOURIER_Q)
         rows.append(pd.DataFrame({
             "mod": A,
             "FR": [len(spkt) / T for spkt in spks],
@@ -131,7 +150,7 @@ def compute_fr_df(spks):
     return pd.concat(rows)
 
 
-def plot_fig4(ci_df, NFC_modulation_FR_df, spks, out_dir: Path):
+def plot_fig4(ci_df, NFC_modulation_FR_df, spks, FOURIER_Q, out_dir: Path):
     example_spk = spks[len(spks) // 2]
 
     font = {"family": FP.FONT_FAMILY, "size": FP.FS_BODY_XL}
@@ -155,7 +174,7 @@ def plot_fig4(ci_df, NFC_modulation_FR_df, spks, out_dir: Path):
     for mod_i, A in enumerate([0, 0.5, 1]):
         warped = statistics.warp_mod(example_spk, A, 1 / FREQ, 0)
         (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, NFC) = \
-            statistics.fourier_analysis([warped], freq=FREQ)
+            statistics.fourier_analysis([warped], freq=FREQ, Q=FOURIER_Q)
 
         spectra_axes[mod_i].plot(ff_alt, fou_alt.real.T, ".", color="orange")
         spectra_axes[mod_i].plot(fff[i0], fou0.real.T, ".")
@@ -204,7 +223,11 @@ def plot_fig4(ci_df, NFC_modulation_FR_df, spks, out_dir: Path):
     ax_C.legend([h for h, _ in pairs],
                 [f"A={l}" for _, l in pairs],
                 title="modulation (5Hz)", ncol=3)
-    ax_C.hlines(statistics.inverse_Rayleigh_CDF(0.99), *ax_C.get_xlim(), color="grey")
+    # eps-corrected to match NFC_modulation_FR_df, which is computed by
+    # compute_fr_df() at this same Q_frac-derived FOURIER_Q -- same corrected
+    # null used for ci_df's confidence bounds in panel B.
+    ax_C.hlines(statistics.inverse_Rayleigh_CDF(0.99, eps=statistics.get_epsilon(FOURIER_Q)),
+                *ax_C.get_xlim(), color="grey")
     ax_C.set_ylabel(r"$\hat{c}$")
     ax_C.set_xscale("log")
     ax_C.set_xlabel("Firing rate (Hz)")
@@ -259,14 +282,17 @@ def main():
     Path(CI_DF_CACHE).parent.mkdir(parents=True, exist_ok=True)
 
     print(f"Loading spikes from {args.experiment} / {args.rec!r} ...")
-    spks = load_spks(args.data_dir, args.experiment, args.rec)
+    spks, Q_frac = load_spks(args.data_dir, args.experiment, args.rec)
+
+    FOURIER_Q = fourier_Q_from_frac(spks, FREQ, Q_frac, context=f"[fig4 sim @ {FREQ}Hz] ")
+    print(f"  Q_frac={Q_frac} ({args.experiment}.yml) -> FOURIER_Q={FOURIER_Q} bins at {FREQ} Hz")
 
     if not args.recompute and Path(CI_DF_CACHE).exists():
         print(f"Loading cached ci_df from {CI_DF_CACHE}")
         ci_df = pd.read_pickle(CI_DF_CACHE)
     else:
         print("Computing modulation strength vs excess count (slow)...")
-        ci_df = compute_ci_df(spks)
+        ci_df = compute_ci_df(spks, FOURIER_Q)
         ci_df.to_pickle(CI_DF_CACHE)
         print(f"Cached -> {CI_DF_CACHE}")
 
@@ -275,11 +301,11 @@ def main():
         NFC_modulation_FR_df = pd.read_pickle(FR_DF_CACHE)
     else:
         print("Computing FR vs NFC...")
-        NFC_modulation_FR_df = compute_fr_df(spks)
+        NFC_modulation_FR_df = compute_fr_df(spks, FOURIER_Q)
         NFC_modulation_FR_df.to_pickle(FR_DF_CACHE)
         print(f"Cached -> {FR_DF_CACHE}")
 
-    plot_fig4(ci_df, NFC_modulation_FR_df, spks, out_dir)
+    plot_fig4(ci_df, NFC_modulation_FR_df, spks, FOURIER_Q, out_dir)
 
 
 if __name__ == "__main__":

@@ -1189,6 +1189,23 @@ def read_fourier_results_as_full_fourier_df(nwbfile):
     return pd.DataFrame(result)
 
 
+def read_fourier_group_and_unit_tables(nwbfile):
+    """Return the raw `(group_df, unit_df)` DataFrames backing
+    `fourier_group_results`/`per_unit_fourier_results` -- for callers (e.g.
+    fig1.py's single-exemplar spectrum panel) that need a specific unit's
+    persisted `fou0`/`fou_alt`/`ff_alt`, not the summarized-per-row shape
+    `read_fourier_results_as_full_fourier_df` produces. Kept as a thin
+    pass-through (not a per-unit lookup itself) so callers can extract these
+    while `nwbfile` is still open and close it promptly afterward, same
+    pattern as `build_modulation_frame`/`read_fourier_results_as_full_fourier_df`
+    above.
+    """
+    module = nwbfile.processing["analysis"]
+    group_df = module["fourier_group_results"].to_dataframe()
+    unit_df = module["per_unit_fourier_results"].to_dataframe()
+    return group_df, unit_df
+
+
 # ---------------------------------------------------------------------------
 # Ophys (engert/medaka): suite2p ROI segmentation + fluorescence traces
 # ---------------------------------------------------------------------------

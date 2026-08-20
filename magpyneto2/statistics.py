@@ -1489,16 +1489,39 @@ def get_poscontrols_negresults(all_fourier_df:pd.DataFrame):
 
 
 
-def boundary_ticks(ax, x=True, y=True, xprec=0, yprec=0):
+def boundary_ticks(ax, x=True, y=True, xprec=1, yprec=1):
+    """Places a tick at each end of the axis's own limits, labeled with the
+    rounded value.
+
+    Previously the tick was placed at the raw (unrounded) axis limit while
+    the label showed a rounded (xprec>0) or int()-truncated (xprec=0)
+    approximation of it -- so the printed number could silently disagree
+    with where the tick actually sat (e.g. label "1" for a tick really at
+    0.81, a full-unit lie for xprec=0 since int() truncates rather than
+    rounds). Rounding first and reusing that SAME rounded value for both the
+    tick position and its label guarantees the two can never diverge -- the
+    tick is drawn exactly where its label says, even though that nudges it
+    a hair off the literal, unrounded axis boundary.
+
+    Default precision is tenths, not integers: an integer default silently
+    collapses any axis narrower than ~1 unit to two duplicate tick labels
+    (e.g. Fig1's mag spectrum panel, whose Q_frac=0.15 window spans only
+    2.55-3.45 Hz -- both ends round to "3" at xprec=0, making the axis look
+    unlabeled). Tenths keep the two ends distinguishable for any
+    reasonably-zoomed panel; pass xprec/yprec explicitly for anything
+    narrower still, or when full-integer labels are actually wanted.
+    """
     if x:
         xlim = ax.get_xlim()
-        ax.set_xticks([xlim[0], xlim[1]])
-        ax.set_xticklabels([f"{np.round(xlim[0], xprec) if xprec>0 else int(xlim[0])}", f"{np.round(xlim[1], xprec) if xprec>0 else int(xlim[1])}"])
-    
+        x0, x1 = round(xlim[0], xprec), round(xlim[1], xprec)
+        ax.set_xticks([x0, x1])
+        ax.set_xticklabels([f"{x0:g}", f"{x1:g}"])
+
     if y:
         ylim = ax.get_ylim()
-        ax.set_yticks([ylim[0], ylim[1]])
-        ax.set_yticklabels([f"{np.round(ylim[0], yprec) if yprec>0 else int(ylim[0])}", f"{np.round(ylim[1], yprec) if yprec>0 else int(ylim[1])}"])
+        y0, y1 = round(ylim[0], yprec), round(ylim[1], yprec)
+        ax.set_yticks([y0, y1])
+        ax.set_yticklabels([f"{y0:g}", f"{y1:g}"])
 
 
 def nestle_labels(ax, x_offset=0, y_offset=0, y=True, x=True):    
@@ -1508,7 +1531,7 @@ def nestle_labels(ax, x_offset=0, y_offset=0, y=True, x=True):
         ax.xaxis.set_label_coords(0.5, x_offset)
     
     
-def boundarize_and_nestle(ax, x=True, y=True, xprec=0, yprec=0, x_offset=0, y_offset=0):
+def boundarize_and_nestle(ax, x=True, y=True, xprec=1, yprec=1, x_offset=0, y_offset=0):
     boundary_ticks(ax, x=x, y=y, xprec=xprec, yprec=yprec)
     nestle_labels(ax, x_offset=x_offset, y_offset=y_offset, x=x, y=y)
     
@@ -1861,7 +1884,18 @@ def storey_qvalues(pvals, lambda_=0.5):
     return qvals, pi0
 
 
-def Fig1_NPIX_data(modulation_df_full, CONTINGENCY, unitrow, freq):
+def Fig1_NPIX_data(modulation_df_full, CONTINGENCY, unitrow, freq, group_df, unit_df):
+    """`group_df`/`unit_df`: the raw `fourier_group_results`/
+    `per_unit_fourier_results` DataFrames (see
+    `nwb_io.read_fourier_group_and_unit_tables`) -- this exemplar's spectrum
+    (`fou0`/`fou_alt`/`ff_alt`) and NFC are looked up from these already-
+    persisted, production-Q_frac results rather than recomputed via
+    `fourier_analysis` at that function's raw default `Q=100`, which
+    (for any experiment whose real `Q_frac` doesn't happen to work out to
+    M=100 at its own T) silently mismatched the NFC/spectrum window actually
+    used to produce `fourier_df`'s NFC histogram this exemplar is plotted
+    against.
+    """
     contingency_path = r"\\datanas\family\data_raw\20230413\first_site" + f"\\{CONTINGENCY}"
 
     # No more hardcoded "visual" -> "+_90" special-case: that was a leftover
@@ -1878,12 +1912,33 @@ def Fig1_NPIX_data(modulation_df_full, CONTINGENCY, unitrow, freq):
     # Filter by number of spikes per unit
     modulation_df_filt = modulation_df.loc[modulation_df.nspk > 10]
 
-    allspks = {id:id_df.spk for id, id_df in modulation_df_filt.groupby("id")} 
+    allspks = {id:id_df.spk for id, id_df in modulation_df_filt.groupby("id")}
 
     spks = allspks[unitrow.cluster_id]
-    exemplar_fourier = fourier_analysis([spks], freq)
 
-    return allspks, spks, exemplar_fourier, contingency_path  
+    group_rows = group_df[(group_df.rec == CONTINGENCY) & (group_df.frequency == freq)
+                           & (group_df.harmonic == "1F")]
+    if len(group_rows) == 0:
+        raise ValueError(
+            f"no persisted 1F fourier_group_results row for rec={CONTINGENCY!r} "
+            f"freq={freq!r} -- run the analysis stage for this experiment first."
+        )
+    group_idx = group_rows.index[0]
+
+    unit_rows = unit_df[(unit_df.group_1f_index == group_idx) & (unit_df.unit_id == unitrow.cluster_id)]
+    if len(unit_rows) == 0:
+        raise ValueError(
+            f"no persisted per_unit_fourier_results row for rec={CONTINGENCY!r} "
+            f"freq={freq!r} unit_id={unitrow.cluster_id!r}"
+        )
+    unit_row = unit_rows.iloc[0]
+
+    fou0 = complex(unit_row.fou0_real, unit_row.fou0_imag)
+    fou_alt = np.asarray(unit_row.fou_alt_real) + 1j * np.asarray(unit_row.fou_alt_imag)
+    ff_alt = np.asarray(group_rows.loc[group_idx, "ff_alt"])
+    exemplar_NFC = float(unit_row.NFC)
+
+    return allspks, spks, (fou0, fou_alt, ff_alt, exemplar_NFC), contingency_path
 
 
 

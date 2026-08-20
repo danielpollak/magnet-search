@@ -131,19 +131,20 @@ def load_data(data_dir: str):
     io_r, nwbfile = nwb_io.read_nwbfile(str(Path(data_dir) / f"{EXPERIMENT}.nwb"))
     modulation_df = nwb_io.build_modulation_frame(nwbfile, good_only=cfg.good)
     fourier_df = nwb_io.read_fourier_results_as_full_fourier_df(nwbfile)
+    group_df, unit_df = nwb_io.read_fourier_group_and_unit_tables(nwbfile)
     io_r.close()
-    return modulation_df, fourier_df
+    return modulation_df, fourier_df, group_df, unit_df
 
 
-def plot_fig1_composite(modulation_df, fourier_df, out_dir: Path):
+def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: Path):
     # Fig1_NPIX_data only reads unitrow.cluster_id (not .ch) -- no NAS-backed
     # cluster_info.tsv lookup needed here, just the cluster id itself.
     unitrow = pd.Series({"cluster_id": CLUSTER_ID})
 
-    mag_allspks, mag_spks, mag_exemplar_fourier, _ = \
-        statistics.Fig1_NPIX_data(modulation_df, MAG_CONTINGENCY, unitrow, MAG_FREQ)
-    wn_allspks, wn_spks, wn_exemplar_fourier, _ = \
-        statistics.Fig1_NPIX_data(modulation_df, WN_CONTINGENCY, unitrow, WN_FREQ)
+    mag_allspks, mag_spks, (fou0, fou_alt, ff_alt, exemplar_NFC), _ = \
+        statistics.Fig1_NPIX_data(modulation_df, MAG_CONTINGENCY, unitrow, MAG_FREQ, group_df, unit_df)
+    wn_allspks, wn_spks, (wn_fou0, wn_fou_alt, wn_ff_alt, exemplar_NFC_wn), _ = \
+        statistics.Fig1_NPIX_data(modulation_df, WN_CONTINGENCY, unitrow, WN_FREQ, group_df, unit_df)
 
     # Pre-extracted raw-voltage snippets (see
     # fig1_auditory_extract_raw_snippets.py) -- the only NAS-derived inputs to
@@ -208,7 +209,6 @@ def plot_fig1_composite(modulation_df, fourier_df, out_dir: Path):
     statistics.plot_phase_colorwheel(wheel_ax, cmap=PHASE_CMAP)
 
     # ── Plot Row 2: Magnetic stimulation (null) ──────────────────────────────
-    (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, exemplar_NFC) = mag_exemplar_fourier
     statistics.plot_spectrum(mag_spectra_ax, fou_alt.flatten(), ff_alt, MAG_FREQ, fou0, legend=False)
     mag_spectra_ax.set_ylabel("Amplitude")
     mag_spectra_ax.set_xlabel("Frequency (Hz)")
@@ -222,8 +222,7 @@ def plot_fig1_composite(modulation_df, fourier_df, out_dir: Path):
     statistics.nestle_labels(mag_dist_ax, x_offset=-0.05, y_offset=-0.05)
 
     # ── Plot Row 3: White noise (positive) ──────────────────────────────────
-    (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, exemplar_NFC_wn) = wn_exemplar_fourier
-    statistics.plot_spectrum(wn_spectra_ax, fou_alt.flatten(), ff_alt, WN_FREQ, fou0, legend=False)
+    statistics.plot_spectrum(wn_spectra_ax, wn_fou_alt.flatten(), wn_ff_alt, WN_FREQ, wn_fou0, legend=False)
     wn_spectra_ax.set_ylabel("Amplitude")
     wn_spectra_ax.set_xlabel("Frequency (Hz)")
     statistics.boundary_ticks(wn_spectra_ax)
@@ -341,8 +340,8 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print("Loading NPIX data...")
-    modulation_df, fourier_df = load_data(args.data_dir)
-    plot_fig1_composite(modulation_df, fourier_df, out_dir)
+    modulation_df, fourier_df, group_df, unit_df = load_data(args.data_dir)
+    plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir)
 
 
 if __name__ == "__main__":
