@@ -215,7 +215,8 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     statistics.boundary_ticks(mag_spectra_ax)
     statistics.nestle_labels(mag_spectra_ax, y=True, x=True, x_offset=-0.05)
 
-    statistics.draw_hist(fourier_df.loc[fourier_df.rec == MAG_CONTINGENCY, "NFC"], mag_dist_ax, xlim=9, inset=True)
+    statistics.draw_hist(fourier_df.loc[fourier_df.rec == MAG_CONTINGENCY, "NFC"], mag_dist_ax, xlim=9,
+                         inset=True, bar_color=FP.COLOR_MAG)
     mag_dist_ax.annotate("", (exemplar_NFC, 0.6), xytext=(exemplar_NFC, 0.8),
                          textcoords="data", arrowprops=dict(facecolor="black", arrowstyle="->"))
     statistics.boundary_ticks(mag_dist_ax, yprec=1)
@@ -229,7 +230,7 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     statistics.nestle_labels(wn_spectra_ax, y=True, x=True, x_offset=-0.05)
 
     statistics.draw_hist(fourier_df.loc[fourier_df.rec == WN_CONTINGENCY, "NFC"],
-                         wn_dist_ax, xlim=16, inset=True)
+                         wn_dist_ax, xlim=16, inset=True, bar_color=FP.COLOR_VIS)
     # exemplar_NFC_wn (~13.3) sits far out in the histogram's near-empty right
     # tail, unlike the mag panel's arrow -- point straight down at the axis
     # floor at the exemplar's actual x position rather than reusing the mag

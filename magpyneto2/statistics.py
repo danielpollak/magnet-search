@@ -11,26 +11,40 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
 
-def get_support():
+def get_support(upper=6.0, fine_upper=6.0, fine_step=0.001, coarse_step=0.02):
     """Non-uniform support for Fourier coefficient distribution
-    with high concentration near zero."""
-    # XX = np.concatenate([
-    #     # np.arange(0.0005, 0.2, 0.0005),
-    #     np.arange(0.001, 6, 0.001)])
-    XX = np.arange(0.001, 6, 0.001)
+    with high concentration near zero.
+
+    Fine-resolution (`fine_step`) out to `fine_upper` -- matches the
+    original fixed grid exactly when `upper <= fine_upper` (the default).
+    When `upper` exceeds `fine_upper` (e.g. to cover an observed NFC beyond
+    the default range), a coarser-step tail is appended out to `upper`.
+    normalized_Fourier_PDF_corrected's convolution is O(len(support)^2), so
+    a naive fine-resolution extension is prohibitively expensive (benchmarked
+    ~35s/call at upper=40 with fine_step throughout, vs. ~1s/call with a
+    coarse tail) -- justified because the (log-normal-blurred) density out
+    there is vanishingly small and smoothly decaying, so the coarser step
+    costs negligible accuracy.
+    """
+    XX = np.arange(0.001, fine_upper, fine_step)
+    if upper > fine_upper:
+        XX = np.concatenate([XX, np.arange(fine_upper, upper, coarse_step)])
     return XX
 
 
-def normalized_Fourier_PDF():
+def normalized_Fourier_PDF(upper=6.0):
     """
     Uncorrected Fourier coefficient distributions
     You can either specify `xx` or `step`.
     `xx` allows you to have the support be non-uniformly spaced.
     Parameters
     ----------
+    upper : float
+        Upper bound of the support (see get_support) -- widen this to cover
+        an observed NFC beyond the default range of 6.
     """
-    xx = get_support()
-    yy = xx * np.exp(-xx**2 / 2) 
+    xx = get_support(upper=upper)
+    yy = xx * np.exp(-xx**2 / 2)
     return xx, yy
 
 
@@ -121,14 +135,19 @@ def normalized_Fourier_PDF_corrected(q_vals, r_vals, p_r_vals, eps):
     assert np.all(r_vals > 0) and np.all(q_vals > 0)
     
     log_r = np.log(r_vals); log_q = np.log(q_vals)
-    dr = np.diff(r_vals).mean()
+    # Per-interval spacing, not a single averaged step -- r_vals may be a
+    # non-uniform grid (see get_support's coarse-tail extension), and a
+    # scalar mean step is only correct for a uniform grid. Matches
+    # normalized_Fourier_CDF_corrected's existing [1:]-offset convention so
+    # the two functions' quadrature agrees.
+    dr = np.diff(r_vals)
 
     # Allocate output
     p_q_vals = np.zeros_like(q_vals)
 
     for i, lq in enumerate(log_q):
         kernel = norm.pdf(lq - log_r, loc=0, scale=eps) / q_vals[i]
-        p_q_vals[i] = np.sum(p_r_vals * kernel) * dr
+        p_q_vals[i] = np.sum(p_r_vals[1:] * kernel[1:] * dr)
 
     return p_q_vals
 
@@ -136,24 +155,45 @@ def normalized_Fourier_PDF_corrected(q_vals, r_vals, p_r_vals, eps):
 def normalized_Fourier_CDF_corrected(PDF_vals, r_vals):
     """
     Compute CDF from PDF using numerical integration.
-    
+
     Parameters:
         PDF_vals: array of p(r) evaluated at r_vals
         r_vals: array of r points (support of p_r)
     """
-    return np.cumsum(PDF_vals[1:]* np.diff(r_vals))
+    CDF = np.cumsum(PDF_vals[1:]* np.diff(r_vals))
+    # normalized_Fourier_PDF_corrected's discrete log-normal convolution, plus
+    # this left-Riemann-sum integration, don't exactly conserve probability
+    # mass over the finite grid -- CDF's true endpoint drifts up to ~1.0006
+    # for large eps/Q instead of the 1.0 a valid CDF requires by definition.
+    # That silently makes 1-CDF go negative for any NFC beyond the grid's
+    # support (np.interp clamps to CDF[-1], not exactly 1.0). Rescale by the
+    # same quadrature's own total so CDF[-1] == 1.0 exactly by construction --
+    # a real correction to the distribution estimate, not a clip on the
+    # output -- leaving the interior shape unchanged up to that same tiny
+    # rescaling factor.
+    return CDF / CDF[-1]
 
 
 def corrected_pvalues(NFC, Q):
     """P-value for each NFC value, using the null distribution corrected
     for finite-Q reference-frequency sampling (see get_epsilon)."""
     eps = get_epsilon(Q)
-    R, YY = normalized_Fourier_PDF()
+    NFC = np.asarray(NFC)
+    # Extend the null distribution's numerical support to cover this
+    # population's own most extreme observed NFC (with a small margin),
+    # so highly significant units get a real (tiny positive) p-value
+    # instead of being silently clamped to exactly 0.0 at the edge of a
+    # fixed grid -- see get_support's coarse-tail extension for why this
+    # stays cheap even for large NFC.
+    finite_NFC = NFC[np.isfinite(NFC)]
+    upper = max(6.0, float(finite_NFC.max()) * 1.05) if finite_NFC.size else 6.0
+    R, YY = normalized_Fourier_PDF(upper=upper)
     PDF = normalized_Fourier_PDF_corrected(R[1:], R[1:], YY[1:], eps)
     CDF = normalized_Fourier_CDF_corrected(PDF, R[1:])
     # Note: does not give np.nan, but rather the max CDF value (1.0) for any NFC > max(R) --
     #  which is correct, since the null distribution is defined only on the support R, and
-    #  any NFC > max(R) is in the extreme tail of the null.
+    #  any NFC > max(R) is in the extreme tail of the null. In practice `upper` above already
+    #  covers this population's max NFC, so this clamp is now only reached with a small margin.
     return 1 - np.interp(NFC, R[2:], CDF)
 
 
@@ -1070,7 +1110,17 @@ def fit_fourier_sig(df, Q_frac, sr=30_000, diagnostics=True):
         # frequency), so each needs its own eps/null-distribution rather than
         # sharing one (as was harmless when both used the same literal Q).
         eps_1f = get_epsilon(M_1f)
-        R, YY_uncorrected = normalized_Fourier_PDF()
+        # Extend the null distribution's numerical support to cover this
+        # group's own most extreme observed NFC/NFC_2f (with a small
+        # margin), so highly significant units get a real p-value instead
+        # of being silently clamped to exactly 0.0 at a fixed grid's edge
+        # (see get_support's coarse-tail extension -- stays cheap even for
+        # large NFC). [sign-off: 2026-08-20, dynamic null-distribution
+        # support -- see .claude/CLAUDE.md's fit_fourier_sig entry]
+        finite_NFC_all = np.concatenate([NFC, NFC_2f])
+        finite_NFC_all = finite_NFC_all[np.isfinite(finite_NFC_all)]
+        upper = max(6.0, float(finite_NFC_all.max()) * 1.05) if finite_NFC_all.size else 6.0
+        R, YY_uncorrected = normalized_Fourier_PDF(upper=upper)
         PDF_1f = normalized_Fourier_PDF_corrected(
             R[1:], R[1:], YY_uncorrected[1:], eps_1f)
         CDF_1f = normalized_Fourier_CDF_corrected(PDF_1f, R[1:])
@@ -1155,39 +1205,47 @@ def visualize_detectability(mod_rr, spk_count, T):
     return fig
 
 
-def draw_hist(NFC, ax, xlim=12.5, title=False, inset=True, invert=False, eps=None):
+def draw_hist(NFC, ax, xlim=12.5, title=False, inset=True, invert=False, eps=None, bar_color=None):
     """
     eps: (float, optional) If given, also overlay the eps-corrected null
         distribution (see get_epsilon/normalized_Fourier_PDF_corrected)
         alongside the uncorrected one, for comparison.
+    bar_color: (optional) explicit color for the histogram bars -- e.g. a
+        mag/positive-control color when this histogram belongs to one of those
+        two populations. Defaults to None (matplotlib's own default color).
     """
     # Histogram
     XX, YY = normalized_Fourier_PDF()
     YY_corrected = normalized_Fourier_PDF_corrected(XX, XX, YY, eps) if eps else None
     vals, bins = np.histogram(NFC, bins=np.arange(0, 12, 0.2), density=True)
+    # Threshold lines default to a higher zorder than bars in matplotlib (Line2D=2
+    # vs. Patch/bar=1), which is why they'd otherwise render on top of and obscure
+    # the bars -- set explicit zorders so the bars are drawn in front instead.
     if not invert:
-        ax.bar(bins[:-1], vals, width=np.diff(bins)[0], align="edge")
+        ax.bar(bins[:-1], vals, width=np.diff(bins)[0], align="edge", color=bar_color, zorder=2)
         ax.plot(XX, YY, label="uncorrected null", color="k", linewidth=1)
-        ax.axvline(inverse_Rayleigh_CDF(0.99), color="r", label="uncorrected 99%")
+        ax.axvline(inverse_Rayleigh_CDF(0.99), color="grey", alpha=0.5, zorder=1,
+                   label="uncorrected 99%")
         if YY_corrected is not None:
             ax.plot(XX, YY_corrected, label="corrected null", color="tab:orange",
                     linewidth=1, linestyle="--")
             corrected_99 = np.atleast_1d(inverse_Rayleigh_CDF(0.99, eps=eps))
             if len(corrected_99):
-                ax.axvline(corrected_99[0], color="tab:orange", linestyle="--",
-                           label="corrected 99%")
+                ax.axvline(corrected_99[0], color="tab:orange", alpha=0.5, zorder=1,
+                           linestyle="--", label="corrected 99%")
             ax.legend(fontsize=6)
     else:
-        ax.barh(bins[:-1], vals, height=np.diff(bins)[0], align="edge")
+        ax.barh(bins[:-1], vals, height=np.diff(bins)[0], align="edge", color=bar_color, zorder=2)
         ax.plot(YY, XX,  label="uncorrected null", color="k", linewidth=1)
-        ax.axhline(inverse_Rayleigh_CDF(0.99), color="r", label="uncorrected 99%")
+        ax.axhline(inverse_Rayleigh_CDF(0.99), color="grey", alpha=0.5, zorder=1,
+                  label="uncorrected 99%")
         if YY_corrected is not None:
             ax.plot(YY_corrected, XX, label="corrected null", color="tab:orange",
                     linewidth=1, linestyle="--")
             corrected_99 = np.atleast_1d(inverse_Rayleigh_CDF(0.99, eps=eps))
             if len(corrected_99):
-                ax.axhline(corrected_99[0], color="tab:orange", linestyle="--",
-                           label="corrected 99%")
+                ax.axhline(corrected_99[0], color="tab:orange", alpha=0.5, zorder=1,
+                          linestyle="--", label="corrected 99%")
             ax.legend(fontsize=6)
 
     # Tidy x and y labels
@@ -1210,7 +1268,7 @@ def draw_hist(NFC, ax, xlim=12.5, title=False, inset=True, invert=False, eps=Non
     return vals, bins
 
 
-def inset_hist(ax, vals, bins, eps=None):
+def inset_hist(ax, vals, bins, eps=None, bar_color=None):
     x1, x2, y1, y2 = 2.5, 6, 0, .01
     axins = ax.inset_axes([0.5, 0.5, 0.47, 0.47], xlim=(x1, x2), ylim=(y1, y2))
     # indicate_inset_zoom's automatic corner choice sometimes connects to the
@@ -1222,10 +1280,10 @@ def inset_hist(ax, vals, bins, eps=None):
     from mpl_toolkits.axes_grid1.inset_locator import mark_inset
     mark_inset(ax, axins, loc1=3, loc2=4, edgecolor="black", facecolor="none")
 
-    axins.bar(bins[:-1], vals, width=np.diff(bins)[0], align="edge")
+    axins.bar(bins[:-1], vals, width=np.diff(bins)[0], align="edge", color=bar_color, zorder=2)
     XX, YY = normalized_Fourier_PDF()
     axins.plot(XX, YY, label="uncorrected null", color="k", linewidth=1)
-    axins.vlines(inverse_Rayleigh_CDF(0.99), *axins.get_ylim(), 'r')
+    axins.vlines(inverse_Rayleigh_CDF(0.99), *axins.get_ylim(), color="grey", alpha=0.5, zorder=1)
     if eps:
         YY_corrected = normalized_Fourier_PDF_corrected(XX, XX, YY, eps)
         axins.plot(XX, YY_corrected, label="corrected null", color="tab:orange",
@@ -1233,7 +1291,7 @@ def inset_hist(ax, vals, bins, eps=None):
         corrected_99 = np.atleast_1d(inverse_Rayleigh_CDF(0.99, eps=eps))
         if len(corrected_99):
             axins.vlines(corrected_99[0], *axins.get_ylim(), color="tab:orange",
-                        linestyle="--")
+                        alpha=0.5, zorder=1, linestyle="--")
     axins.set_xlim((x1, x2))
     axins.set_ylim((y1, y2))
     axins.set_xticks([x1, x2])
@@ -1556,8 +1614,8 @@ def plot_spectrum(ax:plt.Axes.axes, fou_alt:np.complex64, win, stimulus_frequenc
     sgm_c = np.sqrt(.5 * np.mean(np.concatenate([fou_alt.real, fou_alt.imag])**2))
     ax.axhline(sgm_c)
     
-    ax.plot(win, np.abs(fou_alt.real), ".", color="orange", alpha=0.5, markersize=1, label="real")
-    ax.plot(win, np.abs(fou_alt.imag), ".", color="red", alpha=0.5, markersize=1, label="imaginary")
+    ax.plot(win, np.abs(fou_alt.real), ".", color="black", alpha=0.5, markersize=1, label="real")
+    ax.plot(win, np.abs(fou_alt.imag), ".", color="grey", alpha=0.5, markersize=1, label="imaginary")
 
     markerline, stemline, baseline = ax.stem(
         [stimulus_frequency], np.abs(stimulus_frequency_power), "blue", bottom=sgm_c)
