@@ -1,5 +1,10 @@
 """Fig 3 — p-value and q-value uniformity across neuron populations.
 
+Rows 0-1: negative-result (magnet-experiment) population, expected to be
+uniform under the null. Rows 2-3: positive-control population (audio/visual/
+oddball/WN/3D stimulus presentations with a real, expected evoked effect),
+shown for contrast — non-uniform, left-skewed p-values.
+
 Requires:
   data/manuscript/all_fourier_df.parquet  (run python pipeline/aggregate.py first)
   ecdfbounds library
@@ -50,7 +55,7 @@ def split_into_occurrence_waves(all_fourier_df):
         wave_df["pi0"] = pi0
         wave_df_l.append(wave_df)
 
-    return waves, wave_df_l
+    return waves, wave_df_l, all_pos_control
 
 
 def plot_uniform_p(waves, axes, percentile=None):
@@ -83,34 +88,54 @@ def plot_uniform_p(waves, axes, percentile=None):
 
 
 def plot_fig3(all_fourier_df, out_dir: Path):
-    waves, wave_df_l = split_into_occurrence_waves(all_fourier_df)
+    waves, wave_df_l, all_pos_control = split_into_occurrence_waves(all_fourier_df)
 
     font = {"family": FP.FONT_FAMILY, "size": FP.FS_BODY}
     matplotlib.rc("font", **font)
 
-    fig, axes = plt.subplots(2, 4, figsize=FP.FIGSIZE_FIG3, sharey="row", sharex="col")
+    fig, axes = plt.subplots(4, 4, figsize=(FP.FIGSIZE_FIG3[0], FP.FIGSIZE_FIG3[1] * 2),
+                              sharey="row", sharex="col")
 
-    plot_uniform_p(waves, axes[:, 0])
+    plot_uniform_p(waves, axes[0:2, 0])
     plot_uniform_p(
-        [w.loc[w.species == "Pigeon"] for w in waves], axes[:, 1])
+        [w.loc[w.species == "Pigeon"] for w in waves], axes[0:2, 1])
     plot_uniform_p(
-        [w.loc[(w.area == "HP") & (w.species == "Pigeon")] for w in waves], axes[:, 2])
+        [w.loc[(w.area == "HP") & (w.species == "Pigeon")] for w in waves], axes[0:2, 2])
     plot_uniform_p(
         [w.loc[(w.area == "HP") & (w.species == "Pigeon")] for w in waves],
-        axes[:, 3], percentile=90)
+        axes[0:2, 3], percentile=90)
 
-    [ax.set_xlabel("Neuron") for ax in axes[1, :]]
+    # Positive-control population, pooled across all stimulus conditions per unit
+    # (unlike `waves`, occurrences here are different conditions, not repeated
+    # trials of the same condition, so there's no analogous wave-split to overlay).
+    plot_uniform_p([all_pos_control], axes[2:4, 0])
+    plot_uniform_p(
+        [all_pos_control.loc[all_pos_control.species == "Pigeon"]], axes[2:4, 1])
+    plot_uniform_p(
+        [all_pos_control.loc[(all_pos_control.area == "HP") & (all_pos_control.species == "Pigeon")]],
+        axes[2:4, 2])
+    plot_uniform_p(
+        [all_pos_control.loc[(all_pos_control.area == "HP") & (all_pos_control.species == "Pigeon")]],
+        axes[2:4, 3], percentile=90)
+
+    [ax.set_xlabel("Neuron") for ax in axes[3, :]]
     axes[0, 0].set_title("All")
     axes[0, 1].set_title("Pigeon")
     axes[0, 2].set_title("Pigeon HP")
     axes[0, 3].set_title("Pigeon HP >90%ile\nsensitivity")
     axes[0, 0].set_ylabel("Sorted p-values")
     axes[1, 0].set_ylabel("Sorted q-values")
+    axes[2, 0].set_ylabel("Sorted p-values\n(positive control)")
+    axes[3, 0].set_ylabel("Sorted q-values\n(positive control)")
 
     axes[0, 0].annotate("A", xy=(-0.1, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
     axes[0, 1].annotate("B", xy=(-0.1, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
     axes[0, 2].annotate("C", xy=(-0.1, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
     axes[0, 3].annotate("D", xy=(-0.1, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
+    axes[2, 0].annotate("E", xy=(-0.1, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
+    axes[2, 1].annotate("F", xy=(-0.1, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
+    axes[2, 2].annotate("G", xy=(-0.1, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
+    axes[2, 3].annotate("H", xy=(-0.1, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
 
     out_path = out_dir / "Fig3.pdf"
     fig.savefig(out_path, bbox_inches="tight", dpi=FP.DPI)
