@@ -40,11 +40,9 @@ def split_into_occurrence_waves(all_fourier_df):
     all_neg_res["occurrence"] = all_neg_res.groupby(wave_groups).cumcount()
     waves = [g.reset_index(drop=True) for _, g in all_neg_res.groupby("occurrence")]
 
-    u = 0
     wave_df_l = []
     for wave_df in waves:
-        NFC = wave_df.NFC.values
-        pval = statistics.compute_p_value(NFC, u)
+        pval = wave_df["p_value"].values
         qval, pi0 = statistics.storey_qvalues(pval, lambda_=0.5)
         wave_df = wave_df.copy()
         wave_df["pval"] = pval
@@ -55,7 +53,7 @@ def split_into_occurrence_waves(all_fourier_df):
     return waves, wave_df_l
 
 
-def plot_uniform_p(waves, axes, u=0, percentile=None):
+def plot_uniform_p(waves, axes, percentile=None):
     last_n = 0
     for wave_df in waves[::-1]:
         if len(wave_df) == 0:
@@ -65,8 +63,7 @@ def plot_uniform_p(waves, axes, u=0, percentile=None):
             wave_df = wave_df.loc[wave_df.sens > pct]
         if len(wave_df) == 0:
             continue
-        NFC = wave_df["NFC"].values
-        pval = statistics.compute_p_value(NFC, u)
+        pval = wave_df["p_value"].values
         if len(pval) == 0:
             continue
         qval, pi0 = statistics.storey_qvalues(pval, lambda_=0.5)
