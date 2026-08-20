@@ -136,12 +136,23 @@ def normalized_Fourier_PDF_corrected(q_vals, r_vals, p_r_vals, eps):
 def normalized_Fourier_CDF_corrected(PDF_vals, r_vals):
     """
     Compute CDF from PDF using numerical integration.
-    
+
     Parameters:
         PDF_vals: array of p(r) evaluated at r_vals
         r_vals: array of r points (support of p_r)
     """
-    return np.cumsum(PDF_vals[1:]* np.diff(r_vals))
+    CDF = np.cumsum(PDF_vals[1:]* np.diff(r_vals))
+    # normalized_Fourier_PDF_corrected's discrete log-normal convolution, plus
+    # this left-Riemann-sum integration, don't exactly conserve probability
+    # mass over the finite grid -- CDF's true endpoint drifts up to ~1.0006
+    # for large eps/Q instead of the 1.0 a valid CDF requires by definition.
+    # That silently makes 1-CDF go negative for any NFC beyond the grid's
+    # support (np.interp clamps to CDF[-1], not exactly 1.0). Rescale by the
+    # same quadrature's own total so CDF[-1] == 1.0 exactly by construction --
+    # a real correction to the distribution estimate, not a clip on the
+    # output -- leaving the interior shape unchanged up to that same tiny
+    # rescaling factor.
+    return CDF / CDF[-1]
 
 
 def corrected_pvalues(NFC, Q):
