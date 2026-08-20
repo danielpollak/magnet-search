@@ -11,26 +11,40 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
 
-def get_support():
+def get_support(upper=6.0, fine_upper=6.0, fine_step=0.001, coarse_step=0.02):
     """Non-uniform support for Fourier coefficient distribution
-    with high concentration near zero."""
-    # XX = np.concatenate([
-    #     # np.arange(0.0005, 0.2, 0.0005),
-    #     np.arange(0.001, 6, 0.001)])
-    XX = np.arange(0.001, 6, 0.001)
+    with high concentration near zero.
+
+    Fine-resolution (`fine_step`) out to `fine_upper` -- matches the
+    original fixed grid exactly when `upper <= fine_upper` (the default).
+    When `upper` exceeds `fine_upper` (e.g. to cover an observed NFC beyond
+    the default range), a coarser-step tail is appended out to `upper`.
+    normalized_Fourier_PDF_corrected's convolution is O(len(support)^2), so
+    a naive fine-resolution extension is prohibitively expensive (benchmarked
+    ~35s/call at upper=40 with fine_step throughout, vs. ~1s/call with a
+    coarse tail) -- justified because the (log-normal-blurred) density out
+    there is vanishingly small and smoothly decaying, so the coarser step
+    costs negligible accuracy.
+    """
+    XX = np.arange(0.001, fine_upper, fine_step)
+    if upper > fine_upper:
+        XX = np.concatenate([XX, np.arange(fine_upper, upper, coarse_step)])
     return XX
 
 
-def normalized_Fourier_PDF():
+def normalized_Fourier_PDF(upper=6.0):
     """
     Uncorrected Fourier coefficient distributions
     You can either specify `xx` or `step`.
     `xx` allows you to have the support be non-uniformly spaced.
     Parameters
     ----------
+    upper : float
+        Upper bound of the support (see get_support) -- widen this to cover
+        an observed NFC beyond the default range of 6.
     """
-    xx = get_support()
-    yy = xx * np.exp(-xx**2 / 2) 
+    xx = get_support(upper=upper)
+    yy = xx * np.exp(-xx**2 / 2)
     return xx, yy
 
 
@@ -121,14 +135,19 @@ def normalized_Fourier_PDF_corrected(q_vals, r_vals, p_r_vals, eps):
     assert np.all(r_vals > 0) and np.all(q_vals > 0)
     
     log_r = np.log(r_vals); log_q = np.log(q_vals)
-    dr = np.diff(r_vals).mean()
+    # Per-interval spacing, not a single averaged step -- r_vals may be a
+    # non-uniform grid (see get_support's coarse-tail extension), and a
+    # scalar mean step is only correct for a uniform grid. Matches
+    # normalized_Fourier_CDF_corrected's existing [1:]-offset convention so
+    # the two functions' quadrature agrees.
+    dr = np.diff(r_vals)
 
     # Allocate output
     p_q_vals = np.zeros_like(q_vals)
 
     for i, lq in enumerate(log_q):
         kernel = norm.pdf(lq - log_r, loc=0, scale=eps) / q_vals[i]
-        p_q_vals[i] = np.sum(p_r_vals * kernel) * dr
+        p_q_vals[i] = np.sum(p_r_vals[1:] * kernel[1:] * dr)
 
     return p_q_vals
 
@@ -159,12 +178,22 @@ def corrected_pvalues(NFC, Q):
     """P-value for each NFC value, using the null distribution corrected
     for finite-Q reference-frequency sampling (see get_epsilon)."""
     eps = get_epsilon(Q)
-    R, YY = normalized_Fourier_PDF()
+    NFC = np.asarray(NFC)
+    # Extend the null distribution's numerical support to cover this
+    # population's own most extreme observed NFC (with a small margin),
+    # so highly significant units get a real (tiny positive) p-value
+    # instead of being silently clamped to exactly 0.0 at the edge of a
+    # fixed grid -- see get_support's coarse-tail extension for why this
+    # stays cheap even for large NFC.
+    finite_NFC = NFC[np.isfinite(NFC)]
+    upper = max(6.0, float(finite_NFC.max()) * 1.05) if finite_NFC.size else 6.0
+    R, YY = normalized_Fourier_PDF(upper=upper)
     PDF = normalized_Fourier_PDF_corrected(R[1:], R[1:], YY[1:], eps)
     CDF = normalized_Fourier_CDF_corrected(PDF, R[1:])
     # Note: does not give np.nan, but rather the max CDF value (1.0) for any NFC > max(R) --
     #  which is correct, since the null distribution is defined only on the support R, and
-    #  any NFC > max(R) is in the extreme tail of the null.
+    #  any NFC > max(R) is in the extreme tail of the null. In practice `upper` above already
+    #  covers this population's max NFC, so this clamp is now only reached with a small margin.
     return 1 - np.interp(NFC, R[2:], CDF)
 
 
@@ -1081,7 +1110,17 @@ def fit_fourier_sig(df, Q_frac, sr=30_000, diagnostics=True):
         # frequency), so each needs its own eps/null-distribution rather than
         # sharing one (as was harmless when both used the same literal Q).
         eps_1f = get_epsilon(M_1f)
-        R, YY_uncorrected = normalized_Fourier_PDF()
+        # Extend the null distribution's numerical support to cover this
+        # group's own most extreme observed NFC/NFC_2f (with a small
+        # margin), so highly significant units get a real p-value instead
+        # of being silently clamped to exactly 0.0 at a fixed grid's edge
+        # (see get_support's coarse-tail extension -- stays cheap even for
+        # large NFC). [sign-off: 2026-08-20, dynamic null-distribution
+        # support -- see .claude/CLAUDE.md's fit_fourier_sig entry]
+        finite_NFC_all = np.concatenate([NFC, NFC_2f])
+        finite_NFC_all = finite_NFC_all[np.isfinite(finite_NFC_all)]
+        upper = max(6.0, float(finite_NFC_all.max()) * 1.05) if finite_NFC_all.size else 6.0
+        R, YY_uncorrected = normalized_Fourier_PDF(upper=upper)
         PDF_1f = normalized_Fourier_PDF_corrected(
             R[1:], R[1:], YY_uncorrected[1:], eps_1f)
         CDF_1f = normalized_Fourier_CDF_corrected(PDF_1f, R[1:])

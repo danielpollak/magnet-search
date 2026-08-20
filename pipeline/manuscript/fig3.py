@@ -105,6 +105,13 @@ def plot_uniform_p(waves, axes, percentile=None, colors=None):
             ax.set_xticks([0, last_n])
             ax.set_xticklabels([0, last_n])
     axes[1].set_yscale("log")
+    # Floor the q-value axis at 1e-8 -- points below this are dominated by
+    # float64 precision-floor artifacts (1-CDF underflowing to exactly 0 for
+    # the most extreme NFC, see the dynamic null-distribution-support fix),
+    # not meaningfully distinguishable q-values, so let the axis actually
+    # show the interesting range instead of stretching to whatever the
+    # smallest underflowed point happens to be.
+    axes[1].set_ylim(bottom=1e-8)
 
 
 def plot_fig3(all_fourier_df, out_dir: Path):
