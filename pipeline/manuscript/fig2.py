@@ -118,12 +118,12 @@ def plot_fig2(all_fourier_df, out_dir: Path):
     print(f"Subfig B (visual & auditory): {num_exp_B} experiments")
 
     vals_neg_res, bins_neg_res = statistics.draw_hist(
-        all_fourier_df_unique_neg_res.NFC, ax_C, inset=False)
+        all_fourier_df_unique_neg_res.NFC, ax_C, inset=False, bar_color=FP.COLOR_MAG)
     vals_pos_con, bins_pos_con = statistics.draw_hist(
-        all_unique_pos_control.NFC, ax_D, inset=False)
+        all_unique_pos_control.NFC, ax_D, inset=False, bar_color=FP.COLOR_VIS)
 
-    axins_C = statistics.inset_hist(ax_C, vals_neg_res, bins_neg_res)
-    axins_D = statistics.inset_hist(ax_D, vals_pos_con, bins_pos_con)
+    axins_C = statistics.inset_hist(ax_C, vals_neg_res, bins_neg_res, bar_color=FP.COLOR_MAG)
+    axins_D = statistics.inset_hist(ax_D, vals_pos_con, bins_pos_con, bar_color=FP.COLOR_VIS)
 
     statistics.plot_combo_scatterplot(
         all_fourier_df.loc[

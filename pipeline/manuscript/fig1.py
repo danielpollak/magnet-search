@@ -273,7 +273,8 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     statistics.boundary_ticks(mag_spectra_ax)
     statistics.nestle_labels(mag_spectra_ax, y=True, x=True, x_offset=-0.05)
 
-    statistics.draw_hist(fourier_df.loc[fourier_df.rec == MAG_CONTINGENCY, "NFC"], mag_dist_ax, xlim=9, inset=True)
+    statistics.draw_hist(fourier_df.loc[fourier_df.rec == MAG_CONTINGENCY, "NFC"], mag_dist_ax, xlim=9,
+                         inset=True, bar_color=FP.COLOR_MAG)
     mag_dist_ax.annotate("", (exemplar_NFC, 0.6), xytext=(exemplar_NFC, 0.8),
                          textcoords="data", arrowprops=dict(facecolor="black", arrowstyle="->"))
     statistics.boundary_ticks(mag_dist_ax, yprec=1)
@@ -287,7 +288,7 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     statistics.nestle_labels(vis_spectra_ax, y=True, x=True, x_offset=-0.05)
 
     statistics.draw_hist(fourier_df.loc[fourier_df.rec == VIS_CONTINGENCY, "NFC"],
-                         vis_dist_ax, xlim=12, inset=True)
+                         vis_dist_ax, xlim=12, inset=True, bar_color=FP.COLOR_VIS)
     # exemplar_NFC_vis (~7.79) sits out in this population's right tail --
     # consistent with this being a deliberately strong (tightly phase-
     # concentrated), not just barely-significant, exemplar (see module

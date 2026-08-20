@@ -1155,39 +1155,47 @@ def visualize_detectability(mod_rr, spk_count, T):
     return fig
 
 
-def draw_hist(NFC, ax, xlim=12.5, title=False, inset=True, invert=False, eps=None):
+def draw_hist(NFC, ax, xlim=12.5, title=False, inset=True, invert=False, eps=None, bar_color=None):
     """
     eps: (float, optional) If given, also overlay the eps-corrected null
         distribution (see get_epsilon/normalized_Fourier_PDF_corrected)
         alongside the uncorrected one, for comparison.
+    bar_color: (optional) explicit color for the histogram bars -- e.g. a
+        mag/positive-control color when this histogram belongs to one of those
+        two populations. Defaults to None (matplotlib's own default color).
     """
     # Histogram
     XX, YY = normalized_Fourier_PDF()
     YY_corrected = normalized_Fourier_PDF_corrected(XX, XX, YY, eps) if eps else None
     vals, bins = np.histogram(NFC, bins=np.arange(0, 12, 0.2), density=True)
+    # Threshold lines default to a higher zorder than bars in matplotlib (Line2D=2
+    # vs. Patch/bar=1), which is why they'd otherwise render on top of and obscure
+    # the bars -- set explicit zorders so the bars are drawn in front instead.
     if not invert:
-        ax.bar(bins[:-1], vals, width=np.diff(bins)[0], align="edge")
+        ax.bar(bins[:-1], vals, width=np.diff(bins)[0], align="edge", color=bar_color, zorder=2)
         ax.plot(XX, YY, label="uncorrected null", color="k", linewidth=1)
-        ax.axvline(inverse_Rayleigh_CDF(0.99), color="r", label="uncorrected 99%")
+        ax.axvline(inverse_Rayleigh_CDF(0.99), color="grey", alpha=0.5, zorder=1,
+                   label="uncorrected 99%")
         if YY_corrected is not None:
             ax.plot(XX, YY_corrected, label="corrected null", color="tab:orange",
                     linewidth=1, linestyle="--")
             corrected_99 = np.atleast_1d(inverse_Rayleigh_CDF(0.99, eps=eps))
             if len(corrected_99):
-                ax.axvline(corrected_99[0], color="tab:orange", linestyle="--",
-                           label="corrected 99%")
+                ax.axvline(corrected_99[0], color="tab:orange", alpha=0.5, zorder=1,
+                           linestyle="--", label="corrected 99%")
             ax.legend(fontsize=6)
     else:
-        ax.barh(bins[:-1], vals, height=np.diff(bins)[0], align="edge")
+        ax.barh(bins[:-1], vals, height=np.diff(bins)[0], align="edge", color=bar_color, zorder=2)
         ax.plot(YY, XX,  label="uncorrected null", color="k", linewidth=1)
-        ax.axhline(inverse_Rayleigh_CDF(0.99), color="r", label="uncorrected 99%")
+        ax.axhline(inverse_Rayleigh_CDF(0.99), color="grey", alpha=0.5, zorder=1,
+                  label="uncorrected 99%")
         if YY_corrected is not None:
             ax.plot(YY_corrected, XX, label="corrected null", color="tab:orange",
                     linewidth=1, linestyle="--")
             corrected_99 = np.atleast_1d(inverse_Rayleigh_CDF(0.99, eps=eps))
             if len(corrected_99):
-                ax.axhline(corrected_99[0], color="tab:orange", linestyle="--",
-                           label="corrected 99%")
+                ax.axhline(corrected_99[0], color="tab:orange", alpha=0.5, zorder=1,
+                          linestyle="--", label="corrected 99%")
             ax.legend(fontsize=6)
 
     # Tidy x and y labels
@@ -1210,7 +1218,7 @@ def draw_hist(NFC, ax, xlim=12.5, title=False, inset=True, invert=False, eps=Non
     return vals, bins
 
 
-def inset_hist(ax, vals, bins, eps=None):
+def inset_hist(ax, vals, bins, eps=None, bar_color=None):
     x1, x2, y1, y2 = 2.5, 6, 0, .01
     axins = ax.inset_axes([0.5, 0.5, 0.47, 0.47], xlim=(x1, x2), ylim=(y1, y2))
     # indicate_inset_zoom's automatic corner choice sometimes connects to the
@@ -1222,10 +1230,10 @@ def inset_hist(ax, vals, bins, eps=None):
     from mpl_toolkits.axes_grid1.inset_locator import mark_inset
     mark_inset(ax, axins, loc1=3, loc2=4, edgecolor="black", facecolor="none")
 
-    axins.bar(bins[:-1], vals, width=np.diff(bins)[0], align="edge")
+    axins.bar(bins[:-1], vals, width=np.diff(bins)[0], align="edge", color=bar_color, zorder=2)
     XX, YY = normalized_Fourier_PDF()
     axins.plot(XX, YY, label="uncorrected null", color="k", linewidth=1)
-    axins.vlines(inverse_Rayleigh_CDF(0.99), *axins.get_ylim(), 'r')
+    axins.vlines(inverse_Rayleigh_CDF(0.99), *axins.get_ylim(), color="grey", alpha=0.5, zorder=1)
     if eps:
         YY_corrected = normalized_Fourier_PDF_corrected(XX, XX, YY, eps)
         axins.plot(XX, YY_corrected, label="corrected null", color="tab:orange",
@@ -1233,7 +1241,7 @@ def inset_hist(ax, vals, bins, eps=None):
         corrected_99 = np.atleast_1d(inverse_Rayleigh_CDF(0.99, eps=eps))
         if len(corrected_99):
             axins.vlines(corrected_99[0], *axins.get_ylim(), color="tab:orange",
-                        linestyle="--")
+                        alpha=0.5, zorder=1, linestyle="--")
     axins.set_xlim((x1, x2))
     axins.set_ylim((y1, y2))
     axins.set_xticks([x1, x2])
@@ -1556,8 +1564,8 @@ def plot_spectrum(ax:plt.Axes.axes, fou_alt:np.complex64, win, stimulus_frequenc
     sgm_c = np.sqrt(.5 * np.mean(np.concatenate([fou_alt.real, fou_alt.imag])**2))
     ax.axhline(sgm_c)
     
-    ax.plot(win, np.abs(fou_alt.real), ".", color="orange", alpha=0.5, markersize=1, label="real")
-    ax.plot(win, np.abs(fou_alt.imag), ".", color="red", alpha=0.5, markersize=1, label="imaginary")
+    ax.plot(win, np.abs(fou_alt.real), ".", color="black", alpha=0.5, markersize=1, label="real")
+    ax.plot(win, np.abs(fou_alt.imag), ".", color="grey", alpha=0.5, markersize=1, label="imaginary")
 
     markerline, stemline, baseline = ax.stem(
         [stimulus_frequency], np.abs(stimulus_frequency_power), "blue", bottom=sgm_c)
