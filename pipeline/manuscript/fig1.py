@@ -187,19 +187,20 @@ def load_data(data_dir: str):
     io_r, nwbfile = nwb_io.read_nwbfile(str(Path(data_dir) / f"{EXPERIMENT}.nwb"))
     modulation_df = nwb_io.build_modulation_frame(nwbfile, good_only=cfg.good)
     fourier_df = nwb_io.read_fourier_results_as_full_fourier_df(nwbfile)
+    group_df, unit_df = nwb_io.read_fourier_group_and_unit_tables(nwbfile)
     io_r.close()
-    return modulation_df, fourier_df
+    return modulation_df, fourier_df, group_df, unit_df
 
 
-def plot_fig1_composite(modulation_df, fourier_df, out_dir: Path):
+def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: Path):
     # Fig1_NPIX_data only reads unitrow.cluster_id (not .ch) -- no NAS-backed
     # cluster_info.tsv lookup needed here, just the cluster id itself.
     unitrow = pd.Series({"cluster_id": CLUSTER_ID})
 
-    mag_allspks, mag_spks, mag_exemplar_fourier, _ = \
-        statistics.Fig1_NPIX_data(modulation_df, MAG_CONTINGENCY, unitrow, MAG_FREQ)
-    vis_allspks, vis_spks, vis_exemplar_fourier, _ = \
-        statistics.Fig1_NPIX_data(modulation_df, VIS_CONTINGENCY, unitrow, VIS_FREQ)
+    mag_allspks, mag_spks, (fou0, fou_alt, ff_alt, exemplar_NFC), _ = \
+        statistics.Fig1_NPIX_data(modulation_df, MAG_CONTINGENCY, unitrow, MAG_FREQ, group_df, unit_df)
+    vis_allspks, vis_spks, (vis_fou0, vis_fou_alt, vis_ff_alt, exemplar_NFC_vis), _ = \
+        statistics.Fig1_NPIX_data(modulation_df, VIS_CONTINGENCY, unitrow, VIS_FREQ, group_df, unit_df)
 
     # Pre-extracted raw-voltage snippets (see fig1_extract_raw_snippets.py) --
     # the only NAS-derived inputs to this figure, cached locally so this
@@ -266,7 +267,6 @@ def plot_fig1_composite(modulation_df, fourier_df, out_dir: Path):
     statistics.plot_phase_colorwheel(wheel_ax, cmap=PHASE_CMAP)
 
     # ── Plot Row 2: Magnetic stimulation (null) ──────────────────────────────
-    (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, exemplar_NFC) = mag_exemplar_fourier
     statistics.plot_spectrum(mag_spectra_ax, fou_alt.flatten(), ff_alt, MAG_FREQ, fou0, legend=False)
     mag_spectra_ax.set_ylabel("Amplitude")
     mag_spectra_ax.set_xlabel("Frequency (Hz)")
@@ -280,8 +280,7 @@ def plot_fig1_composite(modulation_df, fourier_df, out_dir: Path):
     statistics.nestle_labels(mag_dist_ax, x_offset=-0.05, y_offset=-0.05)
 
     # ── Plot Row 3: Visual gratings (positive) ───────────────────────────────
-    (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, exemplar_NFC_vis) = vis_exemplar_fourier
-    statistics.plot_spectrum(vis_spectra_ax, fou_alt.flatten(), ff_alt, VIS_FREQ, fou0, legend=False)
+    statistics.plot_spectrum(vis_spectra_ax, vis_fou_alt.flatten(), vis_ff_alt, VIS_FREQ, vis_fou0, legend=False)
     vis_spectra_ax.set_ylabel("Amplitude")
     vis_spectra_ax.set_xlabel("Frequency (Hz)")
     statistics.boundary_ticks(vis_spectra_ax)
@@ -308,7 +307,7 @@ def plot_fig1_composite(modulation_df, fourier_df, out_dir: Path):
     vis_pvals = 1 - normalized_Fourier_CDF(vis_NFC)
 
     # Plot mag K-S diagnostic: ECDF(x) - x with 95% CI
-    mag_x, mag_lower, mag_upper = bootstrap_ecdf_band(mag_pvals)
+    mag_x, mag_lower, mag_upper = bootstrap_ecdf_band(mag_pvals, alpha=0.05)
     # Empirical ECDF at sorted points
     mag_ecdf = (np.arange(1, len(mag_pvals) + 1)) / len(mag_pvals)
     # K-S deviation: empirical ECDF minus theoretical (uniform) CDF
@@ -319,7 +318,7 @@ def plot_fig1_composite(modulation_df, fourier_df, out_dir: Path):
     ecdf_ax.fill_between(mag_x, mag_ks_lower, mag_ks_upper, color=FP.COLOR_MAG, alpha=FP.ALPHA_CONFIDENCE)
 
     # Plot visual K-S diagnostic: ECDF(x) - x with 95% CI
-    vis_x, vis_lower, vis_upper = bootstrap_ecdf_band(vis_pvals)
+    vis_x, vis_lower, vis_upper = bootstrap_ecdf_band(vis_pvals, alpha=0.05)
     # Empirical ECDF at sorted points
     vis_ecdf = (np.arange(1, len(vis_pvals) + 1)) / len(vis_pvals)
     # K-S deviation: empirical ECDF minus theoretical (uniform) CDF
@@ -400,8 +399,8 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print("Loading NPIX data...")
-    modulation_df, fourier_df = load_data(args.data_dir)
-    plot_fig1_composite(modulation_df, fourier_df, out_dir)
+    modulation_df, fourier_df, group_df, unit_df = load_data(args.data_dir)
+    plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir)
 
 
 if __name__ == "__main__":
