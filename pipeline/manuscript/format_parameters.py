@@ -15,7 +15,7 @@ FS_LEGEND_LG = 10     # larger legend (fig 1)
 FIGSIZE_FIG1 = (8.5, 6)       # composite NPIX + GCaMP + ECDF
 FIGSIZE_FIG2 = (8.5, 6.5)   # excess counts + distributions
 FIGSIZE_FIG3 = (8, 4)       # p/q-value uniformity
-FIGSIZE_FIG4 = (8, 4)     # modulation sensitivity
+FIGSIZE_FIG4 = (11, 8)    # modulation sensitivity (A left / B+C stacked right top band, D full-width below)
 
 # ── File paths ────────────────────────────────────────────────────────────────────
 # Anchored to this file's own location (repo_root/pipeline/manuscript/
