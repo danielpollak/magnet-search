@@ -232,7 +232,11 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     row0_gs = outer_gs[0].subgridspec(1, 3, width_ratios=[CARTOON_WIDTH_RATIO, mag_dur, vis_dur], wspace=0.15)
     cartoon_ax = fig.add_subplot(row0_gs[0, 0])
     mag_raw_ax = fig.add_subplot(row0_gs[0, 1])
-    vis_raw_ax = fig.add_subplot(row0_gs[0, 2])
+    # sharey with mag_raw_ax: both panels are plotted mean-subtracted (not
+    # independently min-max-normalized to [0, 1], which would erase any real
+    # amplitude difference between them) below, so a shared y-axis is what
+    # makes the raw traces honestly comparable.
+    vis_raw_ax = fig.add_subplot(row0_gs[0, 2], sharey=mag_raw_ax)
 
     # ── Rows 2-3: Mag/Vis spectra + distributions + combined ECDF ───────────
     rows12_gs = outer_gs[1:3].subgridspec(2, 6, wspace=0.35, hspace=0.4)
@@ -251,19 +255,33 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     cartoon_ax.set_ylim(0, 1)
     cartoon_ax.axis("off")
 
+    # Mean-subtract only (no per-trace min-max rescaling) so panels B/C's
+    # shared y-axis (see sharey above) reflects each trace's real amplitude
+    # relative to the other, rather than both being independently stretched
+    # to fill [0, 1].
+    mean_subtract = lambda arr: arr - np.mean(arr)
+
     # Mag raw NPIX (null result) -- scale bar shows one stimulus period (1/freq)
     statistics.raw_NPIX(mag_raw_ax, None, mag_spks, None, MAG_WINDOW, MAG_FREQ,
                          label=1 / MAG_FREQ, DX=MAG_DX, trace=mag_trace, spike_sr=MAG_TRACE_SR,
-                         raster_lw=RASTER_LW, phase_cmap=PHASE_CMAP)
+                         raster_lw=RASTER_LW, phase_cmap=PHASE_CMAP, normalize=mean_subtract)
 
     # Visual raw NPIX (positive result) -- same unit, same primitive as the mag panel
     statistics.raw_NPIX(vis_raw_ax, None, vis_spks, None, VIS_WINDOW, VIS_FREQ,
                          label=1 / VIS_FREQ, DX=VIS_DX, trace=vis_trace, spike_sr=VIS_TRACE_SR,
-                         raster_lw=RASTER_LW, phase_cmap=PHASE_CMAP)
+                         raster_lw=RASTER_LW, phase_cmap=PHASE_CMAP, normalize=mean_subtract)
 
-    # Phase colorwheel legend for the phasor arrows above -- tucked into the
-    # cartoon panel's lower-right quadrant, clear of the centered probe label.
-    wheel_ax = cartoon_ax.inset_axes([0.55, 0.15, 0.33, 0.3])
+    # Phase colorwheel legend for the phasor arrows above -- placed in panel
+    # B itself (centered horizontally, below the raw trace/spikes/phasors),
+    # rather than tucked into the cartoon panel, so it reads larger and sits
+    # next to the arrows it's actually decoding. `sharey` ties B/C's ylim
+    # together, so carve out the extra headroom on mag_raw_ax specifically
+    # (vis_raw_ax picks up the same blank range for free, just unused).
+    _ymin, _ymax = mag_raw_ax.get_ylim()
+    _extra = (_ymax - _ymin) * 0.75
+    mag_raw_ax.set_ylim(_ymin - _extra, _ymax)
+    WHEEL_W, WHEEL_H = 0.4, 0.34
+    wheel_ax = mag_raw_ax.inset_axes([0.5 - WHEEL_W / 2, 0.02, WHEEL_W, WHEEL_H])
     statistics.plot_phase_colorwheel(wheel_ax, cmap=PHASE_CMAP)
 
     # ── Plot Row 2: Magnetic stimulation (null) ──────────────────────────────

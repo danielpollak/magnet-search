@@ -1694,7 +1694,8 @@ def normalize_timeseries(arr):
 
 
 def raw_NPIX(raw_NPIX_ax, ldr, spks, unitrow, window, freq, label=0.100, DX=1000, DY=.1,
-             trace=None, spike_sr=None, raster_lw=2, max_phasors=None, phase_cmap="twilight"):
+             trace=None, spike_sr=None, raster_lw=2, max_phasors=None, phase_cmap="twilight",
+             normalize=normalize_timeseries):
     """GENERATE RAW DATA VISUALIZATION WITH PERIODS AND PHASORS
     Parameters
     ----------
@@ -1729,7 +1730,15 @@ def raw_NPIX(raw_NPIX_ax, ldr, spks, unitrow, window, freq, label=0.100, DX=1000
     phase_cmap : str or Colormap, optional
         Cyclic colormap used to color each phasor arrow by its own phase
         (0 to 2*pi) -- pair with `plot_phase_colorwheel` (same `cmap`) to
-        give the reader a legend for what the arrow colors mean."""
+        give the reader a legend for what the arrow colors mean.
+    normalize : callable, optional
+        Applied to `trace` before plotting, default `normalize_timeseries`
+        (per-trace min-max to [0, 1]). The raster/phasor/scale-bar offsets
+        below are all derived from the plotted trace's own min/max, not
+        hardcoded -- so passing e.g. a mean-subtracting normalizer (to let
+        two panels share a real-amplitude y-axis via `sharey`, rather than
+        each being independently min-max-stretched to fill [0, 1]) still
+        places them sensibly regardless of the resulting data range."""
     # Window
     t_on, t_off = window
 
@@ -1738,13 +1747,24 @@ def raw_NPIX(raw_NPIX_ax, ldr, spks, unitrow, window, freq, label=0.100, DX=1000
         spike_sr = ldr.samplingrate(ldr.spikestream())
         # trace = spike_recording.get_traces(start_frame=int(t_on * spike_sr), end_frame=int(t_off * spike_sr), channel_ids=[f"AP{unitrow.ch + 1}"])
         trace = ldr.data(ldr.spikestream())[int(t_on * spike_sr):int(t_off * spike_sr), unitrow.ch]
-    raw_NPIX_ax.plot(normalize_timeseries(trace), "k")
+    plot_trace = normalize(trace)
+    raw_NPIX_ax.plot(plot_trace, "k")
 
     # Set linewidths
     [line.set(linewidth=0.5, color="k") for line in raw_NPIX_ax.get_lines()]
 
+    # Offsets below are all relative to the plotted trace's own range, so
+    # they land in the same place (relative to the trace) regardless of
+    # `normalize` -- for the default normalize_timeseries (range 0-1) these
+    # reduce exactly to the previous hardcoded constants (1.1, -.1, -.3, .1).
+    data_min, data_max = np.min(plot_trace), np.max(plot_trace)
+    data_range = data_max - data_min
+    raster_y = data_max + 0.1 * data_range
+    phasor_y0 = data_min - 0.1 * data_range
+    scalebar_y = data_min - 0.3 * data_range
+
     # Spikes in window
-    subspks=spks[(spks > t_on) & (spks < t_off)] 
+    subspks=spks[(spks > t_on) & (spks < t_off)]
 
     # Get phases
     phases = ((subspks-subspks.values[0]) % (1/freq)) / (1/freq) * (2*np.pi)
@@ -1753,7 +1773,7 @@ def raw_NPIX(raw_NPIX_ax, ldr, spks, unitrow, window, freq, label=0.100, DX=1000
     subspks = subspks * spike_sr
 
     # Plot spike rasters
-    raw_NPIX_ax.eventplot(subspks, linelengths=.1, color="blue", linewidths=raster_lw, lineoffsets= 1.1)
+    raw_NPIX_ax.eventplot(subspks, linelengths=.1 * data_range, color="blue", linewidths=raster_lw, lineoffsets=raster_y)
     raw_NPIX_ax.set_xticklabels(np.round(raw_NPIX_ax.get_xticks(),2))
     raw_NPIX_ax.set_xlabel("")
 
@@ -1765,12 +1785,12 @@ def raw_NPIX(raw_NPIX_ax, ldr, spks, unitrow, window, freq, label=0.100, DX=1000
 
     cmap = cm.get_cmap(phase_cmap)
     for spk, phase in zip(phasor_spks, phasor_phases):
-        dx, dy = DX * np.cos(phase), DY * np.sin(phase),
+        dx, dy = DX * np.cos(phase), DY * data_range * np.sin(phase),
         color = cmap((phase % (2 * np.pi)) / (2 * np.pi))
 
-        raw_NPIX_ax.annotate("", xy=(spk+dx, -.1+dy), xycoords='data', xytext=(spk-dx, -.1-dy),
+        raw_NPIX_ax.annotate("", xy=(spk+dx, phasor_y0+dy), xycoords='data', xytext=(spk-dx, phasor_y0-dy),
                              textcoords='data', arrowprops=dict(facecolor=color, edgecolor=color, arrowstyle="->"))
-        
+
     raw_NPIX_ax.axis("off")
 
     # NPIX Scale bar. `label` is a duration in seconds (e.g. a stimulus
@@ -1778,8 +1798,8 @@ def raw_NPIX(raw_NPIX_ax, ldr, spks, unitrow, window, freq, label=0.100, DX=1000
     # multi-second period (e.g. a slow white-noise cycle) doesn't show as an
     # ungainly 4-digit ms count.
     label_text = f"{label:.3g} s" if label >= 1 else f"{int(round(label * 1000))} ms"
-    raw_NPIX_ax.annotate(label_text, (t_on, -.3+0.05))
-    raw_NPIX_ax.hlines(-.3, t_on, t_on + spike_sr * label, "k")
+    raw_NPIX_ax.annotate(label_text, (t_on, scalebar_y + 0.05 * data_range))
+    raw_NPIX_ax.hlines(scalebar_y, t_on, t_on + spike_sr * label, "k")
 
 
 def plot_phase_colorwheel(wheel_ax, cmap="twilight", size=200, label="phase"):
