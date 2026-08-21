@@ -67,6 +67,60 @@ def split_into_occurrence_waves(all_fourier_df):
     return waves, wave_df_l, pos_control_waves
 
 
+def _add_qval_inset(ax, wave_sorted_qvals, wave_colors, n_inset=50, x0_frac=0.35, margin=0.7):
+    """Add an inset to `ax` (a log-scale sorted-q-value axes) magnifying each
+    wave's first `n_inset` units -- the steep early rise is otherwise
+    compressed into a sliver of pixels against the full (often thousands-
+    long) neuron count. The inset gets its own independent y-limits (plain
+    autoscale on just the first `n_inset` points of each wave) rather than
+    matching the parent axes, so the actual vertical spread at that zoom
+    level is visible rather than stretched across the parent's full range.
+
+    Placement exploits every wave's curve being sorted (monotonic
+    non-decreasing): past some x0, a wave's value only ever increases, so its
+    minimum value for x >= x0 is exactly its value AT x0. A box whose top
+    edge sits at `margin * min-over-waves(value at x0)`, for x >= x0, is
+    therefore *guaranteed* not to intersect any wave's plotted curve -- this
+    is computed from the actual data being plotted, not a placement guess.
+    """
+    if not wave_sorted_qvals:
+        return
+    max_n = max(len(sq) for sq in wave_sorted_qvals)
+    x0 = int(x0_frac * max_n)
+    if x0 <= n_inset:
+        # Panel too small for a clean x0 past the zoomed-in region -- skip
+        # rather than risk the inset box colliding with its own source data.
+        return
+    ceilings = [sq[x0] for sq in wave_sorted_qvals if len(sq) > x0]
+    if not ceilings:
+        return
+    y1 = min(ceilings) * margin
+    if not np.isfinite(y1) or y1 <= 0:
+        return
+
+    ylim_bottom, ylim_top = ax.get_ylim()
+    log_lo, log_hi = np.log10(ylim_bottom), np.log10(ylim_top)
+    y1_frac = np.clip((np.log10(y1) - log_lo) / (log_hi - log_lo), 0.15, 0.85)
+
+    # Bottom offset (0.18, vs. 0.06 for the box's other edges) leaves the
+    # inset's own x-tick labels room to sit above the parent axes' bottom
+    # border -- too little clearance here lets them collide with the parent's
+    # "Neuron" x-axis label just below it.
+    inset_bottom = 0.18
+    inset_top = y1_frac - 0.04
+    if inset_top - inset_bottom < 0.10:
+        return
+    axins = ax.inset_axes([x0_frac + 0.01, inset_bottom, 0.97 - (x0_frac + 0.01), inset_top - inset_bottom])
+    for sq, color in zip(wave_sorted_qvals, wave_colors):
+        n = min(n_inset, len(sq))
+        axins.plot(np.arange(n), sq[:n], ".", color=color, alpha=FP.ALPHA_TRACE, markersize=FP.MS_DATA, rasterized=True)
+    axins.set_yscale("log")
+    # Pad the left edge so points sitting right at x=0 aren't squashed against
+    # the inset's own y-axis spine.
+    axins.set_xlim(-0.05 * n_inset, n_inset)
+    axins.tick_params(labelsize=FP.FS_BODY - 4)
+
+
 def plot_uniform_p(waves, axes, percentile=None, colors=None):
     """`colors`, if given, must have one entry per entry of `waves` (same order,
     before the internal reversal) -- assigns an explicit color per occurrence-wave
@@ -80,6 +134,7 @@ def plot_uniform_p(waves, axes, percentile=None, colors=None):
     if colors is None:
         colors = [None] * len(waves)
     last_n = 0
+    wave_sorted_qvals, wave_colors = [], []
     for wave_df, color in zip(waves[::-1], colors[::-1]):
         if len(wave_df) == 0:
             continue
@@ -93,10 +148,13 @@ def plot_uniform_p(waves, axes, percentile=None, colors=None):
             continue
         qval, pi0 = statistics.storey_qvalues(pval, lambda_=0.5)
         last_n = len(qval)
+        sq = np.sort(qval)
+        wave_sorted_qvals.append(sq)
+        wave_colors.append(color)
 
         axes[0].plot(np.sort(pval), ".", color=color, alpha=FP.ALPHA_TRACE, markersize=FP.MS_DATA, rasterized=True)
         x, lower, upper = bootstrap_ecdf_band(pval)
-        axes[1].plot(np.sort(qval), ".", color=color, alpha=FP.ALPHA_TRACE, markersize=FP.MS_DATA, rasterized=True)
+        axes[1].plot(sq, ".", color=color, alpha=FP.ALPHA_TRACE, markersize=FP.MS_DATA, rasterized=True)
 
     statistics.nestle_labels(axes[0], x_offset=-0.05, y=False)
     statistics.nestle_labels(axes[1], x_offset=-0.05, y=False)
@@ -112,6 +170,8 @@ def plot_uniform_p(waves, axes, percentile=None, colors=None):
     # show the interesting range instead of stretching to whatever the
     # smallest underflowed point happens to be.
     axes[1].set_ylim(bottom=1e-8)
+
+    _add_qval_inset(axes[1], wave_sorted_qvals, wave_colors)
 
 
 def plot_fig3(all_fourier_df, out_dir: Path):
