@@ -34,6 +34,7 @@ This repository contains the complete analysis pipeline for the MagnetSearch col
 - Unified pipeline across multiple recording modalities (Neuropixel, OpenEphys, suite2p)
 - Support for 7+ species: mouse, zebra finch, pigeon, quail, owl, zebrafish, medaka
 - YAML-based experiment configuration for reproducibility
+- A single [NWB](https://www.nwb.org/) file per experiment holding both the processed recording and the appended analysis results — no per-stage pickle files
 - Automated quality control and false discovery rate correction
 - Publication figures with sensitivity analysis
 
@@ -60,13 +61,16 @@ python pipeline/processing.py --help
 
 ### Regenerating Figures (for Manuscript Readers)
 
-If you just want to regenerate the manuscript figures:
+If you just want to regenerate the manuscript figures, you don't need the raw data or the processing/analysis stages — just the per-experiment NWB files.
 
 #### Prerequisites
-Download the analysis pickle files from CaltechDATA (DOI: [INSERT DOI]):
+
+Download the experiment NWB files (see [Data Access](#data-access) below) and place them in `data/`:
 ```bash
-# Download all *_analysis.pickle files and place in data/ directory
-# Also download precomputed/ folder (mouse and owl pickles)
+# data/{name}.nwb for every experiment (one file per experiment; each already
+# contains both the processed recording and its analysis results)
+# data/precomputed/mouse_analysis.pickle and owl_analysis.pickle (these two
+# species can't be re-processed from raw data -- see Data Access)
 ```
 
 #### Generate Figures
@@ -74,14 +78,14 @@ Download the analysis pickle files from CaltechDATA (DOI: [INSERT DOI]):
 ```bash
 # From the repo root directory (magneto2 conda env):
 
-# Aggregate all analysis pickles into a single parquet
+# Aggregate every data/{name}.nwb + data/precomputed/*.pickle into a single parquet
 python pipeline/aggregate.py
 
 # Generate manuscript figures
-python pipeline/manuscript/fig1.py    # Exemplar NPIX + GCaMP + p-value diagnostics
-python pipeline/manuscript/fig2.py    # P-value and q-value uniformity
-python pipeline/manuscript/fig3.py    # Excess-count barplots and NFC distributions
-python pipeline/manuscript/fig4.py    # Modulation sensitivity simulation
+python pipeline/manuscript/fig1.py    # Exemplar NPIX unit + GCaMP cell
+python pipeline/manuscript/fig2.py    # Excess-count barplots + NFC distributions
+python pipeline/manuscript/fig3.py    # P-value and q-value uniformity
+python pipeline/manuscript/fig4.py    # Modulation-detectability simulation (pigeon-HP pseudopopulation)
 ```
 
 Output figures: `figs/paper/Fig1.pdf`, `Fig2.pdf`, `Fig3.pdf`, `Fig4.pdf`
@@ -94,9 +98,11 @@ Output figures: `figs/paper/Fig1.pdf`, `Fig2.pdf`, `Fig3.pdf`, `Fig4.pdf`
 raw data → processing → analysis → aggregate → manuscript figures
 ```
 
+Every experiment's outputs live in a single `data/{name}.nwb` file — there are no per-experiment pickles. Processing and analysis are two separate CLI runs that both write into that same file (see [NWB File Structure](#nwb-file-structure) below for exactly what each stage adds).
+
 ### Stage 1: Processing
 
-Convert raw neural data to spike/fluorescence modulation DataFrame:
+Read raw recording data and write the `Units`/`stimulus_epochs` tables (electrophysiology) or `PlaneSegmentation`/`RoiResponseSeries` (2-photon imaging) into `data/{name}.nwb`:
 
 ```bash
 # Single experiment
@@ -112,37 +118,13 @@ python pipeline/processing.py --all --filter 2023      # pigeon only (2023 sessi
 python pipeline/processing.py --all --filter Q         # quail only
 ```
 
-**Output:** `data/{name}_processing.pickle`
+**Output:** `data/{name}.nwb` (created)
 
-#### Processing pickle contents
-
-`data/{name}_processing.pickle` is a pandas DataFrame (`modulation_df`) with one row per spike (electrophysiology) or one row per imaging frame (GCaMP), containing:
-
-| Column | Description |
-|---|---|
-| `period` | Integer index of which stimulus cycle the spike/frame fell in |
-| `spk` | Spike time in seconds |
-| `phase` | Phase within the stimulus cycle (0–2π radians) |
-| `freq` | Stimulus frequency in Hz |
-| `id` | Unit or cluster ID |
-| `rec` | Recording name; in multi-stimulus sessions encodes stimulus type and orientation (e.g. `recname_Mag`, `recname_45` for 45° gratings) |
-
-**Per-paradigm details:**
-
-- **`openephys`** — Standard columns above. One row per spike from Kilosort-sorted units during magnetic stimulation. Only spikes within the concatenated recording window are included; spike times are relative to the start of each recording segment.
-
-- **`openephys_multistim`** — Same as `openephys`, but `modulation_df` is the vertical concatenation of magnetic trials and all auxiliary stimulus blocks (visual gratings, white noise, oddball, visual bars). The `rec` column encodes both the recording name and stimulus identity (e.g. `20230413_Mag_Rec` for magnetic trials, `20230413_visual_90` for 90° gratings, `20230413_WN` for white noise). Each auxiliary block uses its own stimulus frequency in `freq`.
-
-- **`gutfreund`** — Standard columns plus `spk_samples` (spike time in raw AP samples), `label` (Kilosort quality label), and `recname` (basename of the data folder). Only spikes that fall within the last detected magnet-on TTL window are retained.
-
-- **`spikeglx_direct`** — Standard columns. Phase and period are derived by linearly interpolating within each threshold-crossing interval of the smoothed NIDAQ magnetic channel.
-
-- **`engert` / `medaka`** — No processing pickle; these paradigms skip the processing stage entirely because suite2p outputs are pre-computed. Run `pipeline/analysis.py` directly.
-
+`engert`/`medaka` (suite2p imaging) read the raw `F.npy`/`stat.npy`/`iscell.npy`/`ops.npy` files exactly once here and write *all* ROIs, unfiltered — `iscell_threshold`/`npix_threshold` filtering happens at analysis time instead, so tuning those thresholds only requires re-running analysis, not reprocessing. `mouse` and `owl` have no processing stage at all (see [Data Access](#data-access)); `manual` paradigms are skipped with a warning.
 
 ### Stage 2: Analysis
 
-Perform Fourier spectral analysis and build analysis DataFrames:
+Read `data/{name}.nwb` back, run the Fourier significance test (`fit_fourier_sig()` for ephys, `fit_Fourier()` for imaging), and append the results into the *same* NWB file:
 
 ```bash
 # Single experiment
@@ -155,11 +137,11 @@ python pipeline/analysis.py --all --workers 4
 python pipeline/analysis.py --all --filter engert --workers 8
 ```
 
-**Output:** `data/{name}_analysis.pickle` + diagnostic PDFs in `figs/analysis/`
+**Output:** `data/{name}.nwb` (appended — adds a `processing["analysis"]` module) + diagnostic PDFs in `figs/analysis/`
 
 ### Stage 3: Aggregate
 
-Combine all analysis pickles + precomputed species into a single parquet:
+Combine every `data/{name}.nwb` file's analysis tables with the precomputed mouse/owl DataFrames into a single parquet:
 
 ```bash
 python pipeline/aggregate.py
@@ -169,33 +151,93 @@ python pipeline/aggregate.py
 
 ### Stage 4: Manuscript Figures
 
-Generate publication figures (run aggregate.py first):
+Generate publication figures (run `aggregate.py` first):
 
 ```bash
 python pipeline/manuscript/fig1.py
 python pipeline/manuscript/fig2.py
 python pipeline/manuscript/fig3.py
-python pipeline/manuscript/fig4.py --recompute  # --recompute to force re-simulation
+python pipeline/manuscript/fig4.py --recompute  # --recompute to force re-simulation; --workers N to parallelize the sweep
 ```
 
 **Output:** `figs/paper/Fig*.pdf`
 
+## NWB File Structure
+
+Every experiment has exactly one `data/{name}.nwb` file, and it is genuinely shared by both pipeline stages: `processing.py` creates it with the raw/processed recording containers, and `analysis.py` reopens that *same* file, adds a `processing["analysis"]` module with the Fourier results, and writes the whole thing back out — there's no separate "analysis file." (Internally this is a read → export-to-temp → `os.replace` cycle, not an in-place append, since HDMF can't resize existing datasets on a second open.)
+
+The read/write logic lives in `pipeline/nwb_io.py`; `build_modulation_frame()` and `read_fourier_results_as_full_fourier_df()` reconstruct the old pickle-era `modulation_df`/`full_fourier_df` shapes on demand from these tables — nothing below is stored as those flat DataFrames anymore.
+
+### Electrophysiology: `Units` + `stimulus_epochs`
+
+**`nwbfile.units`** — one row per Kilosort cluster, for *every* cluster (not just `good` ones; filtering happens at analysis/read time via `kilosort_label`):
+
+| Column | Meaning |
+|---|---|
+| `spike_times` | Spike times, seconds (standard NWB Units column) |
+| `kilosort_label` | `"good"` / `"mua"` / `"noise"` / `""` |
+| `channel` | Probe channel (NaN if unknown) |
+| `cluster_id` | Original Kilosort cluster id (unique only within `rec` when `rec` is non-empty) |
+| `rec` | `""` = shared/concatenated across every recording in the file; a real rec name = this unit's sorting is local to just that one recording (e.g. gutfreund) |
+
+**`nwbfile.intervals["stimulus_epochs"]`** — one row per stimulus epoch/recording block:
+
+| Column | Meaning |
+|---|---|
+| `rec` | Recording/trial-block name — joins against `Units.rec` |
+| `stim_type` | `magnetic` \| `visual_gratings` \| `white_noise` \| `oddball[_long_on/off/both]` \| `visual_bars` |
+| `frequency` | Stimulus frequency, Hz |
+| `orientation_deg`, `skips` | Grating orientation / leading crossings skipped (NaN/0 if n/a) |
+| `local_offset_seconds` | Offset subtracted from `Units.spike_times` to recover the legacy recording-local spike time convention |
+| `period_crossings` (ragged) | Schmitt-trigger crossing times, seconds |
+| `phase_method` | How period/phase are derived — see below |
+| `period_frequency`, `min_spikes_on_full_session`, `truncate_spike_samples`, `period_crossing_inclusive`, `gratings_group` | Paradigm-specific bug-compat flags (see `pipeline/nwb_io.py` docstrings for exact semantics) |
+| `window_starts`/`window_stops`/`window_offsets`, `phase_anchors`, `synthetic_period_markers` (ragged) | Only present for `"stitched_*"` epochs — describe how disjoint real windows are re-indexed onto one synthetic timeline |
+
+`phase_method` controls which formula reconstructs `period`/`phase` for that epoch: `"crossings"` (real Schmitt-trigger sample crossings — openephys, spikeglx_direct), `"arithmetic"` (continuous floor/modulo on float seconds — gutfreund, single-window white noise), `"gratings"` (openephys_multistim visual gratings, with a separate wider phase-crossings marker array), `"stitched_floor"`/`"stitched_crossings_unnorm"` (multi-window white noise and oddball, spikes re-indexed onto a synthetic timeline first).
+
+### Imaging (engert/medaka): `PlaneSegmentation` + `RoiResponseSeries`
+
+**`nwbfile.processing["ophys"]["ImageSegmentation"]["PlaneSegmentation"]`** — every suite2p ROI, unfiltered:
+
+| Column | Meaning |
+|---|---|
+| `p_iscell` | suite2p classifier probability (`iscell.npy` column 1) |
+| `npix` | ROI pixel count |
+| `x`, `y` | ROI centroid |
+| `pixel_mask` | `(x, y, weight)` triples from suite2p's ROI mask |
+
+**`nwbfile.processing["ophys"]["Fluorescence"]["RoiResponseSeries"]`** — suite2p's `F.npy` fluorescence traces for all ROIs, `(n_frames, n_rois)`, `rate` = imaging sampling rate. There is no per-unit epochs table analog here — imaging analysis calls `fit_Fourier()` directly on the frame-indexed traces rather than reconstructing period/phase.
+
+### Analysis results: `nwbfile.processing["analysis"]`
+
+Written by both the ephys and imaging analysis paths into the same three tables (safe to re-run; existing rows are rebuilt, not duplicated):
+
+- **`null_distribution_models`** — one row per distinct `Q` (off-frequency bin count) used anywhere in the file: `Q`, `eps` (the finite-`Q` correction factor), and the corrected null PDF/CDF grids (`support_r`, `pdf_corrected`, `cdf_corrected`).
+- **`fourier_group_results`** — one row per `(rec, freq, harmonic)` group analyzed: `rec`, `frequency`, `harmonic` (`"1F"`/`"2F"`), `Q`, `T` (duration, s), `C` (unit/cell count), `ff_alt` (off-frequencies analyzed).
+- **`per_unit_fourier_results`** — one row per unit per group: `group_1f_index`/`group_2f_index` (row into `fourier_group_results`, `-1` if no paired 2F group), `unit_id`, `p_value`, `NFC`, `2f_NFC`, `2f_p_value`, `sens`, `sens_2f`, `fou0_real`/`fou0_imag`, `fou_alt_real`/`fou_alt_imag`, `sigma`. Ephys rows also carry `spk_count`; imaging rows carry `n_frames` instead (never both).
+
+`read_fourier_results_as_full_fourier_df()` joins these three tables back into the flat per-unit shape `aggregate.py` consumes (columns `id, p_value, NFC, freq, rec, 2f_NFC, 2f_p_value, sens, sens_2f, Q, Q_2f, spk_count/n_frames`).
+
+### Other bookkeeping
+
+`nwbfile.scratch["sampling_rate"]` (ephys) and `nwbfile.scratch["imaging_dims"]` (imaging) hold values needed to round-trip seconds back to integer sample/pixel indices; `nwbfile.subject` carries `subject_id`/`species` when set. `Units.spike_times` and `RoiResponseSeries.data` are gzip-compressed on write.
+
 ## Data Access
 
-### Analysis Pickles (For Regenerating Figures)
+### Experiment NWB files
 
-Download from CaltechDATA [INSERT DOI]:
-- `data/*_analysis.pickle` — processed analysis DataFrames for all experiments
-- `data/precomputed/mouse_analysis.pickle` — KyuHyunLee mouse recordings
-- `data/precomputed/owl_analysis.pickle` — Gutfreund barn owl recordings
+`data/*.nwb` is not committed to git — these files are fully regenerable from raw data via `pipeline/processing.py` + `pipeline/analysis.py`, and HDF5/NWB binaries don't delta-compress well between versions, so tracking every re-run would permanently bloat the repository. They (and `data/manuscript/all_fourier_df.parquet`, which is derived entirely from them) are instead distributed via a GitHub Release — see the repository's Releases page, or [INSERT CaltechDATA DOI] once published.
 
-### Processing Pickles (For Re-Analysis)
+Each `{name}.nwb` file is self-contained: it holds both the processed recording (`Units`/`stimulus_epochs` or `PlaneSegmentation`/`RoiResponseSeries`) and, once analysis has run, the appended Fourier results (`processing["analysis"]`) — see [NWB File Structure](#nwb-file-structure) above.
 
-Download from CaltechDATA [INSERT DOI]:
-- `data/*_processing.pickle` — intermediate spike/fluorescence modulation data
-- `data/MM_*.pickle` — diagnostic modulation matrices (OpenEphys only)
+### Precomputed pickles (mouse and owl only)
 
-**Note:** Processing pickles are large (2.3 GB total). Only download if you plan to re-run analysis with modified parameters.
+Two pickle files remain in active use, for the two species that can't be re-processed from raw data through this pipeline:
+- `data/precomputed/mouse_analysis.pickle` — KyuHyunLee mouse recordings (Intan RHD `.mat` format)
+- `data/precomputed/owl_analysis.pickle` — Gutfreund barn owl recordings (pre-computed Bayesian coefficients)
+
+`pipeline/aggregate.py` loads these directly alongside the `.nwb`-derived DataFrames. (A legacy fallback also lets `aggregate.py` pick up a stale `{name}_analysis.pickle` left over from before the NWB migration if an experiment has no `.nwb` at all yet, but no current paradigm writes that file format.)
 
 ### Raw Data
 
@@ -235,19 +277,21 @@ See [.claude/CLAUDE.md](.claude/CLAUDE.md) for detailed field semantics.
 
 ## Verification
 
-Verify new outputs against original MagnetSearch/data/ pickles:
+Compare current NWB outputs against the frozen original pickle-era fixtures in `MagnetSearch/data/` (permanently archived):
 
 ```bash
 python verify_outputs.py                        # all experiments
-python verify_outputs.py 20230413_firstsite     # one experiment
-python verify_outputs.py --stage processing --experiments 20220916 20230415
+python verify_outputs.py 20230413_firstsite     # one (or more) experiments, by name
 ```
 
 Expected results:
 - **PASS** — DataFrames match exactly (column order and dtypes ignored)
-- **STALE_OLD** — Analysis differs from old pickle, but `fit_fourier_sig()` on old modulation_df yields new result (acceptable; algorithm evolved)
-- **STALE_SEMANTICS** — Analysis differs from old pickle because `Q` was redefined (raw off-frequency bin count → fraction of the analyzed frequency); reconciles under the current `Q_frac` config (acceptable, expected for every old fixture)
+- **DRIFT_TOLERATED** — matches within a small float tolerance (HDF5 round-trip, not a logic bug)
+- **STALE_OLD** — Analysis differs from the old fixture, but re-running `fit_fourier_sig()` on the *old* modulation_df reproduces the current NWB result (acceptable — the algorithm evolved since the fixture was generated)
+- **STALE_SEMANTICS** — Same reconciliation as STALE_OLD, but because `Q` was redefined (raw off-frequency bin count → fraction of the analyzed frequency); expect this on essentially every NPIX analysis row, since every old fixture predates that redefinition
 - **FAIL** — Genuine mismatch (investigate)
+
+`engert`/`medaka` have no old fixture at all (there was no processing stage before the NWB migration); for those, verification instead re-runs the analysis computation independently and diffs it against what's actually persisted in the NWB file, as a serialization-fidelity check.
 
 ## Project Structure
 
@@ -257,7 +301,8 @@ Expected results:
 ├── pipeline/
 │   ├── processing.py                  # Processing stage CLI
 │   ├── analysis.py                    # Analysis stage CLI
-│   ├── aggregate.py                   # Combine pickles → parquet
+│   ├── aggregate.py                   # Combine {name}.nwb + precomputed/ → parquet
+│   ├── nwb_io.py                      # NWB read/write library (see NWB File Structure)
 │   ├── schema.py                      # YAML config dataclasses
 │   ├── dispatch.py                    # Paradigm routing
 │   ├── paradigms/                     # Recording modality handlers
@@ -265,16 +310,16 @@ Expected results:
 │   ├── diagnostics/                   # Diagnostic figure generation
 │   └── manuscript/
 │       ├── fig1.py                    # Exemplar NPIX + GCaMP
-│       ├── fig2.py                    # P/q-value uniformity
-│       ├── fig3.py                    # Excess-count barplots
-│       └── fig4.py                    # Sensitivity simulation
+│       ├── fig2.py                    # Excess-count barplots + NFC distributions
+│       ├── fig3.py                    # P/q-value uniformity
+│       └── fig4.py                    # Modulation-detectability simulation
 ├── experiments/                       # YAML experiment configs
 ├── data/
-│   ├── *_processing.pickle            # (generated) Processing outputs
-│   ├── *_analysis.pickle              # (generated) Analysis outputs
-│   ├── precomputed/                   # (download) Mouse/owl pickles
+│   ├── *.nwb                          # (generated/downloaded) Per-experiment processed data + analysis results
+│   ├── precomputed/                   # (download) Mouse/owl pickles — not re-processable
 │   └── manuscript/
-│       └── all_fourier_df.parquet     # (generated) Aggregated data
+│       ├── all_fourier_df.parquet     # (generated) Aggregated data
+│       └── *.pkl                      # (generated) Cached figure-simulation intermediates (e.g. Fig4's sweeps)
 ├── figs/
 │   ├── analysis/                      # (generated) Diagnostic PDFs
 │   ├── processing/                    # (generated) Processing diagnostics
@@ -285,32 +330,35 @@ Expected results:
 
 ## Key Concepts
 
-### Normalized Fourier Response (NFR)
+### Normalized Fourier Coefficient (NFC)
 
 The primary test statistic for detecting neural modulation:
 
 $$\hat{c} = \frac{|c_s|}{\hat{\sigma}}$$
 
-where $c_s$ is the Fourier coefficient at stimulus frequency and $\hat{\sigma}$ is the RMS of coefficients at nearby frequencies.
+where $c_s$ is the Fourier coefficient at the stimulus frequency and $\hat{\sigma}$ is the RMS of coefficients at nearby off-frequencies.
 
 Under the null hypothesis (no modulation), $\hat{c}$ follows the Rayleigh distribution:
 $$P_0(\hat{c}) = \hat{c} \exp(-\frac{1}{2}\hat{c}^2)$$
 
+In practice this null is evaluated with a finite-sample correction factor `eps` (derived from `Q`, the number of off-frequency bins used to estimate $\hat{\sigma}$) rather than the plain Rayleigh formula above — every p-value/q-value/threshold computation in the pipeline uses this eps-corrected null distribution. See `magpyneto2.statistics.get_epsilon`/`normalized_Fourier_PDF_corrected`.
+
 ### P-Values and Q-Values
 
-- **p-value**: Probability of observing $\hat{c}$ ≥ measured value under null hypothesis
+- **p-value**: Probability of observing $\hat{c}$ ≥ the measured value under the (eps-corrected) null hypothesis
 - **q-value**: False discovery rate (Storey's method) — minimum FDR threshold at which this measurement is significant
 
 ### Suspects and Excess Suspects
 
-- **Suspect**: neuron with p-value < 0.01 (NFR above 99th percentile of null)
-- **Excess suspects**: session where observed suspect count exceeds 95% CI of binomial null
+- **Suspect**: neuron with p-value < 0.01 (NFC above the eps-corrected null's 99th percentile)
+- **Excess suspects**: session where the observed suspect count exceeds the 95% CI of the binomial null on that count
 
 ## Requirements
 
 - Python 3.8+
 - `magpyneto2` library (magnetic processing and statistics)
 - `ephysio` library (OpenEphys I/O)
+- `pynwb` / `hdmf` (NWB file read/write)
 - Standard scientific stack: numpy, pandas, scipy, matplotlib
 - `ecdfbounds` for confidence bands in p-value plots
 
