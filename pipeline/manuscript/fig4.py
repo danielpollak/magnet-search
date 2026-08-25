@@ -1,15 +1,24 @@
-"""Fig 4 — modulation strength vs excess suspects, firing rate, and q-value
-responder counts.
+"""Fig 4 — modulation strength vs firing rate and q-value responder counts.
 
 Pools a pigeon-HP "pseudopopulation" -- real ("mag" contingency) spike
 trains from every experiment YAML with species=="Pigeon" and area=="HP" --
 then synthetically modulates the pooled units to show detection thresholds.
 Pooling this way (instead of a single recording) keeps Fig4's population
 consistent with the "Pigeon HP" population Fig2/Fig3 already report on.
-Panel C ports fig4_pilot.py's Storey q-value/FDR responder-count heatmap
-onto this SAME full pseudopopulation (no percentile subsampling -- pilot's
-own >=90th-percentile-sensitivity subsampling was pilot-only scaffolding;
-kept broad here for consistency with the other panels).
+Panel B ports fig4_pilot.py's Storey q-value/FDR responder-count heatmap
+onto this file's full pseudopopulation. Panel C repeats that exact
+analysis restricted to the top decile (>=90th percentile) by a synthetic-
+baseline sensitivity proxy (spk_count/T/2/sigma, computed at this file's
+own simulation frequency/Q -- see compute_sensitivity) -- deliberately NOT
+the REAL per-unit sens column in data/manuscript/all_fourier_df.parquet
+that fig4_pilot.py itself used to select its own (single, subsampled)
+population, so this file's population stays fully self-contained from
+local NWBs with no aggregate.py/parquet dependency. Panel D (FR vs NFC
+scatter) marks those same top-decile-sensitivity units with a black
+outline. The old excess-suspects-vs-modulation-amplitude panel (formerly
+"B", a single % modulated slice) was dropped once panel B's 2D amplitude x
+participation sweep made it a strict generalization -- every "% modulated"
+line the old panel plotted is one row of panel B's grid.
 
 Requires:
   data/{experiment}.nwb for every discovered pigeon-HP experiment
@@ -69,23 +78,47 @@ _EXPERIMENTS_DIR = _REPO_ROOT / "experiments"
 # single-recording cache filenames (modulation_strength_vs_excess_count.pkl /
 # modulation_strength_vs_FR.pkl) so a stale single-session cache can never be
 # silently reused now that the population is pooled across experiments. The
-# old files, if present, are simply orphaned -- harmless, untracked.
-CI_DF_CACHE   = _REPO_ROOT / "data" / "manuscript" / "modulation_strength_vs_excess_count_pigeon_hp_pseudopop.pkl"
-FR_DF_CACHE   = _REPO_ROOT / "data" / "manuscript" / "modulation_strength_vs_FR_pigeon_hp_pseudopop.pkl"
-RESP_DF_CACHE = _REPO_ROOT / "data" / "manuscript" / "qvalue_responder_df_pigeon_hp_pseudopop.pkl"
+# old files, if present, are simply orphaned -- harmless, untracked. (The
+# excess-count cache itself -- CI_DF_CACHE -- was dropped along with the
+# panel it fed; qvalue_responder_df_pigeon_hp_pseudopop.pkl, if a stale copy
+# lingers, is unaffected.) FR_DF_CACHE additionally carries a "_v3" suffix:
+# compute_fr_df's FR values have changed meaning twice now -- v2 normalized
+# by each unit's own experiment's mag-trial window T; v3 (current) instead
+# bounds T by each unit's own first-to-last-spike span, a strictly tighter
+# per-unit bound -- so any older _pigeon_hp_pseudopop.pkl / "_v2".pkl left
+# on disk is stale and must not be silently reloaded.
+FR_DF_CACHE   = _REPO_ROOT / "data" / "manuscript" / "modulation_strength_vs_FR_pigeon_hp_pseudopop_v3.pkl"
+# "_lineargrid" suffix: AMPLITUDES_RESP/PARTICIPATION_RESP went through a
+# log-spaced detour (several different ranges) before settling back on a
+# plain linear arange -- any older qvalue_responder_df*.pkl (any "_log*"
+# suffix) holds responder counts indexed by one of those OLD grids and must
+# not be silently reloaded as if it matched the current one.
+RESP_DF_CACHE = _REPO_ROOT / "data" / "manuscript" / "qvalue_responder_df_pigeon_hp_pseudopop_lineargrid.pkl"
+RESP_DF_TOP_DECILE_CACHE = _REPO_ROOT / "data" / "manuscript" / "qvalue_responder_df_pigeon_hp_pseudopop_top_decile_lineargrid.pkl"
+
+SENSITIVITY_PERCENTILE = 90.0  # panel C / panel D outline: top decile by compute_sensitivity
 
 FREQ        = 5
-A_L         = np.linspace(0, 0.3, num=11)
-PERCENTAGES = np.linspace(0, 1, num=5)
 
-# Panel C (ported from fig4_pilot.py) sweep grids -- matches Markus Meister's
-# MM_Analysis_3.ipynb notebook's own grids (finer/wider than A_L/PERCENTAGES
-# above, which is panel B's own coarser sweep). Named "_RESP" (for the
-# responder-count sweep computed below), not "_C" -- the panel letters this
-# maps to are a display choice made once, in plot_fig4, not baked into
+# Panel B (ported from fig4_pilot.py) sweep grids -- matches Markus Meister's
+# MM_Analysis_3.ipynb notebook's own grids. Named "_RESP" (for the
+# responder-count sweep computed below), not "_B" -- the panel letter this
+# maps to is a display choice made once, in plot_fig4, not baked into
 # identifiers here.
-AMPLITUDES_RESP    = np.arange(0.1, 1.01, 0.1)   # amplitude=0.0 (baseline) handled separately
-PARTICIPATION_RESP = np.arange(0.0, 1.01, 0.1)
+#
+# Linear grid, 0.0 through 0.9 (np.arange's stop is exclusive, so this
+# does NOT include 1.0) -- reverted back to this after a log-spaced detour
+# (logspace(-2,0), then logspace(-1.2,0)) meant to reveal more of the
+# detectability contour's shape near small amplitude/participation values;
+# on balance this plain linear grid read better. Unlike the previous
+# linear grid this file had (AMPLITUDES_RESP starting at 0.1, with
+# amplitude=0.0 handled as a separate baseline case -- see
+# compute_responder_df), AMPLITUDES_RESP now includes 0.0 directly, so
+# compute_responder_df's own amplitude=0.0 baseline-row shortcut skips
+# building a redundant (and pivot()-breaking, since it'd duplicate the
+# (participation, amplitude) index) task for amplitude==0.0 explicitly.
+AMPLITUDES_RESP    = np.arange(0, 1, 0.1)
+PARTICIPATION_RESP = np.arange(0, 1, 0.1)
 QVALUE_FDR         = 0.05
 
 
@@ -203,16 +236,16 @@ def fourier_Q_from_frac(spks, freq, Q_frac, context=""):
 # ---------------------------------------------------------------------------
 # Parallel sweep machinery.
 #
-# Every grid cell below (one (percent, A) pair for panel B, one A for panel
-# D, one (participation, amplitude) pair for panel C) is an independent call
-# to statistics.fourier_analysis over the SAME pooled `spks` -- embarrassingly
-# parallel. _init_worker stashes the shared, possibly-large `spks` list once
-# per worker process (via Pool's initializer) instead of re-pickling it into
-# every task, and the worker functions below read it back out of that
-# per-process global. With --workers 1 (the default) _run_parallel skips
-# Pool entirely and calls _init_worker/the worker function directly in this
-# process, so the single- and multi-process code paths share one
-# implementation of each sweep's actual math.
+# Every grid cell below (one A for panel C, one (participation, amplitude)
+# pair for panel B) is an independent call to statistics.fourier_analysis
+# over the SAME pooled `spks` -- embarrassingly parallel. _init_worker
+# stashes the shared, possibly-large `spks` list once per worker process
+# (via Pool's initializer) instead of re-pickling it into every task, and
+# the worker functions below read it back out of that per-process global.
+# With --workers 1 (the default) _run_parallel skips Pool entirely and calls
+# _init_worker/the worker function directly in this process, so the single-
+# and multi-process code paths share one implementation of each sweep's
+# actual math.
 # ---------------------------------------------------------------------------
 _worker_state = {}
 
@@ -232,37 +265,6 @@ def _run_parallel(tasks, worker_fn, spks, freq, Q, workers, desc=""):
         return list(tqdm.tqdm(pool.imap(worker_fn, tasks), total=len(tasks), desc=desc))
 
 
-def _ci_cell(task):
-    percent_i, percent, A = task
-    spks = _worker_state["spks"]
-    freq = _worker_state["freq"]
-    Q = _worker_state["Q"]
-    eps = _worker_state["eps"]
-
-    modulated = [None] * len(spks)
-    for spk_i, spkt in enumerate(spks):
-        if spk_i % len(PERCENTAGES) < percent_i:
-            modulated[spk_i] = statistics.warp_mod(spkt, A, 1 / freq, 0)
-        else:
-            modulated[spk_i] = spkt
-    (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, NFCs) = \
-        statistics.fourier_analysis(modulated, freq, Q=Q)
-    n_empirical, f_expected, l_bound, h_bound = \
-        statistics.suspect_count_significance(NFCs, 0.99, conf_int_α=0.05, eps=eps)
-    return {"mod": A, "ci": (l_bound, h_bound), "mid": n_empirical, "%": percent}
-
-
-def compute_ci_df(spks, FOURIER_Q, workers=1):
-    tasks = [
-        (percent_i, percent, A)
-        for percent_i, percent in enumerate(PERCENTAGES)
-        for A in A_L
-    ]
-    rows = _run_parallel(tasks, _ci_cell, spks, FREQ, FOURIER_Q, workers,
-                          desc=f"excess-count sweep ({len(tasks)} cells)")
-    return pd.DataFrame(rows)
-
-
 def _fr_cell(task):
     (A,) = task
     spks = _worker_state["spks"]
@@ -275,7 +277,16 @@ def _fr_cell(task):
 
 
 def compute_fr_df(spks, FOURIER_Q, workers=1):
-    T = statistics.latesttime(spks) - statistics.earliesttime(spks)
+    """Each unit's firing rate is its own spike count divided by its own
+    first-to-last-spike span (`spkt.max() - spkt.min()`) -- bounded per
+    unit, not by an experiment-wide or pooled-population-wide window. A
+    unit's real observation window (a mag-trial epoch, or several pooled
+    together) is generally longer than the interval between its own first
+    and last spike, so this is a strictly tighter (smaller) T than either
+    of those alternatives -- it can only push a unit's displayed FR up,
+    never down, relative to a window-based T, which is the direction that
+    shrinks the low-FR pileup this was tuned to address.
+    """
     tasks = [(A,) for A in [0, 0.3, 0.6]]
     results = _run_parallel(tasks, _fr_cell, spks, FREQ, FOURIER_Q, workers,
                              desc=f"FR vs NFC ({len(tasks)} cells)")
@@ -283,11 +294,30 @@ def compute_fr_df(spks, FOURIER_Q, workers=1):
     for A, NFCs in results:
         rows.append(pd.DataFrame({
             "mod": A,
-            "FR": [len(spkt) / T for spkt in spks],
+            "FR": [len(spkt) / (spkt.max() - spkt.min()) for spkt in spks],
             "NFC": NFCs,
             "id": np.arange(len(spks)),
         }))
     return pd.concat(rows)
+
+
+def compute_sensitivity(spks, FOURIER_Q, freq=FREQ):
+    """Per-unit detectability proxy (spk_count / T / 2 / sigma) from a
+    baseline (unmodulated) Fourier pass at this simulation's own freq/Q --
+    the same formula compute_responder_df already computes internally to
+    rank/pool units for its participation sweep, factored out here so
+    "top decile of sensitive neurons" (panel C's reduced population, panel
+    D's black-outlined scatter points) is defined the same way, from one
+    shared per-unit ranking. This is a synthetic-baseline metric, NOT the
+    REAL per-unit sens column in data/manuscript/all_fourier_df.parquet
+    that fig4_pilot.py used to select its own population (computed at the
+    real magnetic stimulus frequency) -- reusing that would pull in an
+    aggregate.py/parquet dependency this file otherwise doesn't have.
+    """
+    (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, NFC0) = \
+        statistics.fourier_analysis(spks, freq, Q=FOURIER_Q)
+    sigma = statistics.get_sgm(fou_alt_c)
+    return spk_count / T / 2 / sigma
 
 
 def _responder_cell(task):
@@ -343,6 +373,15 @@ def compute_responder_df(spks, FOURIER_Q, workers=1, freq=FREQ):
         })
         pool_tuple = tuple(pool.tolist())
         for amplitude in AMPLITUDES_RESP:
+            if amplitude == 0.0:
+                # Already covered by baseline_rows above (warp_mod at
+                # amplitude 0 is a no-op regardless of which pool is
+                # selected) -- AMPLITUDES_RESP may or may not include a
+                # literal 0.0 entry itself, so guard against building a
+                # second, redundant row for the same (participation, 0.0)
+                # pair, which would make the pivot() below raise on a
+                # duplicate index.
+                continue
             tasks.append((participation, pool_tuple, amplitude))
 
     rows = _run_parallel(tasks, _responder_cell, spks, freq, FOURIER_Q, workers,
@@ -350,8 +389,9 @@ def compute_responder_df(spks, FOURIER_Q, workers=1, freq=FREQ):
     return pd.DataFrame(baseline_rows + rows)
 
 
-def plot_fig4(ci_df, NFC_modulation_FR_df, resp_df, spks, FOURIER_Q, out_dir: Path):
+def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks, FOURIER_Q, out_dir: Path):
     example_spk = spks[len(spks) // 2]
+    n_top = int(np.sum(top_decile_mask))
 
     font = {"family": FP.FONT_FAMILY, "size": FP.FS_BODY_XL}
     matplotlib.rc("font", **font)
@@ -360,14 +400,13 @@ def plot_fig4(ci_df, NFC_modulation_FR_df, resp_df, spks, FOURIER_Q, out_dir: Pa
     # 3 rows x 6 cols. Top row-band (grid rows 0-1) is split left/right down
     # the middle: the left half is panel A (spectra on grid row 0, PSTHs on
     # grid row 1 -- one column per mod condition, squished into 3 of the 6
-    # columns instead of spanning the full width); the right half is B
-    # (grid row 0) stacked directly on top of C, the q-value responder
-    # heatmap (grid row 1) -- so B/C together occupy the same left-right
-    # half and top-bottom split as A. D (the FR-vs-NFC scatter) is the only
-    # thing below that top band, spanning the full width on its own row.
-    # Panel letters C/D are swapped from their code names below
-    # (ax_heatmap -> "C", ax_scatter -> "D") per explicit request --
-    # variable names still reflect what each axis plots, not its letter.
+    # columns instead of spanning the full width); the right half is B (row
+    # 0) stacked on top of C (row 1) -- the SAME q-value responder-count
+    # heatmap analysis, B on the full pseudopopulation, C restricted to the
+    # top-decile-sensitivity subset (see compute_sensitivity). D (the
+    # FR-vs-NFC scatter) is the only thing below that top band, spanning
+    # the full width on its own row. Variable names still reflect what
+    # each axis plots, not its letter.
     gs = gridspec.GridSpec(3, 6, left=0, bottom=0, right=1, top=1, wspace=0.5, hspace=0.5)
 
     ax_A1 = fig.add_subplot(gs[0, 0])  # spectrum, A=0
@@ -376,9 +415,9 @@ def plot_fig4(ci_df, NFC_modulation_FR_df, resp_df, spks, FOURIER_Q, out_dir: Pa
     ax_A2 = fig.add_subplot(gs[1, 0])  # PSTH,     A=0
     ax_A4 = fig.add_subplot(gs[1, 1])  # PSTH,     A=0.5
     ax_A6 = fig.add_subplot(gs[1, 2])  # PSTH,     A=1
-    ax_B       = fig.add_subplot(gs[0, 3:6])
-    ax_heatmap = fig.add_subplot(gs[1, 3:6])
-    ax_scatter = fig.add_subplot(gs[2, :])
+    ax_heatmap     = fig.add_subplot(gs[0, 3:6])  # full pseudopopulation
+    ax_heatmap_top = fig.add_subplot(gs[1, 3:6])  # top-decile-sensitivity subset
+    ax_scatter     = fig.add_subplot(gs[2, :])
 
     spectra_axes = [ax_A1, ax_A3, ax_A5]
     psth_axes    = [ax_A2, ax_A4, ax_A6]
@@ -413,29 +452,9 @@ def plot_fig4(ci_df, NFC_modulation_FR_df, resp_df, spks, FOURIER_Q, out_dir: Pa
     # past 30).
     [ax.set_ylim((0, psth_max * 1.1)) for ax in psth_axes]
 
-    conf_limits = ci_df.ci[0]
-    ax_B.fill_between([0, ci_df["mod"].max()], conf_limits[0], conf_limits[1],
-                      color="grey", alpha=0.5)
-    cmap = plt.cm.viridis
-    percent_color_d = {p: cmap.colors[255 // 4 * pi]
-                       for pi, p in enumerate(PERCENTAGES)}
-
-    for percent, pct_df in ci_df.groupby("%"):
-        ax_B.plot(pct_df["mod"], pct_df["mid"], color=percent_color_d[percent])
-        for ind, (_, row) in enumerate(pct_df.iterrows()):
-            ax_B.scatter(row["mod"], row.mid, color=percent_color_d[percent],
-                         label=f"{int(percent * 100)}%" if ind == 0 else None)
-
-    ax_B.legend(title=f"% units\nmodulated\n(N={len(spks)})")
-    ax_B.set_xticks(A_L)
-    ax_B.set_xticklabels(A_L, rotation=0)
-    ax_B.set_xlabel("5 Hz modulation amplitude")
-    ax_B.set_ylabel("Excess suspects")
-
-    # Panel C (q-value/FDR responder-count heatmap, ported from
+    # Panel B (q-value/FDR responder-count heatmap, ported from
     # fig4_pilot.py's plot_fig4_pilot), on this file's own full
-    # pseudopopulation -- not the pilot's >=90th-percentile-sensitivity
-    # subsample.
+    # pseudopopulation.
     pivot = resp_df.pivot(index="participation", columns="amplitude", values="responders")
     im = ax_heatmap.imshow(
         pivot.values, aspect="auto", origin="lower",
@@ -445,25 +464,49 @@ def plot_fig4(ci_df, NFC_modulation_FR_df, resp_df, spks, FOURIER_Q, out_dir: Pa
     contour_level = max(1, len(spks) // 10)
     ax_heatmap.contour(pivot.columns, pivot.index, pivot.values, levels=[contour_level],
                         colors="white", linestyles="dashed")
-    ax_heatmap.set_xlabel("Modulation amplitude")
-    ax_heatmap.set_ylabel("Participation level")
+    ax_heatmap.set_xlabel("5 Hz modulation amplitude (A)")
+    ax_heatmap.set_ylabel("Fraction of population modulated")
 
-    # Panel D: FR vs NFC scatter.
+    # Panel C: the SAME analysis as panel B, restricted to the top-decile
+    # (>=90th percentile) most-sensitive units (see compute_sensitivity) --
+    # the pseudopopulation subsampling fig4_pilot.py did unconditionally,
+    # now shown here as an explicit comparison against panel B's full
+    # population rather than a replacement for it.
+    pivot_top = resp_df_top.pivot(index="participation", columns="amplitude", values="responders")
+    im_top = ax_heatmap_top.imshow(
+        pivot_top.values, aspect="auto", origin="lower",
+        extent=[pivot_top.columns.min(), pivot_top.columns.max(), pivot_top.index.min(), pivot_top.index.max()],
+    )
+    fig.colorbar(im_top, ax=ax_heatmap_top, label="Number of responders (q < 0.05)")
+    contour_level_top = max(1, n_top // 10)
+    ax_heatmap_top.contour(pivot_top.columns, pivot_top.index, pivot_top.values, levels=[contour_level_top],
+                           colors="white", linestyles="dashed")
+    ax_heatmap_top.set_xlabel("5 Hz modulation amplitude (A)")
+    ax_heatmap_top.set_ylabel("Fraction of population modulated")
+
+    # Panel D: FR vs NFC scatter. Top-decile-sensitivity units (same
+    # definition as panel C's subset) get a black outline, overlaid on the
+    # same points already drawn -- same hue/palette so the outlined points
+    # keep their mod-condition fill color.
     sns.scatterplot(data=NFC_modulation_FR_df, x="FR", y="NFC", hue="mod",
                     palette="Set1", s=5, linewidth=0, alpha=FP.ALPHA_SCATTER, ax=ax_scatter)
+    top_ids = set(np.where(top_decile_mask)[0].tolist())
+    top_df = NFC_modulation_FR_df[NFC_modulation_FR_df["id"].isin(top_ids)]
+    sns.scatterplot(data=top_df, x="FR", y="NFC", hue="mod", palette="Set1",
+                    s=5, linewidth=0.6, edgecolor="black", alpha=FP.ALPHA_SCATTER,
+                    ax=ax_scatter, legend=False)
     handles, labels = ax_scatter.get_legend_handles_labels()
     mod_vals = [0, 0.3, 0.6]
     pairs = [(h, l) for h, l in zip(handles, labels)
              if any(abs(float(l) - v) < 1e-9 for v in mod_vals)]
     ax_scatter.legend([h for h, _ in pairs],
                 [f"A={l}" for _, l in pairs],
-                title="modulation (5Hz)", ncol=3)
+                title="modulation (5 Hz)", ncol=1, markerscale=3)
     # eps-corrected to match NFC_modulation_FR_df, which is computed by
-    # compute_fr_df() at this same Q_frac-derived FOURIER_Q -- same corrected
-    # null used for ci_df's confidence bounds in panel B.
+    # compute_fr_df() at this same Q_frac-derived FOURIER_Q.
     ax_scatter.hlines(statistics.inverse_Rayleigh_CDF(0.99, eps=statistics.get_epsilon(FOURIER_Q)),
                 *ax_scatter.get_xlim(), color="grey")
-    ax_scatter.set_ylabel(r"$\hat{c}$")
+    ax_scatter.set_ylabel("NFC")
     ax_scatter.set_xscale("log")
     ax_scatter.set_xlabel("Firing rate (Hz)")
 
@@ -472,8 +515,8 @@ def plot_fig4(ci_df, NFC_modulation_FR_df, resp_df, spks, FOURIER_Q, out_dir: Pa
     # figure-coordinate alignment hack needed, unlike the earlier layout
     # where A/B/D shared one taller row-span).
     ax_A1.annotate("A", xy=(-0.12, 1.35), xycoords="axes fraction", fontfamily="arial", fontsize=12)
-    ax_B.annotate("B", xy=(-0.12, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
-    ax_heatmap.annotate("C", xy=(-0.05, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
+    ax_heatmap.annotate("B", xy=(-0.05, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
+    ax_heatmap_top.annotate("C", xy=(-0.05, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
     ax_scatter.annotate("D", xy=(-0.03, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
 
     statistics.boundarize_and_nestle(ax_A1, y=False, x_offset=-0.1)
@@ -482,12 +525,6 @@ def plot_fig4(ci_df, NFC_modulation_FR_df, resp_df, spks, FOURIER_Q, out_dir: Pa
     statistics.nestle_labels(ax_A2, y=False, x_offset=-0.1)
     statistics.nestle_labels(ax_A4, y=False, x_offset=-0.1)
     statistics.nestle_labels(ax_A6, y=False, x_offset=-0.1)
-
-    xticks = ax_B.get_xticks()
-    ax_B.set_xticks([xticks[0], xticks[-1]])
-    yticks = ax_B.get_yticks()
-    ax_B.set_yticks([yticks[1], yticks[-1]])
-    statistics.nestle_labels(ax_B, x_offset=-0.05, y_offset=-0.05)
 
     out_path = out_dir / "Fig4.pdf"
     fig.savefig(out_path, bbox_inches="tight", dpi=FP.DPI)
@@ -512,7 +549,7 @@ def main():
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    Path(CI_DF_CACHE).parent.mkdir(parents=True, exist_ok=True)
+    Path(FR_DF_CACHE).parent.mkdir(parents=True, exist_ok=True)
 
     experiments = args.experiments or discover_pigeon_hp_experiments(_EXPERIMENTS_DIR)
     print(f"Pooling pigeon-HP pseudopopulation from: {experiments}")
@@ -520,15 +557,6 @@ def main():
 
     FOURIER_Q = fourier_Q_from_frac(spks, FREQ, Q_frac, context=f"[fig4 sim @ {FREQ}Hz] ")
     print(f"  Q_frac={Q_frac} (shared mag_Q_frac across pooled experiments) -> FOURIER_Q={FOURIER_Q} bins at {FREQ} Hz")
-
-    if not args.recompute and Path(CI_DF_CACHE).exists():
-        print(f"Loading cached ci_df from {CI_DF_CACHE}")
-        ci_df = pd.read_pickle(CI_DF_CACHE)
-    else:
-        print("Computing modulation strength vs excess count (slow)...")
-        ci_df = compute_ci_df(spks, FOURIER_Q, workers=args.workers)
-        ci_df.to_pickle(CI_DF_CACHE)
-        print(f"Cached -> {CI_DF_CACHE}")
 
     if not args.recompute and Path(FR_DF_CACHE).exists():
         print(f"Loading cached FR df from {FR_DF_CACHE}")
@@ -548,7 +576,29 @@ def main():
         resp_df.to_pickle(RESP_DF_CACHE)
         print(f"Cached -> {RESP_DF_CACHE}")
 
-    plot_fig4(ci_df, NFC_modulation_FR_df, resp_df, spks, FOURIER_Q, out_dir)
+    # Top-decile-sensitivity subset for panel C/D -- see compute_sensitivity.
+    # Cheap (one un-swept Fourier pass over the full population), so always
+    # recomputed regardless of --recompute; only the responder sweep on the
+    # resulting subset is cached.
+    sens = compute_sensitivity(spks, FOURIER_Q, freq=FREQ)
+    sens_threshold = np.quantile(sens, SENSITIVITY_PERCENTILE / 100)
+    top_decile_mask = sens >= sens_threshold
+    top_decile_spks = [s for s, m in zip(spks, top_decile_mask) if m]
+    print(f"  {len(top_decile_spks)} / {len(spks)} units at/above the "
+          f"{SENSITIVITY_PERCENTILE:.0f}th percentile synthetic-baseline "
+          f"sensitivity (threshold={sens_threshold:.3f})")
+
+    if not args.recompute and Path(RESP_DF_TOP_DECILE_CACHE).exists():
+        print(f"Loading cached top-decile resp_df from {RESP_DF_TOP_DECILE_CACHE}")
+        resp_df_top = pd.read_pickle(RESP_DF_TOP_DECILE_CACHE)
+    else:
+        print("Computing modulation amplitude x participation -> responder count "
+              "(top-decile-sensitivity subset, slow)...")
+        resp_df_top = compute_responder_df(top_decile_spks, FOURIER_Q, workers=args.workers)
+        resp_df_top.to_pickle(RESP_DF_TOP_DECILE_CACHE)
+        print(f"Cached -> {RESP_DF_TOP_DECILE_CACHE}")
+
+    plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks, FOURIER_Q, out_dir)
 
 
 if __name__ == "__main__":
