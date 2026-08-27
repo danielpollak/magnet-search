@@ -40,6 +40,7 @@ dependencies:
       - tifffile==2025.9.20
       - tqdm==4.67.1
       - pyyaml==6.0.2
+      - colorcet==3.2.1
       - spikeinterface==0.90.0
       - neo==0.14.3
       - probeinterface==0.3.0
