@@ -47,7 +47,14 @@ def _split_into_waves(df, wave_groups=("species", "ID", "date", "id")):
     return [g.reset_index(drop=True) for _, g in df.groupby("occurrence")]
 
 
-def split_into_occurrence_waves(all_fourier_df):
+def split_into_occurrence_waves(all_fourier_df, pval_col="p_value"):
+    """`pval_col`: which column to treat as the p-value for the Storey q-value
+    computation -- "p_value" (1F, default) or "2f_p_value" (see fig3_supp.py,
+    which reuses this same function for the 2F-harmonic version of this
+    figure). Occurrence-wave splitting itself (which row is a given neuron's
+    1st/2nd/... magnetic trial) is structural and doesn't depend on this
+    choice, only the q-value computation within each wave does.
+    """
     all_neg_res, all_pos_control, all_unique_pos_control = \
         statistics.get_poscontrols_negresults(all_fourier_df)
 
@@ -56,7 +63,7 @@ def split_into_occurrence_waves(all_fourier_df):
 
     wave_df_l = []
     for wave_df in waves:
-        pval = wave_df["p_value"].values
+        pval = wave_df[pval_col].values
         qval, pi0 = statistics.storey_qvalues(pval, lambda_=0.5)
         wave_df = wave_df.copy()
         wave_df["pval"] = pval
@@ -67,7 +74,8 @@ def split_into_occurrence_waves(all_fourier_df):
     return waves, wave_df_l, pos_control_waves
 
 
-def _add_qval_inset(ax, wave_sorted_qvals, wave_colors, n_inset=50, x0_frac=0.35, margin=0.7):
+def _add_qval_inset(ax, wave_sorted_qvals, wave_colors, n_inset=50, x0_frac=0.35, margin=0.7,
+                     ylim_bottom=None):
     """Add an inset to `ax` (a log-scale sorted-q-value axes) magnifying each
     wave's first `n_inset` units -- the steep early rise is otherwise
     compressed into a sliver of pixels against the full (often thousands-
@@ -82,24 +90,37 @@ def _add_qval_inset(ax, wave_sorted_qvals, wave_colors, n_inset=50, x0_frac=0.35
     edge sits at `margin * min-over-waves(value at x0)`, for x >= x0, is
     therefore *guaranteed* not to intersect any wave's plotted curve -- this
     is computed from the actual data being plotted, not a placement guess.
+
+    A wave's q-values can include NaNs (from NaN p-values -- e.g. `2f_p_value`
+    rows with no paired 2F harmonic, see fig3_supp.py), which `np.sort` pushes
+    to the tail of the sorted array. That tail isn't real, monotonic data, so
+    the "value at x0" guarantee above only holds within a wave's finite
+    (non-NaN) prefix -- `len(sq)` is not the right length to compare `x0`
+    against here, only the count of finite entries is.
+
+    `ylim_bottom`, if given, floors the inset's own (autoscaled) log-scale
+    y-axis -- used for the neg-result ("blue"/magnetic) inset, which
+    otherwise autoscales down to whatever its smallest plotted q-value
+    happens to be.
     """
     if not wave_sorted_qvals:
         return
-    max_n = max(len(sq) for sq in wave_sorted_qvals)
+    finite_lens = [np.sum(np.isfinite(sq)) for sq in wave_sorted_qvals]
+    max_n = max(finite_lens)
     x0 = int(x0_frac * max_n)
     if x0 <= n_inset:
         # Panel too small for a clean x0 past the zoomed-in region -- skip
         # rather than risk the inset box colliding with its own source data.
         return
-    ceilings = [sq[x0] for sq in wave_sorted_qvals if len(sq) > x0]
+    ceilings = [sq[x0] for sq, flen in zip(wave_sorted_qvals, finite_lens) if flen > x0]
     if not ceilings:
         return
     y1 = min(ceilings) * margin
     if not np.isfinite(y1) or y1 <= 0:
         return
 
-    ylim_bottom, ylim_top = ax.get_ylim()
-    log_lo, log_hi = np.log10(ylim_bottom), np.log10(ylim_top)
+    parent_ylim_bottom, parent_ylim_top = ax.get_ylim()
+    log_lo, log_hi = np.log10(parent_ylim_bottom), np.log10(parent_ylim_top)
     y1_frac = np.clip((np.log10(y1) - log_lo) / (log_hi - log_lo), 0.15, 0.85)
 
     # Bottom offset (0.18, vs. 0.06 for the box's other edges) leaves the
@@ -115,13 +136,21 @@ def _add_qval_inset(ax, wave_sorted_qvals, wave_colors, n_inset=50, x0_frac=0.35
         n = min(n_inset, len(sq))
         axins.plot(np.arange(n), sq[:n], ".", color=color, alpha=FP.ALPHA_TRACE, markersize=FP.MS_DATA, rasterized=True)
     axins.set_yscale("log")
+    if ylim_bottom is not None:
+        axins.set_ylim(bottom=ylim_bottom)
     # Pad the left edge so points sitting right at x=0 aren't squashed against
     # the inset's own y-axis spine.
     axins.set_xlim(-0.05 * n_inset, n_inset)
-    axins.tick_params(labelsize=FP.FS_BODY - 4)
+    # Inset x-tick labels at ~90% of the main axes' tick label size (FP.FS_BODY,
+    # set globally via matplotlib.rc("font", ...) in plot_fig3) -- readable
+    # against the inset's cramped width without visually competing with the
+    # parent axes' own labels.
+    axins.tick_params(axis="x", labelsize=FP.FS_BODY * 0.9)
+    axins.tick_params(axis="y", labelsize=FP.FS_BODY - 4)
 
 
-def plot_uniform_p(waves, axes, percentile=None, colors=None):
+def plot_uniform_p(waves, axes, percentile=None, colors=None, pval_col="p_value", sens_col="sens",
+                    inset_ylim_bottom=None):
     """`colors`, if given, must have one entry per entry of `waves` (same order,
     before the internal reversal) -- assigns an explicit color per occurrence-wave
     instead of relying on matplotlib's automatic per-Axes color cycle. This matters
@@ -130,6 +159,13 @@ def plot_uniform_p(waves, axes, percentile=None, colors=None):
     two unrelated populations plotted on separate Axes would each restart the same
     default color cycle, so a shared color between them would be pure coincidence
     that could be misread as "the same neurons."
+
+    `pval_col`/`sens_col`: which columns to treat as the p-value / sensitivity
+    for this call -- "p_value"/"sens" (1F, default) or "2f_p_value"/"sens_2f"
+    (see fig3_supp.py's 2F-harmonic version of this figure).
+
+    `inset_ylim_bottom`: forwarded to `_add_qval_inset`'s `ylim_bottom` --
+    plot_fig3 passes 1e-2 for the neg-result (blue) call only.
     """
     if colors is None:
         colors = [None] * len(waves)
@@ -139,11 +175,11 @@ def plot_uniform_p(waves, axes, percentile=None, colors=None):
         if len(wave_df) == 0:
             continue
         if percentile is not None:
-            pct = np.percentile(wave_df.sens, percentile)
-            wave_df = wave_df.loc[wave_df.sens > pct]
+            pct = np.percentile(wave_df[sens_col], percentile)
+            wave_df = wave_df.loc[wave_df[sens_col] > pct]
         if len(wave_df) == 0:
             continue
-        pval = wave_df["p_value"].values
+        pval = wave_df[pval_col].values
         if len(pval) == 0:
             continue
         qval, pi0 = statistics.storey_qvalues(pval, lambda_=0.5)
@@ -171,11 +207,17 @@ def plot_uniform_p(waves, axes, percentile=None, colors=None):
     # smallest underflowed point happens to be.
     axes[1].set_ylim(bottom=1e-8)
 
-    _add_qval_inset(axes[1], wave_sorted_qvals, wave_colors)
+    _add_qval_inset(axes[1], wave_sorted_qvals, wave_colors, ylim_bottom=inset_ylim_bottom)
 
 
-def plot_fig3(all_fourier_df, out_dir: Path):
-    waves, wave_df_l, pos_control_waves = split_into_occurrence_waves(all_fourier_df)
+def plot_fig3(all_fourier_df, out_dir: Path, pval_col="p_value", sens_col="sens",
+              out_name="Fig3.pdf", suptitle=None):
+    """`pval_col`/`sens_col`/`out_name`/`suptitle`: overridden by fig3_supp.py to
+    reuse this exact function for the 2F-harmonic version of this figure
+    ("2f_p_value"/"sens_2f"/"Fig3_supp.pdf") -- defaults reproduce the original
+    1F Fig3.pdf byte-for-byte, so `main()` below is unaffected.
+    """
+    waves, wave_df_l, pos_control_waves = split_into_occurrence_waves(all_fourier_df, pval_col=pval_col)
 
     font = {"family": FP.FONT_FAMILY, "size": FP.FS_BODY}
     matplotlib.rc("font", **font)
@@ -198,10 +240,10 @@ def plot_fig3(all_fourier_df, out_dir: Path):
     # different neuron counts and shouldn't force each other's axis ranges
     # (same reasoning as the neg-result/pos-control x-sharing fix above).
     conditions = [
-        ("All", None, None),
-        ("Pigeon", lambda df: df.species == "Pigeon", None),
-        ("Pigeon HP", lambda df: (df.area == "HP") & (df.species == "Pigeon"), None),
-        ("Pigeon HP >90%ile sensitivity",
+        ("All neurons across all species", None, None),
+        ("All pigeon neurons", lambda df: df.species == "Pigeon", None),
+        ("Pigeon hippocampus neurons", lambda df: (df.area == "HP") & (df.species == "Pigeon"), None),
+        ("Top 10% most sensitive neurons in pigeon HP",
          lambda df: (df.area == "HP") & (df.species == "Pigeon"), 90),
     ]
     quadrant_slots = [(0, 0), (0, 1), (1, 0), (1, 1)]
@@ -231,8 +273,10 @@ def plot_fig3(all_fourier_df, out_dir: Path):
         pos_subset = pos_control_waves if cond_filter is None else \
             [w.loc[cond_filter(w)] for w in pos_control_waves]
 
-        plot_uniform_p(neg_subset, [ax_p_neg, ax_q_neg], percentile=percentile, colors=neg_colors)
-        plot_uniform_p(pos_subset, [ax_p_pos, ax_q_pos], percentile=percentile, colors=pos_colors)
+        plot_uniform_p(neg_subset, [ax_p_neg, ax_q_neg], percentile=percentile, colors=neg_colors,
+                       pval_col=pval_col, sens_col=sens_col, inset_ylim_bottom=1e-2)
+        plot_uniform_p(pos_subset, [ax_p_pos, ax_q_pos], percentile=percentile, colors=pos_colors,
+                       pval_col=pval_col, sens_col=sens_col)
 
         ax_p_neg.set_title("Magnetic", fontsize=FP.FS_BODY)
         ax_p_pos.set_title("Visual/Audio", fontsize=FP.FS_BODY)
@@ -242,12 +286,15 @@ def plot_fig3(all_fourier_df, out_dir: Path):
         ax_q_pos.set_xlabel("Neuron")
 
         quad_pos = outer[orow, ocol].get_position(fig)
-        fig.text((quad_pos.x0 + quad_pos.x1) / 2, quad_pos.y1 + 0.025, title,
+        fig.text((quad_pos.x0 + quad_pos.x1) / 2, quad_pos.y1 + 0.04, title,
                   ha="center", va="bottom", fontsize=FP.FS_BODY + 1, fontweight="bold")
-        fig.text(quad_pos.x0, quad_pos.y1 + 0.025, letter,
+        fig.text(quad_pos.x0, quad_pos.y1 + 0.04, letter,
                   ha="left", va="bottom", fontfamily="arial", fontsize=12, fontweight="bold")
 
-    out_path = out_dir / "Fig3.pdf"
+    if suptitle:
+        fig.suptitle(suptitle, fontsize=FP.FS_BODY + 2, fontweight="bold", y=0.98)
+
+    out_path = out_dir / out_name
     fig.savefig(out_path, bbox_inches="tight", dpi=FP.DPI)
     print(f"Saved {out_path}")
     if not in_notebook:

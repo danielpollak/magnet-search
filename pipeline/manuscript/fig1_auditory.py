@@ -100,13 +100,6 @@ WN_TRACE_SR = 30000
 # wider window).
 RASTER_LW = 0.5
 
-# Phasor-arrow half-length (samples), shared since both raw_NPIX panels are
-# now sized proportional to their own window duration (see row0_width_ratios
-# in plot_fig1_composite) -- spikes-per-pixel is comparable between the two
-# panels, so there's no need to shrink DX or subsample phasors for either.
-MAG_DX = 300
-WN_DX = 300
-
 # Cyclic colormap for phase-coloring the phasor arrows in both raw_NPIX
 # panels -- paired with a colorwheel legend (statistics.plot_phase_colorwheel)
 # drawn as an inset in the cartoon panel (A). "twilight" (matplotlib's usual
@@ -195,12 +188,12 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
 
     # Mag raw NPIX (null result) -- scale bar shows one stimulus period (1/freq)
     statistics.raw_NPIX(mag_raw_ax, None, mag_spks, None, MAG_WINDOW, MAG_FREQ,
-                         label=1 / MAG_FREQ, DX=MAG_DX, trace=mag_trace, spike_sr=MAG_TRACE_SR,
+                         label=1 / MAG_FREQ, trace=mag_trace, spike_sr=MAG_TRACE_SR,
                          raster_lw=RASTER_LW, phase_cmap=PHASE_CMAP)
 
     # WN raw NPIX (positive result) -- same unit, same primitive as the mag panel
     statistics.raw_NPIX(wn_raw_ax, None, wn_spks, None, WN_WINDOW, WN_FREQ,
-                         label=1 / WN_FREQ, DX=WN_DX, trace=wn_trace, spike_sr=WN_TRACE_SR,
+                         label=1 / WN_FREQ, trace=wn_trace, spike_sr=WN_TRACE_SR,
                          raster_lw=RASTER_LW, phase_cmap=PHASE_CMAP)
 
     # Phase colorwheel legend for the phasor arrows above -- tucked into the

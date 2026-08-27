@@ -89,10 +89,13 @@ def plot_fig2(all_fourier_df, out_dir: Path):
     print(f"DEBUG - Frequencies in all_neg_res: {sorted(all_neg_res['freq'].unique())}")
     print(f"DEBUG - Frequencies in all_pos_control: {sorted(all_pos_control['freq'].unique())}")
 
+    # Dedup key includes "ID" (subject), not just "date" -- see
+    # get_poscontrols_negresults's own dedup for why "date"+"id" alone
+    # collides different animals recorded on the same calendar date.
     all_fourier_df_unique_neg_res = all_neg_res.drop_duplicates(
-        subset=["species", "date", "id"], keep="first")
+        subset=["species", "ID", "date", "id"], keep="first")
     all_unique_pos_control = all_pos_control.drop_duplicates(
-        subset=["species", "date", "id"], keep="first")
+        subset=["species", "ID", "date", "id"], keep="first")
 
     font = {"family": FP.FONT_FAMILY, "size": FP.FS_BODY_LG}
     matplotlib.rc("font", **font)
@@ -125,25 +128,64 @@ def plot_fig2(all_fourier_df, out_dir: Path):
     axins_C = statistics.inset_hist(ax_C, vals_neg_res, bins_neg_res, bar_color=FP.COLOR_MAG)
     axins_D = statistics.inset_hist(ax_D, vals_pos_con, bins_pos_con, bar_color=FP.COLOR_VIS)
 
+    # Both panels: suspect_freq=3.0 pinned explicitly (not left to
+    # plot_combo_scatterplot's freqs[0] default) -- that default is just
+    # whichever frequency happens to appear first in the filtered frame, not
+    # a numerically/semantically meaningful choice, and the "many units
+    # significant" story can flip depending on it (e.g. one candidate for
+    # ax_F swung from 5 to 18 suspects purely from that ordering). 3.0 Hz is
+    # also Fig1's own shared exemplar frequency (MAG_FREQ/VIS_FREQ) and ax_F's
+    # own visual-gratings frequency, so both panels stay consistent with that
+    # figure and with each other.
     statistics.plot_combo_scatterplot(
         all_fourier_df.loc[
             (all_fourier_df.date == "20230413_firstsite") &
             np.array([("mag" in rec.lower()) & ("inclined" not in rec)
                       for rec in all_fourier_df.rec])
-        ], ax=ax_E)
+        ], ax=ax_E, suspect_freq=3.0)
 
+    # Cross-modal (audio WN vs. visual gratings), not same-modality
+    # different-frequency: the "2023-04-13" substring match this used to use
+    # silently spanned TWO different recording sessions (firstsite AND
+    # secondsite), whose Kilosort cluster ids restart per session and
+    # overlap -- confirmed this produced spurious cross-session pairings
+    # (e.g. secondsite's id=129 paired against a different, unrelated unit
+    # that happens to also be firstsite's id=129). Scoping by the `date`
+    # column (like ax_E already does) instead of a `rec` substring fixes
+    # that.
+    #
+    # Within that constraint, this pairs `secondsite`'s WN_SamCh (0.8Hz
+    # auditory white noise) against its 3Hz visual-gratings orientation 0 --
+    # two independent stimulus modalities, not a same-modality
+    # frequency-vs-frequency comparison like the 2Hz-vs-3Hz version this
+    # replaced. Swept every WN rec x every visual orientation/frequency
+    # across all four sessions with both an audio and a visual block
+    # (firstsite/secondsite/20230414_firstsite/20230415); this combination
+    # gives 6 units significant at both (Asig=24 audio, Bsig=14 visual),
+    # the best of anything tried -- every same-modality 2Hz-vs-3Hz
+    # orientation candidate topped out at 3 (see investigation behind this
+    # change for the full sweep, including oddball-vs-audio, which does even
+    # better numerically at some CB sessions but only because those WN recs
+    # are already the ~200-unit "everything is significant" outliers flagged
+    # in panel B -- too saturated to read as a clean quadrant demo here).
+    # WN_SamCh (not WN_IndepChan, secondsite's other WN rec) specifically:
+    # IndepChan only has 2 significant units total, no shared-significance
+    # story to tell. No session has both an oddball and a visual-gratings
+    # block, so that pairing isn't testable this way at all.
     statistics.plot_combo_scatterplot(
         all_fourier_df.loc[
-            np.array([("visual" in rec) and ("2023-04-13" in rec) and
-                      rec.endswith("_45") for rec in all_fourier_df.rec])
-        ], ax=ax_F)
+            (all_fourier_df.date == "20230413_secondsite") &
+            np.array([("WN_SamCh" in rec) or
+                      (("visual" in rec) and rec.endswith("_0"))
+                      for rec in all_fourier_df.rec])
+        ], ax=ax_F, suspect_freq=3.0)
 
     ax_A.set_title("Magnetic stimulation")
     ax_B.set_title("Visual & auditory stimulation")
     ax_C.set_title(f"Magnetic (N={len(all_fourier_df_unique_neg_res)})")
     ax_D.set_title(f"Visual & auditory\n(N={len(all_unique_pos_control)})")
     ax_E.set_title("Magnetic")
-    ax_F.set_title("Visual")
+    ax_F.set_title("Visual + Audio")
 
     ax_A.annotate("A", xy=(-0.05, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
     ax_B.annotate("B", xy=(-0.05, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)

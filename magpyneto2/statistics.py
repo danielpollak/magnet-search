@@ -10,6 +10,9 @@ from .utils import save_and_close
 
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
+from matplotlib.markers import MarkerStyle
+from matplotlib.path import Path
+from matplotlib.transforms import Affine2D
 
 
 def get_support(upper=6.0, fine_upper=6.0, fine_step=0.001, coarse_step=0.02):
@@ -1286,7 +1289,7 @@ def draw_hist(NFC, ax, xlim=12.5, title=False, inset=True, invert=False, eps=Non
             ax.legend(fontsize=6)
 
     # Tidy x and y labels
-    ax.set_xlabel("$\hat{c}$")
+    ax.set_xlabel("NFC")
     ax.set_ylabel("PDF")
     ax.spines['right'].set_visible(False)
     ax.spines['top'].set_visible(False)
@@ -1458,7 +1461,7 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
 
 
 def plot_combo_scatterplot(subdf:pd.DataFrame, ax:plt.Axes.axes,
-                           legend_size:int=5, CDF_threshold=0.99,):
+                           legend_size:int=5, CDF_threshold=0.99, suspect_freq=None):
     """
     Parameters
     ----------
@@ -1468,31 +1471,40 @@ def plot_combo_scatterplot(subdf:pd.DataFrame, ax:plt.Axes.axes,
         Axis to plot on
     legend_size: int
         fontsize for legend
+    suspect_freq: float, optional
+        The frequency to treat as the "suspect" (x-axis) condition -- every
+        other frequency present in `subdf` is compared against it on the
+        y-axis. Defaults to `subdf.freq.unique()[0]` if not given, which is
+        just whichever frequency happens to appear first in the (filtered)
+        dataframe -- not numerically sorted or otherwise semantically
+        chosen, so a given panel's suspect count can swing wildly depending
+        on incidental row order. Pass this explicitly for any real figure.
     """
     thres = inverse_Rayleigh_CDF(CDF_threshold)
 
     # Each combination of frequencies
     freqs = subdf.freq.unique()
-    for freq2 in freqs[1:]:
-        
+    suspect_freq = freqs[0] if suspect_freq is None else suspect_freq
+    for freq2 in [f for f in freqs if f != suspect_freq]:
+
         f1_arr, f2_arr = [], []
         for _, id_df in subdf.groupby("id"):
-            if (freqs[0] in id_df.freq.values) and (freq2 in id_df.freq.values):
-                f1_arr.append(id_df.loc[id_df.freq==freqs[0], "NFC"].values[0])
+            if (suspect_freq in id_df.freq.values) and (freq2 in id_df.freq.values):
+                f1_arr.append(id_df.loc[id_df.freq==suspect_freq, "NFC"].values[0])
                 f2_arr.append(id_df.loc[id_df.freq==freq2, "NFC"].values[0])
-                    
+
         values = np.array([f1_arr, f2_arr]).T
         ax.scatter(
             values[values[:,0] > thres, 0], values[values[:,0] > thres, 1],
-            s=10, label=f"{freqs[0]} Hz vs {freq2} Hz suspects", alpha=0.5)
+            s=10, label=f"{suspect_freq} Hz vs {freq2} Hz suspects", alpha=0.5)
 
         ax.scatter(
             values[values[:,0] < thres, 0], values[values[:,0] < thres, 1],
             s=10, c="grey", alpha=0.5)
 
         
-    ax.set_xlabel(r"Suspect $\hat{c}$")
-    ax.set_ylabel(r"Other trial $\hat{c}$")
+    ax.set_xlabel("Suspect NFC")
+    ax.set_ylabel("Other trial NFC")
     ax.set_xlim((0, 7.5))
     ax.set_ylim((0, 4.5))
     ax.set_yticks(ax.get_xticks())
@@ -1687,7 +1699,8 @@ def boundarize_and_nestle(ax, x=True, y=True, xprec=1, yprec=1, x_offset=0, y_of
 
 
 def plot_spectrum(ax:plt.Axes.axes, fou_alt:np.complex64, win, stimulus_frequency,
-    stimulus_frequency_power:np.complex64, legend=False, central_tendency=False):
+    stimulus_frequency_power:np.complex64, legend=False, central_tendency=False,
+    real_color="black", imag_color="grey", stem_color="blue", sigma_color=None):
     """Plots the spectrum of a fourier transformed signal around some frequency of interest
     Parameters
     ----------
@@ -1700,23 +1713,44 @@ def plot_spectrum(ax:plt.Axes.axes, fou_alt:np.complex64, win, stimulus_frequenc
     stimulus_frequency : float
         The frequency of the stimulus
     stimulus_frequency_power : np.complex64
-        The power of the stimulus frequency"""
-    
+        The power of the stimulus frequency
+    real_color, imag_color : optional
+        Colors for the off-frequency real/imaginary scatter series. Default
+        to the original black/grey.
+    stem_color : optional
+        Color for the on-frequency stem+marker (the |c_s| point). Defaults
+        to the original blue.
+    sigma_color : optional
+        Color for the sgm_c reference line. Defaults to None (matplotlib's
+        own default cycle color, matching original behavior) -- pass an
+        explicit color (e.g. "gray") when `real_color` would otherwise clash
+        with it (e.g. when `real_color` is also blue-ish).
+    """
+    # NB: this deliberately plots the raw terms that feed NFC = |c_s|/sgm_c,
+    # not a distributionally-matched comparison -- fou_alt.real/.imag are the
+    # actual per-bin scalars averaged into sgm_c (no per-bin modulus is ever
+    # computed anywhere in the pipeline), sgm_c is that literal denominator,
+    # and |stimulus_frequency_power| is the literal numerator. The numerator
+    # (Rayleigh-distributed modulus) and the real/imag scatter (half-normal
+    # marginals) are different distributions of the same underlying sigma --
+    # that's inherent to how NFC itself is defined, not a plotting bug, so
+    # don't "fix" it by scattering |fou_alt| moduli instead (that would swap
+    # in a quantity that plays no role in the actual calculation). The fair,
+    # distributionally-calibrated comparison already lives elsewhere in the
+    # figure (the population NFC histogram this exemplar is plotted against).
     sgm_c = np.sqrt(.5 * np.mean(np.concatenate([fou_alt.real, fou_alt.imag])**2))
-    ax.axhline(sgm_c)
-    
-    ax.plot(win, np.abs(fou_alt.real), ".", color="black", alpha=0.5, markersize=1, label="real")
-    ax.plot(win, np.abs(fou_alt.imag), ".", color="grey", alpha=0.5, markersize=1, label="imaginary")
+    ax.axhline(sgm_c, **({} if sigma_color is None else dict(color=sigma_color)))
+
+    ax.plot(win, np.abs(fou_alt.real), ".", color=real_color, alpha=0.5, markersize=1, label="real")
+    ax.plot(win, np.abs(fou_alt.imag), ".", color=imag_color, alpha=0.5, markersize=1, label="imaginary")
 
     markerline, stemline, baseline = ax.stem(
-        [stimulus_frequency], np.abs(stimulus_frequency_power), "blue", bottom=sgm_c)
-    
+        [stimulus_frequency], np.abs(stimulus_frequency_power), stem_color, bottom=sgm_c)
 
-    ax.plot([stimulus_frequency], np.abs(stimulus_frequency_power), "blue", marker="o", alpha=.8, markersize=4,label=r"$|c_s|$")
-    plt.setp(stemline, linewidth=1, color="blue")
-    plt.setp(stemline, linewidth=1, color="blue")
-    plt.setp(markerline, markersize=2, linewidth=1, color="blue")
-    plt.setp(baseline, linewidth=2, color="blue")
+    ax.plot([stimulus_frequency], np.abs(stimulus_frequency_power), stem_color, marker="o", alpha=.8, markersize=4,label=r"$|c_s|$")
+    plt.setp(stemline, linewidth=1, color=stem_color)
+    plt.setp(markerline, markersize=2, linewidth=1, color=stem_color)
+    plt.setp(baseline, linewidth=2, color=stem_color)
 
     ylim = ax.get_ylim()
     ax.set_ylim((0, ylim[1]))
@@ -1728,65 +1762,14 @@ def plot_spectrum(ax:plt.Axes.axes, fou_alt:np.complex64, win, stimulus_frequenc
     if legend:
         ax.legend()
 
-'''
-def plot_spectrum(
-        ax:plt.Axes.axes, fou_alt:np.complex64, win, stimulus_frequency,
-        stim_frq_pow:np.complex64, legend=False, central_tendency=False):
-    """Plots the spectrum of a fourier transformed signal around some frequency of interest
-    Parameters
-    ----------
-    ax : matplotlib.Axes
-        The axes to plot on
-    fou_alt : np.complex64
-        The fourier transform of the signal
-    win : np.array
-        The window of frequencies
-    stimulus_frequency : float
-        The frequency of the stimulus
-    stim_frq_pow : np.complex64
-        The power of the stimulus frequency"""
-    
-    stim_frq_pow = np.squeeze(stim_frq_pow)
-    sgm_c = np.sqrt(.5 * np.mean(np.concatenate([fou_alt.real, fou_alt.imag])**2))
-    # Horizonal
-    ax.axhline(sgm_c, color="grey", label=r"$\sigma$", zorder=-np.inf)
-
-    # Vertical
-    points = [np.abs(stim_frq_pow.imag), np.abs(stim_frq_pow.real), sgm_c]
-    ax.plot(2 * [stimulus_frequency],
-        [min(points), max(points)],
-        color="grey", zorder=-np.inf)
-    
-    ax.scatter(
-        [stimulus_frequency, stimulus_frequency],
-        np.abs(np.array([stim_frq_pow.real, stim_frq_pow.imag])),
-        c=["orange", "red"], marker="o", s=16, edgecolor="grey",zorder=np.inf)
-    
-    # Plot spectrum    
-    ax.plot(win, np.abs(fou_alt.real), ".", color="orange", alpha=0.5, markersize=1, label="real")
-    ax.plot(win, np.abs(fou_alt.imag), ".", color="red",    alpha=0.5, markersize=1, label="imaginary")
-
-
-    ylim = ax.get_ylim()
-    ax.set_ylim((0, ylim[1]))
-
-    if central_tendency:
-        ax.axhline(np.median(np.abs(np.concatenate([fou_alt.real, fou_alt.imag]))), color="green", alpha=0.5, markersize=1, label="median")
-        ax.axhline(np.mean(np.abs(np.concatenate([fou_alt.real, fou_alt.imag]))), color="yellow", alpha=0.5, markersize=1, label="mean")
-    
-    if legend:
-        ax.legend()
-'''
-
- 
 
 def normalize_timeseries(arr):
     return (arr - np.min(arr)) / (np.max(arr) - np.min(arr))
 
 
-def raw_NPIX(raw_NPIX_ax, ldr, spks, unitrow, window, freq, label=0.100, DX=1000, DY=.1,
+def raw_NPIX(raw_NPIX_ax, ldr, spks, unitrow, window, freq, label=0.100,
              trace=None, spike_sr=None, raster_lw=2, max_phasors=None, phase_cmap="twilight",
-             normalize=normalize_timeseries):
+             normalize=normalize_timeseries, stem_scale=1.0, phasor_size=12):
     """GENERATE RAW DATA VISUALIZATION WITH PERIODS AND PHASORS
     Parameters
     ----------
@@ -1812,12 +1795,12 @@ def raw_NPIX(raw_NPIX_ax, ldr, spks, unitrow, window, freq, label=0.100, DX=1000
     raster_lw : float, optional
         Line width of the spike-raster tick marks (eventplot), by default 2.
     max_phasors : int, optional
-        If given and more spikes than this fall in `window`, draw phasor
-        arrows for only an evenly-spaced subset of that size (the raster
-        ticks still show every spike). Phasor arrowheads have a roughly
-        fixed minimum rendered size regardless of `DX`, so windows dense
-        enough to pack many arrows into the same panel width otherwise
-        overlap into an unreadable solid mass.
+        If given and more spikes than this fall in `window`, draw phasors
+        for only an evenly-spaced subset of that size (the raster ticks
+        still show every spike). Phasor markers are a fixed rendered size
+        regardless of how many there are, so windows dense enough to pack
+        many into the same panel width otherwise overlap into an unreadable
+        solid mass.
     phase_cmap : str or Colormap, optional
         Cyclic colormap used to color each phasor arrow by its own phase
         (0 to 2*pi) -- pair with `plot_phase_colorwheel` (same `cmap`) to
@@ -1829,7 +1812,15 @@ def raw_NPIX(raw_NPIX_ax, ldr, spks, unitrow, window, freq, label=0.100, DX=1000
         hardcoded -- so passing e.g. a mean-subtracting normalizer (to let
         two panels share a real-amplitude y-axis via `sharey`, rather than
         each being independently min-max-stretched to fill [0, 1]) still
-        places them sensibly regardless of the resulting data range."""
+        places them sensibly regardless of the resulting data range.
+    stem_scale : float, optional
+        Multiplies `phasor_size`, by default 1.0 (full size). Pass e.g. 0.3
+        to shrink the phasor markers down without losing their
+        phase-colored, phase-oriented chevron shape (or the color-to-phase
+        mapping itself) -- i.e. each spike still shows its phase as both a
+        color and a pointing direction, just smaller.
+    phasor_size : float, optional
+        Full-size (`stem_scale=1`) marker size in points, by default 12."""
     # Window
     t_on, t_off = window
 
@@ -1875,12 +1866,27 @@ def raw_NPIX(raw_NPIX_ax, ldr, spks, unitrow, window, freq, label=0.100, DX=1000
         phasor_spks, phasor_phases = subspks.values[idx], phases.values[idx]
 
     cmap = cm.get_cmap(phase_cmap)
+    # A two-stroke chevron (vertex at bottom, arms up) marking each spike's
+    # phase by both color and pointing direction. A marker is always
+    # centered exactly on the (x, y) point passed to `plot` regardless of
+    # its own rotation -- unlike this function's previous approach (an
+    # `annotate`-drawn arrow, tip at xy=phasor_y0+dy, tail at
+    # xytext=phasor_y0-dy), whose fixed-size arrowhead glyph still spans
+    # real pixels around its phase-dependent tip offset even once dy is
+    # shrunk down to near-zero via `stem_scale`, which visibly threw
+    # up-pointing and down-pointing chevrons off of each other's baseline
+    # instead of landing all of them on the same y=phasor_y0 line.
+    chevron = Path([(-0.8, 1), (0, -1), (0.8, 1)], [Path.MOVETO, Path.LINETO, Path.LINETO])
     for spk, phase in zip(phasor_spks, phasor_phases):
-        dx, dy = DX * np.cos(phase), DY * data_range * np.sin(phase),
         color = cmap((phase % (2 * np.pi)) / (2 * np.pi))
-
-        raw_NPIX_ax.annotate("", xy=(spk+dx, phasor_y0+dy), xycoords='data', xytext=(spk-dx, phasor_y0-dy),
-                             textcoords='data', arrowprops=dict(facecolor=color, edgecolor=color, arrowstyle="->"))
+        # chevron's own vertex points "down" (angle -90 deg); rotate so it
+        # points along this spike's own phase instead (0 = right,
+        # increasing counterclockwise -- matplotlib's marker rotation
+        # convention already matches this).
+        marker = MarkerStyle(chevron, transform=Affine2D().rotate_deg(np.degrees(phase) + 90))
+        raw_NPIX_ax.plot(spk, phasor_y0, marker=marker, markersize=phasor_size * stem_scale,
+                          markeredgewidth=1.3, markerfacecolor="none", markeredgecolor=color,
+                          linestyle="none")
 
     raw_NPIX_ax.axis("off")
 
@@ -1893,7 +1899,8 @@ def raw_NPIX(raw_NPIX_ax, ldr, spks, unitrow, window, freq, label=0.100, DX=1000
     raw_NPIX_ax.hlines(scalebar_y, t_on, t_on + spike_sr * label, "k")
 
 
-def plot_phase_colorwheel(wheel_ax, cmap="twilight", size=200, label="phase"):
+def plot_phase_colorwheel(wheel_ax, cmap="twilight", size=200, label="phase", angle_unit="period",
+                           fontsize=5):
     """Draws a circular colorwheel legend mapping phase (0 to 2*pi, one
     stimulus period) to color -- pairs with `raw_NPIX`'s `phase_cmap` (pass
     the SAME `cmap` to both) so a reader can decode what each phasor arrow's
@@ -1911,6 +1918,13 @@ def plot_phase_colorwheel(wheel_ax, cmap="twilight", size=200, label="phase"):
         Resolution (pixels per side) of the underlying wheel image.
     label : str, optional
         Title text above the wheel (e.g. "phase"); pass `None`/`""` to omit.
+    angle_unit : {"period", "radians"}, optional
+        Tick label style: "period" (default) labels quarter-turns as
+        fractions of the stimulus period ("T/4", "T/2", "3T/4"); "radians"
+        labels them in units of pi ("pi/2", "pi", "3pi/2") instead.
+    fontsize : float, optional
+        Font size of the four angle tick labels; the title (`label`) is
+        drawn one point larger, matching the two's original 5/6 ratio.
     """
     x = np.linspace(-1, 1, size)
     xx, yy = np.meshgrid(x, x)
@@ -1920,12 +1934,19 @@ def plot_phase_colorwheel(wheel_ax, cmap="twilight", size=200, label="phase"):
     rgba = cm.get_cmap(cmap)(theta / (2 * np.pi))
     rgba[..., 3] = (r <= 1).astype(float)  # mask to a filled disk
 
+    if angle_unit == "period":
+        angle_labels = ["0", "T/4", "T/2", "3T/4"]
+    elif angle_unit == "radians":
+        angle_labels = ["0", "$\\pi/2$", "$\\pi$", "$3\\pi/2$"]
+    else:
+        raise ValueError(f"angle_unit must be 'period' or 'radians', got {angle_unit!r}")
+
     wheel_ax.imshow(rgba, extent=[-1, 1, -1, 1], origin="lower")
-    for ang, txt in [(0, "0"), (np.pi / 2, "T/4"), (np.pi, "T/2"), (3 * np.pi / 2, "3T/4")]:
+    for ang, txt in zip([0, np.pi / 2, np.pi, 3 * np.pi / 2], angle_labels):
         wheel_ax.text(1.3 * np.cos(ang), 1.3 * np.sin(ang), txt,
-                       ha="center", va="center", fontsize=5)
+                       ha="center", va="center", fontsize=fontsize)
     if label:
-        wheel_ax.set_title(label, fontsize=6, pad=1)
+        wheel_ax.set_title(label, fontsize=fontsize + 1, pad=1)
     wheel_ax.set_xlim(-1.6, 1.6)
     wheel_ax.set_ylim(-1.6, 1.6)
     wheel_ax.set_aspect("equal")
