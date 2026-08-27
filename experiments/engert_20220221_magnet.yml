@@ -9,7 +9,7 @@ tiff_name: "2022-02-21_17-54-26_magnet_z_plane0000_trial000_imaging_roi00_green_
 sample_period: 1.0
 
 iscell_threshold: 0.55
-npix_threshold: 20
+npix_threshold: 10
 
 analysis:
   f: 0.4

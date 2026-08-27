@@ -291,12 +291,32 @@ def dataIO(path, tiffname, len_df=None, sr=1, iscell_thres=0.7, npix_thres=20):
     return tiff, F, spks, stat, duration
 
 
-def remove_flatlines(F, spks=None, stat=None, rtol=0.01, f=0.2):
+def remove_flatlines(F, spks=None, stat=None, rtol=0.01, f=0.2, flat_rtol=1e-4):
     """In the noisier recordings, some traces are just
     delta functions, which result in sqrt(2) values which
     must be cleaned from the raw data. This strategy identies
     these traces by running a fourier transform at a separate frequency,
     and removes traces with an NFC value of sqrt(2).
+
+    Also removes traces that are simply CONSTANT (a dead/corrupted ROI --
+    e.g. suite2p segmentation landing on an out-of-frame or otherwise
+    invalid region, filled with a fixed sentinel value). The sqrt(2) check
+    above only catches one specific degenerate signature (an isolated
+    delta-spike trace, mostly zeros with one nonzero sample); a perfectly
+    constant trace fails differently: mean-subtracting it leaves ~all
+    zeros, so its on-/off-frequency Fourier coefficients are both ~0, and
+    NFC = |on| / sqrt(mean(|off|^2)) becomes an unstable division of two
+    near-zero floats. Confirmed on real data (2022-09/10 zebrafish
+    sessions) that this reliably produces one specific, deceptively
+    "significant" NFC value shared bit-for-bit across every dead ROI in a
+    session (since they're all the same fill value, hitting the same
+    float32 rounding) -- this is exactly what surfaced as a spurious
+    "excess suspects" flag in Fig2's magnetic-stimulation panel before this
+    check existed. `flat_rtol` is relative to each trace's own mean (not an
+    absolute threshold) so it scales correctly across experiments with very
+    different baseline fluorescence levels -- real cells' fluctuations were
+    ~3 orders of magnitude above this on the affected sessions, so there's
+    ample margin.
 
     `spks`/`stat` are optional (NWB-backed callers don't load `spks.npy` at
     all -- it's never used analytically downstream -- and may not have
@@ -309,9 +329,11 @@ def remove_flatlines(F, spks=None, stat=None, rtol=0.01, f=0.2):
     # Q_frac here is an artifact-detection window, not stimulus-meaningful --
     # only needs to clear MIN_FOURIER_BINS at this f=0.2 default.
     NFC_l, onfreq_coef_l, offfreq_coef_l, xf, _M, _avg_signal_l = fit_Fourier(F, T=1, f=f, Q_frac=0.15)
+    is_constant = np.std(F, axis=1) < flat_rtol * np.abs(np.mean(F, axis=1))
     inclusion_inds = np.where(
         np.logical_not(np.isclose(NFC_l, np.sqrt(2), rtol=rtol))
-        & np.logical_not(np.isnan(NFC_l)))[0]
+        & np.logical_not(np.isnan(NFC_l))
+        & np.logical_not(is_constant))[0]
     spks_out = spks[inclusion_inds] if spks is not None else None
     stat_out = stat[inclusion_inds] if stat is not None else None
     return F[inclusion_inds, :], spks_out, stat_out, inclusion_inds

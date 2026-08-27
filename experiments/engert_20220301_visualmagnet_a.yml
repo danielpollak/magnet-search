@@ -9,8 +9,9 @@ tiff_name: "2022-03-01_12-55-56_visual+magnet_z_plane0000_trial000_imaging_roi00
 sample_period: 1.02
 
 iscell_threshold: 0.55
-npix_threshold: 20
+npix_threshold: 10
 
 analysis:
   f: 0.4
   Q_frac: 0.15
+  visual_f: 0.016667

@@ -1,4 +1,5 @@
 import functools
+import re
 
 import numpy as np
 import pandas as pd
@@ -1527,53 +1528,107 @@ def get_poscontrols_negresults(all_fourier_df:pd.DataFrame):
 
 
     """Positive control"""
-    # Without fish
+    # Without fish. "bars" catches session 20220916's visual_bars paradigm
+    # (rec names like "bars4_...", no "visual" substring) -- its own YAML
+    # declares `visual_rec_substring: "bars"`, and every other session's
+    # `visual_rec_substring` is already one of "visual"/"oddball" (checked
+    # against every experiments/*.yml), so this was a real gap: a genuine
+    # visual-stimulus experiment (healthy spike counts, 8 orientations) was
+    # silently excluded from both this and the negative-result population.
     not_fish_pos_control = all_fourier_df.loc[
         nn_filter & ~include_fish & (
             np.array(["visual" in elem for elem in all_fourier_df.rec.values])
             | np.array(["oddball" in elem for elem in all_fourier_df.rec.values])
             | np.array(["WN" in elem for elem in all_fourier_df.rec.values])
             | np.array(["3D" in elem for elem in all_fourier_df.rec.values])
+            | np.array(["bars" in elem for elem in all_fourier_df.rec.values])
         ), :]
 
-    # With fish
-    fish_pos_control = all_fourier_df.loc[include_fish 
+    # With fish. Any fish row at a visual-band frequency (<0.02 Hz) is a
+    # positive control EXCEPT medaka's magneto_0.tif (and no_magneto_0.tif,
+    # via the same ".../magneto_0.tif" suffix match) -- medaka.py's own
+    # processing comment documents that trial as having no visual stimulus.
+    # This used to also require an explicit "visual" substring or a literal
+    # "magneto_1.tif"/"magneto_2.tif" suffix, which silently excluded every
+    # engert visual-frequency row (no ".tif" suffix, no "visual" substring in
+    # e.g. "engert_20220914_fish2_magneto_1") -- confirmed via the original
+    # experimenter's protocol email (see CLAUDE.md's "Zebrafish/medaka
+    # multi-trial sessions" section) that these zebrafish recordings have a
+    # real visual grating running in EVERY trial including magneto_0/
+    # no_magneto_0, unlike medaka -- so no analogous "_0 excluded" rule
+    # applies to zebrafish here.
+    medaka_trial0_no_visual = np.array(
+        [rec.endswith("magneto_0.tif") for rec in all_fourier_df.rec.values])
+    fish_pos_control = all_fourier_df.loc[include_fish
         & np.array(["nostim" not in rec for rec in all_fourier_df.rec.values])
         & (all_fourier_df.freq.values < 0.02) # include 1/60 Hz, 0.016667 Hz
-        & ( 
-            np.array(["visual" in rec for rec in all_fourier_df.rec.values])
-            | np.array([rec.endswith("magneto_1.tif") for rec in all_fourier_df.rec.values])
-            | np.array([rec.endswith("magneto_2.tif") for rec in all_fourier_df.rec.values])
-        ), :]
+        & ~medaka_trial0_no_visual, :]
 
     # Combine fish and not fish
     all_pos_control = pd.concat([
         fish_pos_control, not_fish_pos_control])
 
-    # Some neurons will be repeated across experiments. Unique values for neurons, only counted once.
+    # Some neurons will be repeated across experiments. Unique values for
+    # neurons, only counted once. Dedup key includes "ID" (subject), not just
+    # "date" -- some species recorded two different individuals on the same
+    # calendar date (e.g. zebrafish 20221001/20221002, each fish1+fish2 in one
+    # day), and suite2p/Kilosort `id` numbering restarts per subject, so
+    # `date`+`id` alone collides two different animals' unrelated units into
+    # one "neuron" whenever their ids happen to match.
     all_unique_pos_control = all_pos_control.drop_duplicates(
-        subset=["species", "date", "id"], keep="first")
+        subset=["species", "ID", "date", "id"], keep="first")
 
     """Magnet experiments"""
+    # freq >= 1 (not the previous strict >1): this filter's real job is
+    # excluding oddball's ~0.98Hz and WN's 0.8Hz rows that aren't already
+    # caught by the substring checks below (oddball has neither "visual",
+    # "WN", nor "3D" in its rec name) -- but a strict ">1" also silently
+    # dropped genuine 1Hz magnetic experiments (pigeon's mag1_upright,
+    # zebra finch's "2nd site 1 Hz" and "mag1Hz"). ">=1" excludes oddball/WN
+    # exactly as before while keeping those real 1Hz magnetic recordings.
     not_fish_mag_exp = all_fourier_df.loc[nn_filter & ~include_fish
-        & (all_fourier_df.freq > 1)
+        & (all_fourier_df.freq >= 1)
         & np.array(["visual" not in elem for elem in all_fourier_df.rec.values])
         & np.array(["WN" not in elem for elem in all_fourier_df.rec.values])
         & np.array(["3D" not in elem for elem in all_fourier_df.rec.values]), :]
 
-    # Expt 5 had the most units
-    # What's going on here? isn't owl included above? 
-    owl_mag_exp = all_fourier_df.loc[
-        (all_fourier_df.species == "Owl")
-        & (all_fourier_df.rec == "exp5"), :]
+    # All 5 owl experiments (exp1-exp5) are genuine magnetic recordings, same
+    # bird, same frequency (4Hz) -- previously only exp5 was included ("Expt 5
+    # had the most units"), silently dropping exp1-4 for no principled reason.
+    owl_mag_exp = all_fourier_df.loc[all_fourier_df.species == "Owl", :]
 
+    # Matches both the older single-trial naming ("...magnet"[.tif]) and the
+    # newer per-trial naming ("...magneto_N"[.tif], any trial number N, not
+    # just trial 0 -- medaka rec names carry a stray ".tif" suffix
+    # (basename(session_path) + ".tif"), engert's don't (cfg.name has no
+    # extension; see CLAUDE.md's rec-naming notes for each paradigm).
+    #
+    # Previously this only matched a bare "...magnet" suffix or literally
+    # "...magneto_0.tif" -- so every multi-trial engert session named
+    # "..._magneto_N" (no ".tif", any N including 0) silently matched
+    # neither pattern and was dropped from BOTH neg_res and pos_control
+    # entirely. Those sessions (e.g. 20220914-20221002 fish1/fish2) share one
+    # suite2p ROI extraction across all of a fish's trials (same
+    # `session_path`, only `tiff_name` differs -- see the engert YAMLs), so
+    # `id` really is a stable per-neuron key across them and they belong in
+    # the occurrence-wave analysis (fig3_supp2.py) same as any other repeat
+    # magnet recording.
+    #
+    # Optional "visual" prefix (+ optional "_a"/"_b" suffix) also matches the
+    # 2022 Q1 batch's "visualmagnet"/"visualmagnet_a"/"visualmagnet_b" recs --
+    # magnet and visual grating run simultaneously in these, at a real 0.4Hz
+    # magnetic frequency, now with an independent visual_f fit added (see
+    # those experiments/*.yml) so they land in both negative-result (via this
+    # 0.4Hz row) and positive-control (via the freq<0.02 row below,
+    # already-generalized to not require a bare "visual" rec-name match).
+    _magnet_trial_re = re.compile(r"(^|_)(visual)?(magnet|magneto_\d+)(_[ab])?(\.tif)?$")
     fish_mag_exp = all_fourier_df.loc[
         include_fish
         & np.array(["nostim" not in rec for rec in all_fourier_df.rec.values])
-        & np.array(["visual" not in elem for elem in all_fourier_df.rec.values])
+        & np.array(["no_magnet" not in rec and "no-magnet" not in rec
+                    for rec in all_fourier_df.rec.values])
         & (all_fourier_df.freq.values  > 0.02) # exclude 1/60 Hz, 0.016667 Hz
-        & (np.array([elem.endswith("magnet") for elem in all_fourier_df.rec.values])
-            | np.array([elem.endswith("magneto_0.tif") for elem in all_fourier_df.rec.values])), :]
+        & np.array([bool(_magnet_trial_re.search(elem)) for elem in all_fourier_df.rec.values]), :]
 
     # Combine fish and not fish
     all_mag_exp = pd.concat([

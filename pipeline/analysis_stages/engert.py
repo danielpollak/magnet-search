@@ -7,6 +7,16 @@ formulas, still deferred to analysis time so editing thresholds in the YAML
 only requires re-running analysis, not reprocessing), runs fit_Fourier at 1F
 and 2F (skipping 2F when above Nyquist), builds fourier_df, writes Fourier
 results to NWB, and generates diagnostic PDF.
+
+If `cfg.analysis.visual_f` is set (sentinel -1.0 = unset, the default), an
+ADDITIONAL, independent Fourier fit runs at that frequency -- not a 1F/2F
+harmonic of `cfg.analysis.f`, but its own separate (rec, freq) group,
+mirroring how `analysis_stages/medaka.py` always fits a magnetic AND a
+visual frequency per trial. This is for the handful of engert experiments
+where a visual grating ran concurrently with the magnetic stimulus (see
+CLAUDE.md's "Zebrafish/medaka multi-trial sessions" section for exactly
+which experiments qualify) -- most engert YAMLs leave `visual_f` unset and
+get only the single-frequency 1F/2F fit, unchanged from before this existed.
 """
 import os
 from pathlib import Path
@@ -48,6 +58,17 @@ def _load_from_nwb(nwb_path, iscell_thres, npix_thres):
     return F_final, roi_df, included_mask, (Ly, Lx)
 
 
+# Default off-frequency half-window for the optional `visual_f` fit, used
+# unless a YAML sets its own `analysis.visual_Q_frac`. Matches medaka's own
+# `_VISUAL_Q_FRAC` -- same 1/60 Hz stimulus design, same reasoning: smaller
+# defaults (0.10/0.20/0.25) all yield too few off-frequency bins to clear
+# MIN_FOURIER_BINS=8 at a visual frequency this low (confirmed on the actual
+# 2022-09/10 zebrafish recordings, all N=1260 frames -> M=10 at 0.5, vs.
+# M<8 at 0.25). Retune per-experiment via `analysis.visual_Q_frac` if a
+# future visual_f experiment has a much shorter recording.
+_DEFAULT_VISUAL_Q_FRAC = 0.50
+
+
 def compute_fourier_results(cfg, verbose=True):
     """Pure computation: load Suite2p data back from NWB, run 1F/2F
     fit_Fourier, build fourier_df. No I/O beyond the NWB read -- no writing,
@@ -59,7 +80,10 @@ def compute_fourier_results(cfg, verbose=True):
 
     Returns a dict with everything run_analysis needs to write/plot:
     F, roi_df, included_mask, imaging_dims, fourier_df, freq, Q, Q_2f, T,
-    freq_win, onfreq_coef_l, offfreq_coef_l, onfreq_coef_2f_l, offfreq_coef_2f_l.
+    freq_win, onfreq_coef_l, offfreq_coef_l, onfreq_coef_2f_l, offfreq_coef_2f_l
+    -- plus, only when `cfg.analysis.visual_f` is set: visual_fourier_df,
+    visual_freq, Q_visual, visual_freq_win, visual_onfreq_coef_l,
+    visual_offfreq_coef_l (all None/absent otherwise).
     """
     freq    = cfg.analysis.f
     Q_frac  = cfg.analysis.Q_frac
@@ -136,37 +160,101 @@ def compute_fourier_results(cfg, verbose=True):
         "Q":         M_1f,  # bin count behind THIS row's NFC/p_value (1F)
     })
 
-    return {
+    result = {
         "F": F, "roi_df": roi_df, "included_mask": included_mask,
         "imaging_dims": imaging_dims, "fourier_df": fourier_df,
         "freq": freq, "Q": M_1f, "Q_2f": M_2f, "T": T, "freq_win": freq_win,
         "onfreq_coef_l": onfreq_coef_l, "offfreq_coef_l": offfreq_coef_l,
         "freq_win_2f": freq_win_2f,
         "onfreq_coef_2f_l": onfreq_coef_2f_l, "offfreq_coef_2f_l": offfreq_coef_2f_l,
+        "visual_freq": None, "Q_visual": None, "visual_freq_win": None,
+        "visual_onfreq_coef_l": None, "visual_offfreq_coef_l": None,
     }
+
+    # ── Optional independent visual-frequency fit (NOT a harmonic of `freq`) ──
+    # Folded into the SAME `fourier_df` (via concat) rather than a separate
+    # dict key -- matching medaka.py's single-fourier_df convention, which
+    # verify_outputs.py and every other `["fourier_df"]` consumer expects.
+    # `run_analysis` below re-derives this group's own rows via
+    # `fourier_df.loc[fourier_df.freq == visual_freq]`, exactly like
+    # medaka.py does for its own two frequency groups.
+    visual_freq = cfg.analysis.visual_f
+    if visual_freq > 0:
+        visual_Q_frac = cfg.analysis.visual_Q_frac if cfg.analysis.visual_Q_frac > 0 \
+            else _DEFAULT_VISUAL_Q_FRAC
+        _p(f"[engert] {cfg.name}: fit_Fourier at {visual_freq} Hz (visual, independent of {freq} Hz)")
+        NFC_v_l, onfreq_coef_v_l, offfreq_coef_v_l, freq_win_v, M_v, avg_signal_v_l = fit_Fourier(
+            F, T=T, f=visual_freq, Q_frac=visual_Q_frac)
+
+        NFC_v     = np.array(NFC_v_l)
+        p_value_v = corrected_pvalues(NFC_v, M_v)
+        fou_alt_v = np.array(offfreq_coef_v_l)
+        sigma_v   = np.sqrt(0.5 * np.mean(np.abs(fou_alt_v) ** 2, axis=1))
+        sens_v    = avg_signal_v_l / np.where(sigma_v > 0, 2 * sigma_v, np.nan)
+
+        # No 2f_NFC/2f_p_value/sens_2f columns -- this is an independent
+        # group (like medaka's own visual-frequency fourier_df), not a
+        # 1F/2F harmonic pair; concat leaves those NaN for these rows, which
+        # write_imaging_fourier_results's onfreq_coef_2f=None (below) matches.
+        visual_fourier_df = pd.DataFrame({
+            "id":       np.arange(len(NFC_v)),
+            "p_value":  p_value_v,
+            "n_frames": n_frames,
+            "NFC":      NFC_v,
+            "freq":     visual_freq,
+            "rec":      cfg.name,
+            "sens":     sens_v,
+            "Q":        M_v,
+        })
+        result["fourier_df"] = pd.concat([fourier_df, visual_fourier_df], ignore_index=True)
+        result.update({
+            "visual_freq": visual_freq, "Q_visual": M_v, "visual_freq_win": freq_win_v,
+            "visual_onfreq_coef_l": onfreq_coef_v_l, "visual_offfreq_coef_l": offfreq_coef_v_l,
+        })
+
+    return result
 
 
 def run_analysis(cfg):
     r = compute_fourier_results(cfg)
     F, roi_df, included_mask, imaging_dims = r["F"], r["roi_df"], r["included_mask"], r["imaging_dims"]
-    fourier_df, freq, Q, Q_2f, T = r["fourier_df"], r["freq"], r["Q"], r["Q_2f"], r["T"]
+    freq, Q, Q_2f, T = r["freq"], r["Q"], r["Q_2f"], r["T"]
     freq_win = r["freq_win"]
     onfreq_coef_l, offfreq_coef_l = r["onfreq_coef_l"], r["offfreq_coef_l"]
     freq_win_2f = r["freq_win_2f"]
     onfreq_coef_2f_l, offfreq_coef_2f_l = r["onfreq_coef_2f_l"], r["offfreq_coef_2f_l"]
 
+    # `r["fourier_df"]` holds BOTH groups' rows concatenated when visual_f is
+    # set (see compute_fourier_results) -- select each group's own rows by
+    # freq before using them, exactly like medaka.py's
+    # `fourier_df.loc[fourier_df.freq == f_b]` pattern, since
+    # write_imaging_fourier_results/plot_engert_diagnostics both expect
+    # exactly len(F) rows aligned 1:1 with onfreq_coef_l/offfreq_coef_l.
+    primary_fourier_df = r["fourier_df"].loc[r["fourier_df"].freq == freq].reset_index(drop=True)
+
     # ── NWB write (see .claude/plans — NWB replatform, Phase 4) ────────────
-    nwb_io.rebuild_and_replace_analysis(
-        cfg.nwb_path(),
-        lambda nwbfile: nwb_io.write_imaging_fourier_results(
+    def _write(nwbfile):
+        nwb_io.write_imaging_fourier_results(
             nwbfile, rec=cfg.name, freq=freq, Q=Q,
-            T_duration=F.shape[1] * T, fourier_df_rows=fourier_df,
+            T_duration=F.shape[1] * T, fourier_df_rows=primary_fourier_df,
             onfreq_coef=onfreq_coef_l, offfreq_coef=offfreq_coef_l, freq_win=freq_win,
-            onfreq_coef_2f=onfreq_coef_2f_l, offfreq_coef_2f=offfreq_coef_2f_l, Q_2f=Q_2f),
-    )
+            onfreq_coef_2f=onfreq_coef_2f_l, offfreq_coef_2f=offfreq_coef_2f_l, Q_2f=Q_2f)
+        # Optional independent visual-frequency group (see compute_fourier_results) --
+        # written as its own (rec, freq) group, no 2F pairing, matching medaka.py's
+        # own visual-frequency write call.
+        if r["visual_freq"] is not None:
+            visual_fourier_df = r["fourier_df"].loc[
+                r["fourier_df"].freq == r["visual_freq"]].reset_index(drop=True)
+            nwb_io.write_imaging_fourier_results(
+                nwbfile, rec=cfg.name, freq=r["visual_freq"], Q=r["Q_visual"],
+                T_duration=F.shape[1] * T, fourier_df_rows=visual_fourier_df,
+                onfreq_coef=r["visual_onfreq_coef_l"], offfreq_coef=r["visual_offfreq_coef_l"],
+                freq_win=r["visual_freq_win"])
+
+    nwb_io.rebuild_and_replace_analysis(cfg.nwb_path(), _write)
     print(f"[engert] {cfg.name}: saved -> {cfg.nwb_path()}")
 
-    # ── Diagnostics ──────────────────────────────────────────────────────────
+    # ── Diagnostics (primary frequency only -- unaffected by visual_f) ──────
     # 2F args are passed straight from this SAME run's in-memory
     # compute_fourier_results() output, not reconstructed from NWB (unlike
     # NPIX's simple.py, which reads diagnostics input back from disk) --
@@ -177,7 +265,7 @@ def run_analysis(cfg):
     diag_dir = Path(cfg.data_dir).parent / "figs" / "analysis"
     diag_dir.mkdir(parents=True, exist_ok=True)
     plot_engert_diagnostics(
-        cfg, F, fourier_df, freq_win,
+        cfg, F, primary_fourier_df, freq_win,
         onfreq_coef_l, offfreq_coef_l, diag_dir,
         roi_df=roi_df, included_mask=included_mask, imaging_dims=imaging_dims,
         freq_win_2f=freq_win_2f, onfreq_coef_2f=onfreq_coef_2f_l,
