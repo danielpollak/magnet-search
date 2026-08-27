@@ -9,7 +9,7 @@ tiff_name: "2022_10_01_fish1_magneto_1.tif"
 sample_period: 1.0
 
 iscell_threshold: 0.6
-npix_threshold: 20
+npix_threshold: 10
 
 analysis:
   f: 0.1

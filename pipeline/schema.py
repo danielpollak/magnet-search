@@ -66,7 +66,21 @@ class AnalysisConfig:
     Q_frac: float = -1.0
     # stimulus frequency for Engert/GCaMP paradigm (NPIX ignores this)
     f: float = -1.0
-    # multi-stim fields (used when paradigm == openephys_multistim)
+    # engert only: an OPTIONAL second, independent Fourier fit (not a 1F/2F
+    # harmonic of `f`) at a visual-stimulus frequency, for recordings where
+    # a visual grating ran concurrently with the magnetic stimulus -- e.g.
+    # the 2022-09/10 0.3 Hz zebrafish batch (see CLAUDE.md's
+    # "Zebrafish/medaka multi-trial sessions" section for exactly which
+    # experiments this applies to and why; most engert experiments leave
+    # this at the -1.0 sentinel and get only the single-frequency 1F/2F fit).
+    # medaka doesn't use this field -- medaka.py hardcodes its own
+    # `_VISUAL_FREQ` unconditionally instead, since EVERY medaka trial has
+    # one Q_frac (shared with engert's multi-stim fields below).
+    visual_f: float = -1.0
+    # multi-stim fields (used when paradigm == openephys_multistim); also
+    # reused by engert as this optional `visual_f` fit's own Q_frac (see
+    # above) -- same "off-frequency half-window as a fraction of the
+    # frequency" meaning in both cases, just applied to a different paradigm.
     mag_Q_frac: float = -1.0
     visual_Q_frac: float = -1.0
     WN_Q_frac: float = -1.0

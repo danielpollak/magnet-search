@@ -5,20 +5,22 @@ trains from every experiment YAML with species=="Pigeon" and area=="HP" --
 then synthetically modulates the pooled units to show detection thresholds.
 Pooling this way (instead of a single recording) keeps Fig4's population
 consistent with the "Pigeon HP" population Fig2/Fig3 already report on.
-Panel B ports fig4_pilot.py's Storey q-value/FDR responder-count heatmap
-onto this file's full pseudopopulation. Panel C repeats that exact
+Panel C ports fig4_pilot.py's Storey q-value/FDR responder-count heatmap
+onto this file's full pseudopopulation. Panel D repeats that exact
 analysis restricted to the top decile (>=90th percentile) by a synthetic-
 baseline sensitivity proxy (spk_count/T/2/sigma, computed at this file's
 own simulation frequency/Q -- see compute_sensitivity) -- deliberately NOT
 the REAL per-unit sens column in data/manuscript/all_fourier_df.parquet
 that fig4_pilot.py itself used to select its own (single, subsampled)
 population, so this file's population stays fully self-contained from
-local NWBs with no aggregate.py/parquet dependency. Panel D (FR vs NFC
+local NWBs with no aggregate.py/parquet dependency. Panel B (FR vs NFC
 scatter) marks those same top-decile-sensitivity units with a black
 outline. The old excess-suspects-vs-modulation-amplitude panel (formerly
-"B", a single % modulated slice) was dropped once panel B's 2D amplitude x
-participation sweep made it a strict generalization -- every "% modulated"
-line the old panel plotted is one row of panel B's grid.
+"B", a single % modulated slice, long before today's B/C/D letters were
+reassigned to their current panels) was dropped once the responder-count
+heatmap's 2D amplitude x participation sweep made it a strict
+generalization -- every "% modulated" line the old panel plotted is one
+row of that heatmap's grid.
 
 Requires:
   data/{experiment}.nwb for every discovered pigeon-HP experiment
@@ -29,6 +31,9 @@ reused on subsequent runs (pass --recompute to force a fresh simulation).
 Every sweep (panels B, C, D) is embarrassingly parallel across its grid
 cells -- pass --workers N (N>1) to fan them out across a multiprocessing
 Pool, same convention as pipeline/processing.py's/analysis.py's --workers.
+With N>1, each worker renders its own tqdm progress bar (see
+_run_parallel) instead of one pooled counter, so progress is visible
+per-worker -- in a terminal or a notebook cell alike.
 
 Usage:
     python pipeline/manuscript/fig4.py
@@ -38,7 +43,7 @@ Usage:
 """
 import argparse
 import os
-from multiprocessing import Pool
+from multiprocessing import Pool, RLock
 from pathlib import Path
 
 # Detect if running in Jupyter notebook (must do this before matplotlib.use)
@@ -117,8 +122,8 @@ FREQ        = 5
 # compute_responder_df's own amplitude=0.0 baseline-row shortcut skips
 # building a redundant (and pivot()-breaking, since it'd duplicate the
 # (participation, amplitude) index) task for amplitude==0.0 explicitly.
-AMPLITUDES_RESP    = np.arange(0, 1, 0.1)
-PARTICIPATION_RESP = np.arange(0, 1, 0.1)
+AMPLITUDES_RESP    = np.arange(0, 1, 0.01)
+PARTICIPATION_RESP = np.arange(0, 1, 0.01)
 QVALUE_FDR         = 0.05
 
 
@@ -236,8 +241,8 @@ def fourier_Q_from_frac(spks, freq, Q_frac, context=""):
 # ---------------------------------------------------------------------------
 # Parallel sweep machinery.
 #
-# Every grid cell below (one A for panel C, one (participation, amplitude)
-# pair for panel B) is an independent call to statistics.fourier_analysis
+# Every grid cell below (one A for panel B, one (participation, amplitude)
+# pair for panels C/D) is an independent call to statistics.fourier_analysis
 # over the SAME pooled `spks` -- embarrassingly parallel. _init_worker
 # stashes the shared, possibly-large `spks` list once per worker process
 # (via Pool's initializer) instead of re-pickling it into every task, and
@@ -257,12 +262,50 @@ def _init_worker(spks, freq, Q):
     _worker_state["eps"] = statistics.get_epsilon(Q)
 
 
+def _init_worker_bars(spks, freq, Q, worker_fn, lock):
+    """Same as _init_worker, plus stashing worker_fn itself (so _run_chunk
+    below can look it up per-process) and re-installing the shared tqdm
+    lock -- tqdm's own recipe for rendering multiple bars from separate
+    processes without their line-redraws stomping on each other.
+    """
+    _init_worker(spks, freq, Q)
+    _worker_state["worker_fn"] = worker_fn
+    tqdm.tqdm.set_lock(lock)
+
+
+def _run_chunk(indexed_chunk):
+    idx, chunk = indexed_chunk
+    worker_fn = _worker_state["worker_fn"]
+    bar = tqdm.tqdm(chunk, desc=f"worker {idx}", position=idx, leave=True)
+    return idx, [worker_fn(t) for t in bar]
+
+
 def _run_parallel(tasks, worker_fn, spks, freq, Q, workers, desc=""):
+    """With workers<=1, runs every task in-process behind a single tqdm bar.
+    With workers>1, splits tasks round-robin into `workers` chunks -- one
+    per pool worker -- and has each worker render its OWN tqdm bar (stacked
+    via `position=`) tracking just its own chunk, instead of one bar
+    counting completions pooled across all of them. This makes load
+    imbalance visible (useful once a grid this large, e.g. a 10x-finer
+    AMPLITUDES_RESP/PARTICIPATION_RESP, takes long enough to want a progress
+    read per-worker rather than an aggregate one). tqdm.auto resolves to
+    plain-text bars inside each worker process automatically -- a spawned
+    worker has no IPython kernel of its own even when the parent process is
+    a notebook -- so this renders correctly both from a terminal and from a
+    notebook cell; see tqdm's own parallel-bars recipe (tqdm/examples in the
+    tqdm repo) for the set_lock/get_lock pattern this mirrors.
+    """
     if workers <= 1:
         _init_worker(spks, freq, Q)
         return [worker_fn(t) for t in tqdm.tqdm(tasks, desc=desc)]
-    with Pool(workers, initializer=_init_worker, initargs=(spks, freq, Q)) as pool:
-        return list(tqdm.tqdm(pool.imap(worker_fn, tasks), total=len(tasks), desc=desc))
+    workers = min(workers, len(tasks)) or 1
+    chunks = [tasks[i::workers] for i in range(workers)]
+    lock = RLock()
+    with Pool(workers, initializer=_init_worker_bars,
+              initargs=(spks, freq, Q, worker_fn, lock)) as pool:
+        chunk_results = pool.map(_run_chunk, list(enumerate(chunks)))
+    chunk_results.sort(key=lambda ic: ic[0])
+    return [r for _, chunk in chunk_results for r in chunk]
 
 
 def _fr_cell(task):
@@ -397,27 +440,36 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
     matplotlib.rc("font", **font)
 
     fig = plt.figure(figsize=FP.FIGSIZE_FIG4)
-    # 3 rows x 6 cols. Top row-band (grid rows 0-1) is split left/right down
-    # the middle: the left half is panel A (spectra on grid row 0, PSTHs on
-    # grid row 1 -- one column per mod condition, squished into 3 of the 6
-    # columns instead of spanning the full width); the right half is B (row
-    # 0) stacked on top of C (row 1) -- the SAME q-value responder-count
-    # heatmap analysis, B on the full pseudopopulation, C restricted to the
-    # top-decile-sensitivity subset (see compute_sensitivity). D (the
-    # FR-vs-NFC scatter) is the only thing below that top band, spanning
-    # the full width on its own row. Variable names still reflect what
-    # each axis plots, not its letter.
-    gs = gridspec.GridSpec(3, 6, left=0, bottom=0, right=1, top=1, wspace=0.5, hspace=0.5)
+    # 3 rows x 6 cols. Top row-band (grid rows 0-1, squished vertically via
+    # height_ratios below) is split left/right down the middle: the left
+    # half is panel A (spectra on grid row 0, PSTHs on grid row 1 -- one
+    # column per mod condition, squished into 3 of the 6 columns instead of
+    # spanning the full width); the right half is B (the FR-vs-NFC scatter,
+    # spanning both rows next to A). The bottom row holds C and D
+    # side-by-side -- the SAME q-value responder-count heatmap analysis, C
+    # on the full pseudopopulation, D restricted to the top-decile-
+    # sensitivity subset (see compute_sensitivity) -- given the whole bottom
+    # row (instead of half the figure height each, stacked, as in the
+    # previous layout) so each comes out closer to square. Variable names
+    # still reflect what each axis plots, not its current letter (e.g.
+    # ax_scatter is panel B here, ax_heatmap is panel C, ax_heatmap_top is
+    # panel D).
+    gs = gridspec.GridSpec(3, 6, left=0, bottom=0, right=1, top=1, wspace=0.5, hspace=0.5,
+                            height_ratios=[0.6, 0.6, 1.6])
+    # Panel A's spectra/PSTH rows get their own nested gridspec so their
+    # vertical gap can be tightened independently of the outer hspace (which
+    # still needs to separate this whole A/B band from C/D below).
+    gs_A = gridspec.GridSpecFromSubplotSpec(2, 3, subplot_spec=gs[0:2, 0:3], hspace=0.25, wspace=0.5)
 
-    ax_A1 = fig.add_subplot(gs[0, 0])  # spectrum, A=0
-    ax_A3 = fig.add_subplot(gs[0, 1])  # spectrum, A=0.5
-    ax_A5 = fig.add_subplot(gs[0, 2])  # spectrum, A=1
-    ax_A2 = fig.add_subplot(gs[1, 0])  # PSTH,     A=0
-    ax_A4 = fig.add_subplot(gs[1, 1])  # PSTH,     A=0.5
-    ax_A6 = fig.add_subplot(gs[1, 2])  # PSTH,     A=1
-    ax_heatmap     = fig.add_subplot(gs[0, 3:6])  # full pseudopopulation
-    ax_heatmap_top = fig.add_subplot(gs[1, 3:6])  # top-decile-sensitivity subset
-    ax_scatter     = fig.add_subplot(gs[2, :])
+    ax_A1 = fig.add_subplot(gs_A[0, 0])  # spectrum, A=0
+    ax_A3 = fig.add_subplot(gs_A[0, 1])  # spectrum, A=0.5
+    ax_A5 = fig.add_subplot(gs_A[0, 2])  # spectrum, A=1
+    ax_A2 = fig.add_subplot(gs_A[1, 0])  # PSTH,     A=0
+    ax_A4 = fig.add_subplot(gs_A[1, 1])  # PSTH,     A=0.5
+    ax_A6 = fig.add_subplot(gs_A[1, 2])  # PSTH,     A=1
+    ax_scatter     = fig.add_subplot(gs[0:2, 3:6])  # FR-vs-NFC scatter, panel B
+    ax_heatmap     = fig.add_subplot(gs[2, 0:3])    # full pseudopopulation, panel C
+    ax_heatmap_top = fig.add_subplot(gs[2, 3:6])    # top-decile-sensitivity subset, panel D
 
     spectra_axes = [ax_A1, ax_A3, ax_A5]
     psth_axes    = [ax_A2, ax_A4, ax_A6]
@@ -445,14 +497,14 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
         else:
             psth_axes[mod_i].set_yticks([])
 
-    [ax.set_ylim((-1, 7)) for ax in spectra_axes]
+    [ax.set_ylim((-1, 4)) for ax in spectra_axes]
     # Headroom scaled off the tallest bin actually observed across the three
     # panels (was a hardcoded (0, 30) that clipped once the pigeon-HP
     # pseudopopulation's higher-spike-count example units pushed bin counts
     # past 30).
     [ax.set_ylim((0, psth_max * 1.1)) for ax in psth_axes]
 
-    # Panel B (q-value/FDR responder-count heatmap, ported from
+    # Panel C (q-value/FDR responder-count heatmap, ported from
     # fig4_pilot.py's plot_fig4_pilot), on this file's own full
     # pseudopopulation.
     pivot = resp_df.pivot(index="participation", columns="amplitude", values="responders")
@@ -467,10 +519,10 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
     ax_heatmap.set_xlabel("5 Hz modulation amplitude (A)")
     ax_heatmap.set_ylabel("Fraction of population modulated")
 
-    # Panel C: the SAME analysis as panel B, restricted to the top-decile
+    # Panel D: the SAME analysis as panel C, restricted to the top-decile
     # (>=90th percentile) most-sensitive units (see compute_sensitivity) --
     # the pseudopopulation subsampling fig4_pilot.py did unconditionally,
-    # now shown here as an explicit comparison against panel B's full
+    # now shown here as an explicit comparison against panel C's full
     # population rather than a replacement for it.
     pivot_top = resp_df_top.pivot(index="participation", columns="amplitude", values="responders")
     im_top = ax_heatmap_top.imshow(
@@ -484,8 +536,8 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
     ax_heatmap_top.set_xlabel("5 Hz modulation amplitude (A)")
     ax_heatmap_top.set_ylabel("Fraction of population modulated")
 
-    # Panel D: FR vs NFC scatter. Top-decile-sensitivity units (same
-    # definition as panel C's subset) get a black outline, overlaid on the
+    # Panel B: FR vs NFC scatter. Top-decile-sensitivity units (same
+    # definition as panel D's subset) get a black outline, overlaid on the
     # same points already drawn -- same hue/palette so the outlined points
     # keep their mod-condition fill color.
     sns.scatterplot(data=NFC_modulation_FR_df, x="FR", y="NFC", hue="mod",
@@ -499,6 +551,7 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
     mod_vals = [0, 0.3, 0.6]
     pairs = [(h, l) for h, l in zip(handles, labels)
              if any(abs(float(l) - v) < 1e-9 for v in mod_vals)]
+    pairs = pairs[::-1]  # high-to-low top-to-bottom, instead of seaborn's ascending hue order
     ax_scatter.legend([h for h, _ in pairs],
                 [f"A={l}" for _, l in pairs],
                 title="modulation (5 Hz)", ncol=1, markerscale=3)
@@ -512,19 +565,24 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
 
     # Panel letters: each row is now uniform height within itself, so a
     # simple per-axis axes-fraction annotate suffices (no cross-row
-    # figure-coordinate alignment hack needed, unlike the earlier layout
+    # figure-coordinate alignment hack needed, unlike an earlier layout
     # where A/B/D shared one taller row-span).
     ax_A1.annotate("A", xy=(-0.12, 1.35), xycoords="axes fraction", fontfamily="arial", fontsize=12)
-    ax_heatmap.annotate("B", xy=(-0.05, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
-    ax_heatmap_top.annotate("C", xy=(-0.05, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
-    ax_scatter.annotate("D", xy=(-0.03, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
+    ax_scatter.annotate("B", xy=(-0.03, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
+    ax_heatmap.annotate("C", xy=(-0.05, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
+    ax_heatmap_top.annotate("D", xy=(-0.05, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
 
-    statistics.boundarize_and_nestle(ax_A1, y=False, x_offset=-0.1)
-    statistics.boundarize_and_nestle(ax_A3, y=False, x_offset=-0.1)
-    statistics.boundarize_and_nestle(ax_A5, y=False, x_offset=-0.1)
-    statistics.nestle_labels(ax_A2, y=False, x_offset=-0.1)
-    statistics.nestle_labels(ax_A4, y=False, x_offset=-0.1)
-    statistics.nestle_labels(ax_A6, y=False, x_offset=-0.1)
+    statistics.boundarize_and_nestle(ax_A1, y=False, x_offset=-0.06)
+    statistics.boundarize_and_nestle(ax_A3, y=False, x_offset=-0.06)
+    statistics.boundarize_and_nestle(ax_A5, y=False, x_offset=-0.06)
+    # PSTH row's x_offset is more negative than the spectra row's -- these
+    # axes got shorter under the new height_ratios (row A is squished to
+    # make room for panels C/D below), and unlike the spectra row's edge-only
+    # ticks (3, 7), the PSTH row's middle tick (0.1) sits right where a
+    # -0.1-nestled "Time (s)" label would collide with it.
+    statistics.nestle_labels(ax_A2, y=False, x_offset=-0.16)
+    statistics.nestle_labels(ax_A4, y=False, x_offset=-0.16)
+    statistics.nestle_labels(ax_A6, y=False, x_offset=-0.16)
 
     out_path = out_dir / "Fig4.pdf"
     fig.savefig(out_path, bbox_inches="tight", dpi=FP.DPI)
