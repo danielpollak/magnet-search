@@ -483,7 +483,7 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
         spectra_axes[mod_i].plot(ff_alt, fou_alt.real.T, ".", color="orange")
         spectra_axes[mod_i].plot(fff[i0], fou0.real.T, ".")
         spectra_axes[mod_i].set_xlabel("Hz")
-        spectra_axes[mod_i].set_title(f"A={A}")
+        spectra_axes[mod_i].set_title(f"A={A}", fontsize=FP.FS_TITLE)
         if mod_i == 0:
             spectra_axes[mod_i].set_ylabel("Real component")
         else:
@@ -513,7 +513,7 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
         extent=[pivot.columns.min(), pivot.columns.max(), pivot.index.min(), pivot.index.max()],
     )
     fig.colorbar(im, ax=ax_heatmap, label="Number of responders (q < 0.05)")
-    contour_level = max(1, len(spks) // 10)
+    contour_level = 10 # max(1, len(spks) // 10)
     ax_heatmap.contour(pivot.columns, pivot.index, pivot.values, levels=[contour_level],
                         colors="white", linestyles="dashed")
     ax_heatmap.set_xlabel("5 Hz modulation amplitude (A)")
@@ -530,7 +530,7 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
         extent=[pivot_top.columns.min(), pivot_top.columns.max(), pivot_top.index.min(), pivot_top.index.max()],
     )
     fig.colorbar(im_top, ax=ax_heatmap_top, label="Number of responders (q < 0.05)")
-    contour_level_top = max(1, n_top // 10)
+    contour_level_top = 10 # max(1, n_top // 10)
     ax_heatmap_top.contour(pivot_top.columns, pivot_top.index, pivot_top.values, levels=[contour_level_top],
                            colors="white", linestyles="dashed")
     ax_heatmap_top.set_xlabel("5 Hz modulation amplitude (A)")
@@ -554,7 +554,8 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
     pairs = pairs[::-1]  # high-to-low top-to-bottom, instead of seaborn's ascending hue order
     ax_scatter.legend([h for h, _ in pairs],
                 [f"A={l}" for _, l in pairs],
-                title="modulation (5 Hz)", ncol=1, markerscale=3)
+                title="modulation (5 Hz)", ncol=1, markerscale=3,
+                fontsize=FP.FS_LEGEND, title_fontsize=FP.FS_LEGEND)
     # eps-corrected to match NFC_modulation_FR_df, which is computed by
     # compute_fr_df() at this same Q_frac-derived FOURIER_Q.
     ax_scatter.hlines(statistics.inverse_Rayleigh_CDF(0.99, eps=statistics.get_epsilon(FOURIER_Q)),

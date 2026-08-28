@@ -7,9 +7,15 @@ FS_BODY     = 10      # default body text (figs 1, 3)
 FS_BODY_LG  = 10      # large body text (fig 2)
 FS_BODY_XL  = 10     # extra-large body text (fig 4)
 FS_PANEL    = 11     # subfigure label (A, B, C…)
-FS_TITLE    = 10      # axis title
-FS_LEGEND   = 10      # legend text (figs 2, 4)
-FS_LEGEND_LG = 10     # larger legend (fig 1)
+# Standardized 2026-08-28 across every manuscript figure: previously each
+# figure/plotting helper hardcoded its own ad hoc legend fontsize (5-7pt)
+# while titles were mostly left unset and rendered at matplotlib's much
+# larger default 'axes.titlesize' ('large', ~1.2x FS_BODY) -- legends ended
+# up far smaller than titles with no numeric relationship between the two.
+# FS_LEGEND is now capped at 90% of FS_TITLE, and both are set explicitly
+# (never left to fall back on rcParams defaults) everywhere they're used.
+FS_TITLE    = 9       # axis title (was 10)
+FS_LEGEND   = 8       # legend text, all figures (~89% of FS_TITLE; was 5-7pt in various places)
 
 # ── Figure dimensions (figsize) ────────────────────────────────────────────────
 FIGSIZE_FIG1 = (8.5, 6)       # composite NPIX + GCaMP + ECDF

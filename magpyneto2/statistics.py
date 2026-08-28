@@ -1,4 +1,5 @@
 import functools
+import itertools
 import re
 
 import numpy as np
@@ -1210,7 +1211,8 @@ def visualize_detectability(mod_rr, spk_count, T):
     return fig
 
 
-def draw_hist(NFC, ax, xlim=12.5, title=False, inset=True, invert=False, eps=None, bar_color=None):
+def draw_hist(NFC, ax, xlim=12.5, title=False, inset=True, invert=False, eps=None,
+              bar_color=None, legend_fontsize=8):
     """
     eps: (float, optional) If given, also overlay the eps-corrected null
         distribution (see get_epsilon/normalized_Fourier_PDF_corrected)
@@ -1218,6 +1220,11 @@ def draw_hist(NFC, ax, xlim=12.5, title=False, inset=True, invert=False, eps=Non
     bar_color: (optional) explicit color for the histogram bars -- e.g. a
         mag/positive-control color when this histogram belongs to one of those
         two populations. Defaults to None (matplotlib's own default color).
+    legend_fontsize: (int) fontsize for the uncorrected/corrected-null legend.
+        Default (8) matches the manuscript-wide standardized legend size (see
+        pipeline/manuscript/format_parameters.py's FS_LEGEND) -- callers in
+        that package pass FP.FS_LEGEND explicitly; this default just keeps
+        any other caller consistent with it.
     """
     # Histogram
     XX, YY = normalized_Fourier_PDF()
@@ -1238,7 +1245,7 @@ def draw_hist(NFC, ax, xlim=12.5, title=False, inset=True, invert=False, eps=Non
             if len(corrected_99):
                 ax.axvline(corrected_99[0], color="tab:orange", alpha=0.5, zorder=1,
                            linestyle="--", label="corrected 99%")
-            ax.legend(fontsize=6)
+            ax.legend(fontsize=legend_fontsize)
     else:
         ax.barh(bins[:-1], vals, height=np.diff(bins)[0], align="edge", color=bar_color, zorder=2)
         ax.plot(YY, XX,  label="uncorrected null", color="k", linewidth=1)
@@ -1251,7 +1258,7 @@ def draw_hist(NFC, ax, xlim=12.5, title=False, inset=True, invert=False, eps=Non
             if len(corrected_99):
                 ax.axhline(corrected_99[0], color="tab:orange", alpha=0.5, zorder=1,
                           linestyle="--", label="corrected 99%")
-            ax.legend(fontsize=6)
+            ax.legend(fontsize=legend_fontsize)
 
     # Tidy x and y labels
     ax.set_xlabel("NFC")
@@ -1276,14 +1283,11 @@ def draw_hist(NFC, ax, xlim=12.5, title=False, inset=True, invert=False, eps=Non
 def inset_hist(ax, vals, bins, eps=None, bar_color=None):
     x1, x2, y1, y2 = 2.5, 6, 0, .01
     axins = ax.inset_axes([0.5, 0.5, 0.47, 0.47], xlim=(x1, x2), ylim=(y1, y2))
-    # indicate_inset_zoom's automatic corner choice sometimes connects to the
-    # inset's TOP corner even though the inset sits above the (near-zero-y)
-    # zoomed region -- a long diagonal that crosses the plot and looks
-    # inconsistent with the other, short bottom-to-bottom connector. Anchor
-    # both connectors to the inset's bottom corners explicitly instead
-    # (loc codes: 3=lower-left, 4=lower-right).
-    from mpl_toolkits.axes_grid1.inset_locator import mark_inset
-    mark_inset(ax, axins, loc1=3, loc2=4, edgecolor="black", facecolor="none")
+    # No mark_inset()/connector lines and no bounding box here (2026-08-28) --
+    # the inset's position relative to the parent axes is unambiguous without
+    # them, and the connector box+lines cluttered the panel.
+    axins.spines["top"].set_visible(False)
+    axins.spines["right"].set_visible(False)
 
     axins.bar(bins[:-1], vals, width=np.diff(bins)[0], align="edge", color=bar_color, zorder=2)
     XX, YY = normalized_Fourier_PDF()
@@ -1304,9 +1308,36 @@ def inset_hist(ax, vals, bins, eps=None, bar_color=None):
     return axins
 
 
-def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_level=-10,  label_recs=False, ylim=(-12, 20)):
-    
+def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_level=-13,
+                        label_recs=False, ylim=(-15, 20), stagger_area_labels=True):
+    """
+    stagger_area_labels: (bool) if True (default), alternates each area's
+        label between just-above and just-below its own area line (see
+        raise_area below) so adjacent narrow areas' labels don't collide
+        horizontally. If False, every area label goes below the line --
+        panel B's areas are spaced widely enough that staggering isn't
+        needed there.
+    """
     jitter = False
+
+    # Fixed early (2026-08-28) so the pixel<->data conversion below is
+    # correct even before any bars are drawn -- get_window_extent's bbox is
+    # only meaningful once the axes' final y-scale is set, since the whole
+    # point is measuring a rotated (90deg) text glyph's rendered size in
+    # DATA units, which depends on ylim.
+    conf_ax.set_ylim(ylim)
+
+    # How far (in data/y units) 4 stacked rotated digit characters take up --
+    # replaces the old alternating 0.5-unit jitter (7 vs 7.5) between
+    # overflow labels on adjacent bars, which was far too small to actually
+    # separate multi-digit rotated numbers and did nothing for readability.
+    _overflow_fontsize = 7
+    _sample_txt = conf_ax.text(0, 0, "0000", fontsize=_overflow_fontsize, rotation=90, ha="center", va="bottom")
+    conf_ax.figure.canvas.draw()
+    _renderer = conf_ax.figure.canvas.get_renderer()
+    _sample_bbox = _sample_txt.get_window_extent(renderer=_renderer).transformed(conf_ax.transData.inverted())
+    four_digit_shift = _sample_bbox.height
+    _sample_txt.remove()
 
     counter, counter_last, species_counter, species_counter_last = 0, 0, 0, 0
     xticks, xticklabels = [], []
@@ -1316,8 +1347,13 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
     CMAP_colors = CMAP(np.arange(len(unique_freqs)))
     color_d = {freq: color for freq, color in zip(unique_freqs, CMAP_colors)}
     
+    # Quail sits between Pigeon and zebrafish (2026-08-28, was first in the
+    # list) -- panel A's quail (thalamus/nidopallium) used to sit right next
+    # to owl's pallium, both lowered-position labels, and collided
+    # ("nidopalliumpallium"); its new neighbors (pigeon's raised "pallium",
+    # zebrafish's raised "WB") don't share that lowered row.
     desired_order = [
-        'Quail', 'Owl','mouse', 'zebra finch','Pigeon',  'zebrafish', 'medaka']
+        'Owl', 'mouse', 'zebra finch', 'Pigeon', 'Quail', 'zebrafish', 'medaka']
 
     for species in desired_order:
         species_df = bigfig_df.loc[bigfig_df.species == species, :]
@@ -1348,24 +1384,104 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
                 n_empirical,    _, f_lo, f_hi = suspect_count_significance(recdf["NFC"].values,    sig_thres, conf_int_α=0.05, eps=eps_1f)
                 conf_ax.hlines(n_empirical,    counter+.25, counter+0.75, "black", zorder=2, linewidth=1, alpha=0.9)
 
+                n_empirical_2f = None
                 if ~np.all(np.isnan(recdf["2f_NFC"].values)):
                     eps_2f = eps_from_Q(recdf["Q_2f"].iloc[0]) if "Q_2f" in recdf.columns else 0.0
                     n_empirical_2f, _, _,    _    = suspect_count_significance(recdf["2f_NFC"].values, sig_thres, conf_int_α=0.05, eps=eps_2f)
                     conf_ax.hlines(n_empirical_2f, counter+.25, counter+0.75, "red", zorder=2, linewidth=1, alpha=0.9)
-                
+
                 conf_ax.plot(
                     [counter+0.5, counter+0.5], [f_lo, f_hi], color=color_d[freq],
                     alpha=.90, linewidth=3, solid_capstyle="butt", zorder=1)
-                    
+
                 counter += 1
 
-                if n_empirical > ylim[1]:
-                    # conf_ax.arrow(counter - 0.5, ylim[1] - 3, 0, 2, length_includes_head=True, head_width=.1)
-                    conf_ax.annotate("", xytext=(counter - 0.5, ylim[1] - 3), xy=(counter - 0.5, ylim[1] - 1), arrowprops=dict(arrowstyle="-|>", color="k", edgecolor=None))
-                    
-                    jit = 7 if jitter else 7.5
+                # 1F (black) and/or 2F (red) can each independently exceed
+                # ylim[1] -- previously only 1F was ever checked, so a 2F-only
+                # overflow (n_empirical_2f > ylim[1] with n_empirical inside
+                # bounds) silently got no arrow/number at all.
+                over_1f = n_empirical > ylim[1]
+                over_2f = (n_empirical_2f is not None) and (n_empirical_2f > ylim[1])
+
+                if over_1f or over_2f:
+                    # Anchor from THIS bar's own topmost still-visible
+                    # feature (2026-08-28) -- the confidence-bound line's top
+                    # (f_hi) or either tick (n_empirical / n_empirical_2f),
+                    # whichever is highest while still <= ylim[1] -- instead
+                    # of a single shared band near ylim[1] for every
+                    # overflowing bar. A shared band runs out of room once
+                    # enough bars overflow at once (as panel B's WB/zebrafish
+                    # region does); anchoring per-bar spreads annotations out
+                    # over whatever height each bar's own real data already
+                    # occupies, and visually picks up right where that bar's
+                    # last visible mark (conf bound or tick) leaves off, to
+                    # indicate the tick that's missing above it.
+                    visible_tops = [v for v in (f_hi, n_empirical, n_empirical_2f)
+                                     if v is not None and v <= ylim[1]]
+                    anchor = max(visible_tops) if visible_tops else ylim[1]
+
+                    # Alternate a small extra gap between adjacent
+                    # overflowing bars whose anchors happen to land close
+                    # together (was a full "4 stacked digits" shift when
+                    # anchored to the old shared band; per-bar anchoring
+                    # already does most of the separation work, so this is
+                    # now just a modest safety margin).
+                    jit_shift = (four_digit_shift * 0.3) if jitter else 0.0
                     jitter = not jitter
-                    conf_ax.text(counter - 0.5, ylim[1] - jit, n_empirical, ha="center", rotation=90, fontsize=8)
+
+                    small_gap = four_digit_shift * 0.15
+                    text_y = anchor + small_gap + jit_shift
+
+                    t1 = None
+                    if over_1f and over_2f:
+                        # Combined "<1F count>/<2F count>", 1F in black and
+                        # 2F in red -- split into two Text objects measured
+                        # and stacked back-to-back via get_window_extent
+                        # (matplotlib mathtext has no \color support to do
+                        # this as a single colored string).
+                        t1 = conf_ax.text(counter - 0.5, text_y, f"{n_empirical}/",
+                                          ha="center", va="bottom", rotation=90, fontsize=_overflow_fontsize, color="black")
+                        conf_ax.figure.canvas.draw()
+                        renderer = conf_ax.figure.canvas.get_renderer()
+                        bbox_data = t1.get_window_extent(renderer=renderer).transformed(conf_ax.transData.inverted())
+                        t2 = conf_ax.text(counter - 0.5, bbox_data.y1, f"{n_empirical_2f}",
+                                      ha="center", va="bottom", rotation=90, fontsize=_overflow_fontsize, color="red")
+                    elif over_2f:
+                        t2 = conf_ax.text(counter - 0.5, text_y, str(n_empirical_2f),
+                                      ha="center", va="bottom", rotation=90, fontsize=_overflow_fontsize, color="red")
+                    else:
+                        t2 = conf_ax.text(counter - 0.5, text_y, str(n_empirical),
+                                      ha="center", va="bottom", rotation=90, fontsize=_overflow_fontsize, color="black")
+
+                    # Measure the actual rendered label (however many digits)
+                    # so the arrow starts right above it, whatever its length.
+                    conf_ax.figure.canvas.draw()
+                    renderer = conf_ax.figure.canvas.get_renderer()
+                    label_top = t2.get_window_extent(renderer=renderer).transformed(conf_ax.transData.inverted()).y1
+
+                    arrow_tail = label_top + small_gap
+                    arrow_head = arrow_tail + small_gap * 3
+
+                    # Keep the whole tower inside the visible frame
+                    # (2026-08-28) -- when a bar's anchor sits close to
+                    # ylim[1] and its label is tall (e.g. a combined 1F+2F
+                    # stack, or a jittered instance), the arrow could
+                    # otherwise land above ylim[1], where annotation_clip's
+                    # default behavior stops clipping it -- it doesn't
+                    # vanish, it just floats above the panel's own frame,
+                    # which looks exactly like a missing arrow. Shift the
+                    # whole tower (text + arrow) down just enough to clear.
+                    max_y = ylim[1] - 0.3
+                    if arrow_head > max_y:
+                        excess = arrow_head - max_y
+                        arrow_tail -= excess
+                        arrow_head -= excess
+                        t2.set_position((counter - 0.5, t2.get_position()[1] - excess))
+                        if t1 is not None:
+                            t1.set_position((counter - 0.5, t1.get_position()[1] - excess))
+
+                    conf_ax.annotate("", xytext=(counter - 0.5, arrow_tail), xy=(counter - 0.5, arrow_head),
+                                      arrowprops=dict(arrowstyle="-|>", color="k", edgecolor=None))
                 
                 if label_recs:
                     conf_ax.text(counter, 10, rec.split('\\')[-1].split('/')[-1], ha="center", rotation=90)
@@ -1377,8 +1493,22 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
             if area in ("wholebrain", "whole brain"):
                 area = "WB"
             
-            raise_area = ('arcopallium' in area) or (("WB" in area) and (species=='zebrafish')) or ("thalamus" in area) or ("CB" in area)  or ("SC" in area)
-            conf_ax.text((counter + counter_last)/2, area_line_level * 0.8 if raise_area else area_line_level * 1.4, area, ha="center", rotation=0)
+            raise_area = stagger_area_labels and (
+                ('arcopallium' in area) or (("WB" in area) and (species=='zebrafish'))
+                or ("thalamus" in area) or ("CB" in area) or ("SC" in area)
+                # Pigeon's plain "pallium" (2026-08-28) -- distinct from
+                # "arcopallium" (a different area, and already raised above)
+                # -- raised so it doesn't sit in the same lowered row as its
+                # neighbors.
+                or (area == "pallium" and species == "Pigeon")
+            )
+            # Lowered (non-raised) labels sit below the area line -- shifted
+            # down an extra 3 units (2026-08-28), matching the same downward
+            # shift just given to species_line_level (-10 -> -13), so they
+            # keep the same amount of headroom relative to the species line
+            # as before that change.
+            lowered_label_y = area_line_level * 1.4 - 3
+            conf_ax.text((counter + counter_last)/2, area_line_level * 0.8 if raise_area else lowered_label_y, area, ha="center", rotation=0)
         
         # Update species counter
         species_counter = counter
@@ -1421,12 +1551,77 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
 
     # Remove negative xticks
     conf_ax.set_yticks(conf_ax.get_yticks()[conf_ax.get_yticks() >= 0])
-    conf_ax.set_yticklabels(conf_ax.get_yticks())
+    # Suspect counts are discrete -- no decimal points on the y axis.
+    conf_ax.set_yticklabels([f"{int(y)}" for y in conf_ax.get_yticks()])
+
+    conf_ax.spines["top"].set_visible(False)
+    conf_ax.spines["right"].set_visible(False)
     return conf_ax
 
 
+# Qualitative palette for plot_combo_scatterplot's "suspect" points --
+# deliberately excludes blue/orange (matplotlib's default cycle starts
+# "tab:blue", "tab:orange", ...), since those hues already mean magnetic
+# (FP.COLOR_MAG="steelblue") / visual (FP.COLOR_VIS="coral") elsewhere in the
+# manuscript.
+_COMBO_SCATTER_COLORS = ["forestgreen", "purple", "brown", "magenta", "teal"]
+
+
+def _annotate_quadrant_overflow(ax, xa, xb, thres, xlim, ylim):
+    """Arrow + count for points that fall outside the plotted (xlim, ylim)
+    view, split by which of the threshold-defined quadrant they're in --
+    mirrors the overflow-arrow convention already used by plot_excess_counts
+    (Fig2 panels A/B) for suspects exceeding that panel's ylim.
+
+    - top-left (only the y/"other trial" condition significant): arrow
+      pointing straight up, for points with y > ylim (x is guaranteed <=
+      thres < xlim here, so x can't itself be the reason for clipping).
+    - bottom-right (only the x/"suspect" condition significant): arrow
+      pointing straight right, for points with x > xlim.
+    - top-right (both significant): diagonal up-and-right arrow, for points
+      clipped in x, y, or both.
+
+    A quadrant with nothing clipped gets no arrow.
+    """
+    xa, xb = np.asarray(xa), np.asarray(xb)
+    x_over, y_over = xa > xlim, xb > ylim
+
+    tl_n = int(((xa <= thres) & (xb > thres) & y_over).sum())
+    br_n = int(((xa > thres) & (xb <= thres) & x_over).sum())
+    tr_n = int(((xa > thres) & (xb > thres) & (x_over | y_over)).sum())
+
+    arrow_kw = dict(arrowstyle="-|>", color="k")
+    if tl_n:
+        # Pushed into the plot's actual top-left corner (small x, near
+        # ylim) -- not just centered in the TL quadrant's x-span, which
+        # still sat too close to the thres crossing point ("origin" of the
+        # 4-quadrant layout) and the dense cluster of points near it.
+        x0 = thres * 0.15
+        ax.annotate("", xy=(x0, ylim * 1.0), xytext=(x0, ylim * 0.85),
+                    arrowprops=arrow_kw, annotation_clip=False)
+        ax.text(x0, ylim * 1.03, str(tl_n), ha="center", va="bottom", fontsize=8)
+    if br_n:
+        # Same idea, mirrored: pushed into the actual bottom-right corner
+        # (small y, near xlim).
+        y0 = thres * 0.15
+        ax.annotate("", xy=(xlim * 0.98, y0), xytext=(xlim * 0.8, y0),
+                    arrowprops=arrow_kw, annotation_clip=False)
+        ax.text(xlim * 1.02, y0, str(br_n), ha="left", va="center", fontsize=8)
+    if tr_n:
+        # Closer to the top-right corner -- base point at 90% of the way
+        # from thres to the edge on both axes (was 80%, still too close to
+        # the crossing point).
+        x0 = thres + (xlim - thres) * 0.9
+        y0 = thres + (ylim - thres) * 0.9
+        ax.annotate("", xy=(x0 + (xlim - thres) * 0.08, y0 + (ylim - thres) * 0.08),
+                    xytext=(x0 - (xlim - thres) * 0.08, y0 - (ylim - thres) * 0.08),
+                    arrowprops=arrow_kw, annotation_clip=False)
+        ax.text(x0 + (xlim - thres) * 0.11, y0 + (ylim - thres) * 0.11, str(tr_n),
+                ha="left", va="bottom", fontsize=8)
+
+
 def plot_combo_scatterplot(subdf:pd.DataFrame, ax:plt.Axes.axes,
-                           legend_size:int=5, CDF_threshold=0.99, suspect_freq=None):
+                           legend_size:int=8, CDF_threshold=0.99, suspect_freq=None):
     """
     Parameters
     ----------
@@ -1435,7 +1630,9 @@ def plot_combo_scatterplot(subdf:pd.DataFrame, ax:plt.Axes.axes,
     ax: plt.axis
         Axis to plot on
     legend_size: int
-        fontsize for legend
+        fontsize for legend. Default (8) matches the manuscript-wide
+        standardized legend size (pipeline/manuscript/format_parameters.py's
+        FS_LEGEND).
     suspect_freq: float, optional
         The frequency to treat as the "suspect" (x-axis) condition -- every
         other frequency present in `subdf` is compared against it on the
@@ -1446,11 +1643,14 @@ def plot_combo_scatterplot(subdf:pd.DataFrame, ax:plt.Axes.axes,
         on incidental row order. Pass this explicitly for any real figure.
     """
     thres = inverse_Rayleigh_CDF(CDF_threshold)
+    xlim, ylim = 7.5, 4.5
 
     # Each combination of frequencies
     freqs = subdf.freq.unique()
     suspect_freq = freqs[0] if suspect_freq is None else suspect_freq
-    for freq2 in [f for f in freqs if f != suspect_freq]:
+    all_f1, all_f2 = [], []
+    for color, freq2 in zip(itertools.cycle(_COMBO_SCATTER_COLORS),
+                            [f for f in freqs if f != suspect_freq]):
 
         f1_arr, f2_arr = [], []
         for _, id_df in subdf.groupby("id"):
@@ -1461,22 +1661,29 @@ def plot_combo_scatterplot(subdf:pd.DataFrame, ax:plt.Axes.axes,
         values = np.array([f1_arr, f2_arr]).T
         ax.scatter(
             values[values[:,0] > thres, 0], values[values[:,0] > thres, 1],
-            s=10, label=f"{suspect_freq} Hz vs {freq2} Hz suspects", alpha=0.5)
+            s=10, color=color,
+            label=f"{round(suspect_freq, 2):g} Hz vs {round(freq2, 2):g} Hz", alpha=0.5)
 
         ax.scatter(
             values[values[:,0] < thres, 0], values[values[:,0] < thres, 1],
             s=10, c="grey", alpha=0.5)
 
-        
+        all_f1.extend(f1_arr)
+        all_f2.extend(f2_arr)
+
     ax.set_xlabel("Suspect NFC")
     ax.set_ylabel("Other trial NFC")
-    ax.set_xlim((0, 7.5))
-    ax.set_ylim((0, 4.5))
+    ax.set_xlim((0, xlim))
+    ax.set_ylim((0, ylim))
     ax.set_yticks(ax.get_xticks())
     ax.set_xticks(ax.get_xticks())
-    ax.legend(loc="upper right", fontsize=legend_size)
+    ax.legend(loc="upper right", title="Suspects",
+              fontsize=legend_size, title_fontsize=legend_size)
     ax.axvline(thres, color='k')
     ax.axhline(thres, color='k')
+    _annotate_quadrant_overflow(ax, all_f1, all_f2, thres, xlim, ylim)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
 
 
 

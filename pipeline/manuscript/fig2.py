@@ -31,20 +31,27 @@ import format_parameters as FP
 
 
 
-def _fix_excess_legend(ax):
+def _fix_excess_legend(ax, ncol=3):
     handles, labels = ax.get_legend_handles_labels()
-    new_labels = []
-    for lbl in labels:
+    # Dedup by DISPLAY label, keeping only the first handle for each --
+    # rounding alone (as before) just gave two near-identical-looking rows
+    # the same text without actually merging them; panel B's oddball recs
+    # (0.977875286666966 / 0.9788924940846944) and engert/medaka's visual_f
+    # (0.016666666666666666 / 0.016667) are the same experiment type,
+    # differing only by floating-point rounding, and should be one row.
+    deduped = {}
+    for h, lbl in zip(handles, labels):
         try:
             val = float(lbl)
             if val < 0.02:          # 1/60 Hz → 0.016
-                new_labels.append("0.016")
-            else:                   # ≥ 1 Hz: drop trailing .0
-                new_labels.append(f"{val:g}")
+                new_lbl = "0.016"
+            else:                   # round to 2 decimals, drop trailing .0
+                new_lbl = f"{round(val, 2):g}"
         except ValueError:
-            new_labels.append(lbl)
-    ax.legend(handles, new_labels, title="freq (Hz)", ncol=3,
-              fontsize=5, title_fontsize=5)
+            new_lbl = lbl
+        deduped.setdefault(new_lbl, h)
+    ax.legend(list(deduped.values()), list(deduped.keys()), title="freq (Hz)", ncol=ncol,
+              fontsize=FP.FS_LEGEND, title_fontsize=FP.FS_LEGEND, frameon=False)
 
 
 def flag_sessions_with_excess_suspects(df, freq_harmonic=1):
@@ -110,20 +117,25 @@ def plot_fig2(all_fourier_df, out_dir: Path):
     ax_E = fig.add_subplot(gs[2, 2])
     ax_F = fig.add_subplot(gs[2, 3])
 
-    statistics.plot_excess_counts(ax_A, all_neg_res, ylim=(-12, 30))
-    _fix_excess_legend(ax_A)
+    statistics.plot_excess_counts(ax_A, all_neg_res, ylim=(-15, 35))
+    _fix_excess_legend(ax_A, ncol=7)
     num_exp_A = all_neg_res.groupby(["species", "area", "rec"]).ngroups
     print(f"Subfig A (magnetic): {num_exp_A} experiments")
 
-    statistics.plot_excess_counts(ax_B, all_pos_control, ylim=(-12, 30))
-    _fix_excess_legend(ax_B)
+    # stagger_area_labels=False: unlike panel A, B's areas (wulst/CB/HP/WB)
+    # are spaced widely enough that alternating labels above/below the area
+    # line isn't needed, so every label just goes below it.
+    statistics.plot_excess_counts(ax_B, all_pos_control, ylim=(-15, 35), stagger_area_labels=False)
+    _fix_excess_legend(ax_B, ncol=2)
     num_exp_B = all_pos_control.groupby(["species", "area", "rec"]).ngroups
     print(f"Subfig B (visual & auditory): {num_exp_B} experiments")
 
     vals_neg_res, bins_neg_res = statistics.draw_hist(
-        all_fourier_df_unique_neg_res.NFC, ax_C, inset=False, bar_color=FP.COLOR_MAG)
+        all_fourier_df_unique_neg_res.NFC, ax_C, inset=False, bar_color=FP.COLOR_MAG,
+        legend_fontsize=FP.FS_LEGEND)
     vals_pos_con, bins_pos_con = statistics.draw_hist(
-        all_unique_pos_control.NFC, ax_D, inset=False, bar_color=FP.COLOR_VIS)
+        all_unique_pos_control.NFC, ax_D, inset=False, bar_color=FP.COLOR_VIS,
+        legend_fontsize=FP.FS_LEGEND)
 
     axins_C = statistics.inset_hist(ax_C, vals_neg_res, bins_neg_res, bar_color=FP.COLOR_MAG)
     axins_D = statistics.inset_hist(ax_D, vals_pos_con, bins_pos_con, bar_color=FP.COLOR_VIS)
@@ -144,48 +156,38 @@ def plot_fig2(all_fourier_df, out_dir: Path):
                       for rec in all_fourier_df.rec])
         ], ax=ax_E, suspect_freq=3.0)
 
-    # Cross-modal (audio WN vs. visual gratings), not same-modality
-    # different-frequency: the "2023-04-13" substring match this used to use
-    # silently spanned TWO different recording sessions (firstsite AND
-    # secondsite), whose Kilosort cluster ids restart per session and
-    # overlap -- confirmed this produced spurious cross-session pairings
-    # (e.g. secondsite's id=129 paired against a different, unrelated unit
-    # that happens to also be firstsite's id=129). Scoping by the `date`
-    # column (like ax_E already does) instead of a `rec` substring fixes
-    # that.
+    # Pigeon cerebellum (CB), auditory-only (WN vs. oddball) -- swapped in
+    # 2026-08-28 to replace the previous secondsite WN-vs-visual-gratings
+    # combo. That earlier combo was genuinely cross-modal (audio vs. visual),
+    # but no pigeon CB session records both a visual AND an auditory block at
+    # all, so it had zero CB-area representation; this is the strongest
+    # CB-area combo that exists in the dataset (see
+    # pipeline/manuscript/fig2_combo_sweep.py's exhaustive sweep, which
+    # confirmed this both algorithmically and by generating every candidate
+    # combo as its own scatterplot for visual inspection).
     #
-    # Within that constraint, this pairs `secondsite`'s WN_SamCh (0.8Hz
-    # auditory white noise) against its 3Hz visual-gratings orientation 0 --
-    # two independent stimulus modalities, not a same-modality
-    # frequency-vs-frequency comparison like the 2Hz-vs-3Hz version this
-    # replaced. Swept every WN rec x every visual orientation/frequency
-    # across all four sessions with both an audio and a visual block
-    # (firstsite/secondsite/20230414_firstsite/20230415); this combination
-    # gives 6 units significant at both (Asig=24 audio, Bsig=14 visual),
-    # the best of anything tried -- every same-modality 2Hz-vs-3Hz
-    # orientation candidate topped out at 3 (see investigation behind this
-    # change for the full sweep, including oddball-vs-audio, which does even
-    # better numerically at some CB sessions but only because those WN recs
-    # are already the ~200-unit "everything is significant" outliers flagged
-    # in panel B -- too saturated to read as a clean quadrant demo here).
-    # WN_SamCh (not WN_IndepChan, secondsite's other WN rec) specifically:
-    # IndepChan only has 2 significant units total, no shared-significance
-    # story to tell. No session has both an oddball and a visual-gratings
-    # block, so that pairing isn't testable this way at all.
+    # Caveat kept honest, not hidden: this WN rec alone is significant for
+    # ~50% of its units (168/336) -- one of panel B's "everything is
+    # significant" WN outliers -- so this isn't a clean two-way quadrant
+    # effect the way the old cross-modal combo was; it's presented anyway
+    # per explicit sign-off, with out-of-bounds suspects called out via
+    # statistics.plot_combo_scatterplot's per-quadrant overflow arrows
+    # (mirroring panels A/B's own overflow-arrow convention) rather than
+    # silently clipped off-panel.
     statistics.plot_combo_scatterplot(
         all_fourier_df.loc[
-            (all_fourier_df.date == "20230413_secondsite") &
-            np.array([("WN_SamCh" in rec) or
-                      (("visual" in rec) and rec.endswith("_0"))
+            (all_fourier_df.date == "20230228") &
+            (all_fourier_df.ID == "Pk12L") &
+            np.array([("WN" in rec) or ("oddball" in rec)
                       for rec in all_fourier_df.rec])
-        ], ax=ax_F, suspect_freq=3.0)
+        ], ax=ax_F, suspect_freq=0.8)
 
-    ax_A.set_title("Magnetic stimulation")
-    ax_B.set_title("Visual & auditory stimulation")
-    ax_C.set_title(f"Magnetic (N={len(all_fourier_df_unique_neg_res)})")
-    ax_D.set_title(f"Visual & auditory\n(N={len(all_unique_pos_control)})")
-    ax_E.set_title("Magnetic")
-    ax_F.set_title("Visual + Audio")
+    ax_A.set_title("Magnetic stimulation", fontsize=FP.FS_TITLE)
+    ax_B.set_title("Visual & auditory stimulation", fontsize=FP.FS_TITLE)
+    ax_C.set_title(f"Magnetic (N={len(all_fourier_df_unique_neg_res)})", fontsize=FP.FS_TITLE)
+    ax_D.set_title(f"Visual & auditory (N={len(all_unique_pos_control)})", fontsize=FP.FS_TITLE)
+    ax_E.set_title("Magnetic", fontsize=FP.FS_TITLE)
+    ax_F.set_title("Auditory (CB)", fontsize=FP.FS_TITLE)
 
     ax_A.annotate("A", xy=(-0.05, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
     ax_B.annotate("B", xy=(-0.05, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)

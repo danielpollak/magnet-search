@@ -278,8 +278,8 @@ def plot_fig3(all_fourier_df, out_dir: Path, pval_col="p_value", sens_col="sens"
         plot_uniform_p(pos_subset, [ax_p_pos, ax_q_pos], percentile=percentile, colors=pos_colors,
                        pval_col=pval_col, sens_col=sens_col)
 
-        ax_p_neg.set_title("Magnetic", fontsize=FP.FS_BODY)
-        ax_p_pos.set_title("Visual/Audio", fontsize=FP.FS_BODY)
+        ax_p_neg.set_title("Magnetic", fontsize=FP.FS_TITLE)
+        ax_p_pos.set_title("Visual/Audio", fontsize=FP.FS_TITLE)
         ax_p_neg.set_ylabel("Sorted p-values")
         ax_q_neg.set_ylabel("Sorted q-values")
         ax_q_neg.set_xlabel("Neuron")
