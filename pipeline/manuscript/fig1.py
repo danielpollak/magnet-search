@@ -35,7 +35,7 @@ Choice of experiment matters here as much as choice of unit: unlike
 20230414_firstsite (a previous iteration of this same worktree, cluster 100),
 whose visual-gratings *population* only had 4.9-12.1% of units significant at
 any given orientation -- a fairly weak "positive control" for the population
-histogram in panel H -- 20230413_secondsite's visual_movinggratings3Hz
+histogram in panel I -- 20230413_secondsite's visual_movinggratings3Hz
 population has up to 22.0% of units significant at a single orientation (45
 or 90 degrees), while its own mag recs stay near the ~2-9% chance rate. That
 makes the population-level story in panels D-I honestly stronger, not just
@@ -48,7 +48,7 @@ The best null (Mag3) and best positive (visual_movinggratings3Hz, orientation
 than confounding it with frequency.
 
 Phasor arrows in panels B/C are colored by phase (cyclic `hsv` colormap, 0 to
-one stimulus period) -- see the colorwheel legend inset in panel H.
+one stimulus period) -- see the colorwheel legend between panels B and C.
 
 A previous version of this figure (pipeline/manuscript/fig1_auditory.py)
 instead compared magnetic stimulation to the 0.8Hz auditory white-noise
@@ -86,7 +86,6 @@ if not in_notebook:
 import matplotlib.gridspec as gridspec
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
-from matplotlib.colors import to_rgb
 import numpy as np
 import pandas as pd
 
@@ -180,14 +179,6 @@ N_WAVEFORMS = 100
 WAVEFORM_HALFWIDTH_MS = 1.0
 WAVEFORM_SEED = 0
 
-def _lighten(color, frac=0.55):
-    """Blend `color` toward white by `frac` -- a lighter, still-opaque shade of
-    the same hue, for the spectrum panels' "imaginary" series (paired with the
-    full-saturation `color` for "real")."""
-    r, g, b = to_rgb(color)
-    return (r + (1 - r) * frac, g + (1 - g) * frac, b + (1 - b) * frac)
-
-
 #%%
 
 def load_data(data_dir: str):
@@ -221,40 +212,76 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     font = {"family": FP.FONT_FAMILY, "size": FP.FS_BODY}
     matplotlib.rc("font", **font)
 
-    # Four stacked rows: full-width cartoon, mag/vis raw traces (2 columns),
-    # D/E/G/F all in a single row (4 columns, mag pair then vis pair), and
-    # the split mag/vis ECDF (2 columns) at the bottom.
-    fig = plt.figure(figsize=(FP.FIGSIZE_FIG1[0], FP.FIGSIZE_FIG1[1] * 1.45), tight_layout=True)
-    outer_gs = gridspec.GridSpec(4, 1, left=0, bottom=0, right=1, top=1,
-                                  height_ratios=[0.45, 1.3, 1.05, 1.15], hspace=0.5)
+    # Three stacked rows: full-width cartoon; mag/vis raw traces + phase
+    # rasters + spectra (2 columns); and the dist+ECDF pairs (mag pair then
+    # vis pair) at the bottom -- spectra sit next to their own raster, and
+    # each NFC distribution sits next to its own ECDF-deviation plot, so
+    # nothing needs a whole row to itself just to show 1-2 panels.
+    fig = plt.figure(figsize=(FP.FIGSIZE_FIG1[0], FP.FIGSIZE_FIG1[1] * 1.5), tight_layout=True)
+    # Top (cartoon, currently a placeholder) is given more room, and the two
+    # busier rows below it correspondingly less -- the cartoon isn't cramped
+    # by content the way the other two rows are, so it can afford to grow.
+    outer_gs = gridspec.GridSpec(3, 1, left=0, bottom=0, right=1, top=1,
+                                  height_ratios=[0.9, 1.3, 0.85], hspace=0.4)
 
     cartoon_ax = fig.add_subplot(outer_gs[0])
 
-    # A narrow middle column between B and C holds the phase colorwheel
-    # (top) and waveform (bottom) legend, stacked -- keeping them off of
-    # either raw-trace panel's own data instead of overlaid on top of it.
-    bc_gs = outer_gs[1].subgridspec(1, 3, width_ratios=[1, 0.4, 1], wspace=0.08)
-    mag_raw_ax = fig.add_subplot(bc_gs[0, 0])
+    # A narrow middle column between B and C holds the average-waveform
+    # (top) and phase-colorwheel (bottom) legends, stacked -- keeping them
+    # off of either raw-trace panel's own data instead of overlaid on top of
+    # it.
+    bc_gs = outer_gs[1].subgridspec(1, 3, width_ratios=[1, 0.4, 1], wspace=0.12)
+
+    # Each of B/C is itself 2 stacked rows: the raw trace (with its own
+    # embedded raster/phasors, via raw_NPIX) on top, and the phase raster +
+    # Fourier spectrum side by side below it -- the raster's the SAME spikes
+    # folded onto stimulus phase, and the spectrum is the Fourier transform
+    # of those same spikes, so the two sit next to each other as a single
+    # visual argument: raw trace -> periodicity -> spectrum. The raster
+    # covers every spike that went into that Fourier fit/NFC (the whole
+    # recording), not just the ones visible in the raw trace's short window
+    # above it.
+    mag_col_gs = bc_gs[0, 0].subgridspec(2, 1, height_ratios=[1.1, 1.0], hspace=0.15)
+    vis_col_gs = bc_gs[0, 2].subgridspec(2, 1, height_ratios=[1.1, 1.0], hspace=0.15)
+
+    mag_raw_ax = fig.add_subplot(mag_col_gs[0, 0])
+    mag_bottom_gs = mag_col_gs[1, 0].subgridspec(1, 2, width_ratios=[1.5, 1], wspace=1.0)
+    mag_raster_ax = fig.add_subplot(mag_bottom_gs[0, 0])
+    mag_spectra_ax = fig.add_subplot(mag_bottom_gs[0, 1])
+
     # sharey with mag_raw_ax: both panels are plotted mean-subtracted (not
     # independently min-max-normalized to [0, 1], which would erase any real
     # amplitude difference between them) below, so a shared y-axis is what
     # makes the raw traces honestly comparable.
-    vis_raw_ax = fig.add_subplot(bc_gs[0, 2], sharey=mag_raw_ax)
-    legend_gs = bc_gs[0, 1].subgridspec(2, 1, hspace=0.25)
-    wheel_ax = fig.add_subplot(legend_gs[0, 0])
-    waveform_ax = fig.add_subplot(legend_gs[1, 0])
+    vis_raw_ax = fig.add_subplot(vis_col_gs[0, 0], sharey=mag_raw_ax)
+    vis_bottom_gs = vis_col_gs[1, 0].subgridspec(1, 2, width_ratios=[1.5, 1], wspace=1.0)
+    vis_raster_ax = fig.add_subplot(vis_bottom_gs[0, 0])
+    vis_spectra_ax = fig.add_subplot(vis_bottom_gs[0, 1])
 
-    defgf_gs = outer_gs[2].subgridspec(1, 4, wspace=0.5)
-    mag_spectra_ax = fig.add_subplot(defgf_gs[0, 0])
-    mag_dist_ax = fig.add_subplot(defgf_gs[0, 1])
-    vis_spectra_ax = fig.add_subplot(defgf_gs[0, 2])
-    vis_dist_ax = fig.add_subplot(defgf_gs[0, 3])
+    # Waveform and phase colorwheel are both confined to a cell matching
+    # mag_col_gs/vis_col_gs's own top (raw-trace) row -- so the waveform is
+    # top-aligned with the B/C titles, and the wheel sits directly below it,
+    # instead of the wheel being pushed all the way down to the bottom of
+    # the whole B/C block. The lower cell (matching the raster/spectra row)
+    # is left empty.
+    legend_gs = bc_gs[0, 1].subgridspec(2, 1, height_ratios=[1.1, 1.0], hspace=0.15)
+    legend_top_gs = legend_gs[0, 0].subgridspec(2, 1, height_ratios=[1, 1], hspace=0.15)
+    # Narrower and taller than its own cell (via inset_axes on a blank
+    # full-cell container), and nudged up slightly (y0 > 0) -- a plain
+    # fig.add_subplot here would stretch to fill the whole (wide, short)
+    # cell, which is the wrong aspect for a waveform trace.
+    waveform_cell_ax = fig.add_subplot(legend_top_gs[0, 0])
+    waveform_cell_ax.axis("off")
+    waveform_ax = waveform_cell_ax.inset_axes([0.25, 0.1, 0.5, 1.15])
+    wheel_ax = fig.add_subplot(legend_top_gs[1, 0])
 
-    # ECDF is split by modality (rather than one combined panel), sharing a
-    # y-axis so the two curves' deviation magnitudes are directly comparable.
-    hi_gs = outer_gs[3].subgridspec(1, 2, wspace=0.35)
-    ecdf_mag_ax = fig.add_subplot(hi_gs[0, 0])
-    ecdf_vis_ax = fig.add_subplot(hi_gs[0, 1], sharey=ecdf_mag_ax)
+    # Bottom row: each NFC distribution and its own ECDF-deviation plot now
+    # share a single panel (the ECDF as a small inset in the dist panel's
+    # otherwise-empty upper-right corner) -- mag then vis -- rather than 4
+    # separate axes, 2 of which were just a lone curve with its own legend.
+    de_hi_gs = outer_gs[2].subgridspec(1, 2, wspace=0.35)
+    mag_dist_ax = fig.add_subplot(de_hi_gs[0, 0])
+    vis_dist_ax = fig.add_subplot(de_hi_gs[0, 1])
 
     # ── Plot Row 1 ────────────────────────────────────────────────────────────
     # Cartoon placeholder
@@ -275,59 +302,127 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
                          label=1 / MAG_FREQ, trace=mag_trace, spike_sr=MAG_TRACE_SR,
                          raster_lw=RASTER_LW, phase_cmap=PHASE_CMAP, normalize=mean_subtract,
                          stem_scale=ARROW_STEM_SCALE)
+    mag_raw_ax.set_title("Voltage trace snippet from magnetic stimulation", fontsize=FP.FS_TITLE)
 
     # Visual raw NPIX (positive result) -- same unit, same primitive as the mag panel
     statistics.raw_NPIX(vis_raw_ax, None, vis_spks, None, VIS_WINDOW, VIS_FREQ,
                          label=1 / VIS_FREQ, trace=vis_trace, spike_sr=VIS_TRACE_SR,
                          raster_lw=RASTER_LW, phase_cmap=PHASE_CMAP, normalize=mean_subtract,
                          stem_scale=ARROW_STEM_SCALE)
+    vis_raw_ax.set_title("Voltage trace snippet from visual stimulation", fontsize=FP.FS_TITLE)
+
+    # Phase raster: ALL spikes that actually went into this unit's Fourier
+    # fit/NFC at MAG_FREQ/VIS_FREQ (the whole recording, via mag_spks/
+    # vis_spks -- not just the handful visible in the raw trace's short
+    # window above), folded onto stimulus phase (x axis in radians, one row
+    # per stimulus cycle) -- makes explicit what that Fourier fit is
+    # actually testing for (a stimulus-locked unit's ticks line up in a
+    # vertical band; an unlocked one scatters).
+    #
+    # Window starts at the FIRST SPIKE's own cycle boundary, not at t=0 --
+    # this unit doesn't fire at all for a while after the recording starts,
+    # so anchoring at 0 left ~100-200 entirely empty rows at the top of the
+    # raster for no informative reason. Starting at
+    # floor(first_spike*freq)/freq -- an exact integer number of stimulus
+    # periods after 0 -- crops that dead stretch without shifting any
+    # spike's phase (phase is computed mod period, and shifting the
+    # reference point by a whole number of periods changes nothing).
+    mag_start_t = np.floor(np.min(mag_spks) * MAG_FREQ) / MAG_FREQ
+    vis_start_t = np.floor(np.min(vis_spks) * VIS_FREQ) / VIS_FREQ
+    mag_full_window = (mag_start_t, float(np.max(mag_spks)) + 1e-6)
+    vis_full_window = (vis_start_t, float(np.max(vis_spks)) + 1e-6)
+
+    statistics.plot_phase_raster(mag_raster_ax, mag_spks, mag_full_window, MAG_FREQ, color=FP.COLOR_MAG)
+    mag_raster_ax.spines["top"].set_visible(False)
+    mag_raster_ax.spines["right"].set_visible(False)
+    # Smoothed firing-rate PSTH overlay -- not part of the actual Fourier/NFC
+    # computation, just a visual aid for the trend across phase -- on its
+    # own grey twin y-axis so it reads as secondary to the raster itself.
+    statistics.plot_smoothed_phase_psth(mag_raster_ax, mag_spks, mag_full_window, MAG_FREQ, color="grey")
+
+    statistics.plot_phase_raster(vis_raster_ax, vis_spks, vis_full_window, VIS_FREQ, color=FP.COLOR_VIS)
+    vis_raster_ax.spines["top"].set_visible(False)
+    vis_raster_ax.spines["right"].set_visible(False)
+    statistics.plot_smoothed_phase_psth(vis_raster_ax, vis_spks, vis_full_window, VIS_FREQ, color="grey")
 
     # ── Plot Row 2: Magnetic stimulation (null) ──────────────────────────────
     statistics.plot_spectrum(mag_spectra_ax, fou_alt.flatten(), ff_alt, MAG_FREQ, fou0, legend=False,
-                              real_color=FP.COLOR_MAG, imag_color=_lighten(FP.COLOR_MAG),
-                              stem_color="black", sigma_color="gray")
-    mag_spectra_ax.set_title("Magnetic")
+                              dot_color=FP.COLOR_MAG, stem_color="black", sigma_color="gray")
+    mag_spectra_ax.set_title("Magnetic", fontsize=FP.FS_TITLE)
     mag_spectra_ax.set_ylabel("Amplitude")
     mag_spectra_ax.set_xlabel("Freq (Hz)")
-    statistics.boundary_ticks(mag_spectra_ax)
-    statistics.nestle_labels(mag_spectra_ax, y=True, x=True, x_offset=-0.05)
+    mag_spectra_ax.spines["top"].set_visible(False)
+    mag_spectra_ax.spines["right"].set_visible(False)
+    statistics.boundary_ticks(mag_spectra_ax, y=False)
 
     statistics.draw_hist(fourier_df.loc[fourier_df.rec == MAG_CONTINGENCY, "NFC"], mag_dist_ax, xlim=9,
-                         inset=True, bar_color=FP.COLOR_MAG)
-    mag_dist_ax.annotate("", (exemplar_NFC, 0.6), xytext=(exemplar_NFC, 0.8),
-                         textcoords="data", arrowprops=dict(facecolor="black", arrowstyle="->"))
+                         inset=True, bar_color=FP.COLOR_MAG, legend_fontsize=FP.FS_LEGEND)
+    # Arrow sits below the x-axis (blended transform: x in data coords, y in
+    # axes-fraction) rather than inside the plot -- marks the exemplar's NFC
+    # position along the x-axis without its stem crossing any bars/curves,
+    # now that the ECDF inset also lives inside this same panel.
+    mag_xaxis_trans = mag_dist_ax.get_xaxis_transform()
+    mag_dist_ax.annotate("", xy=(exemplar_NFC, -0.02), xytext=(exemplar_NFC, -0.14),
+                         xycoords=mag_xaxis_trans, textcoords=mag_xaxis_trans,
+                         annotation_clip=False,
+                         arrowprops=dict(facecolor="black", edgecolor="black", arrowstyle="->",
+                                         linewidth=2, mutation_scale=20))
     statistics.boundary_ticks(mag_dist_ax, yprec=1)
     statistics.nestle_labels(mag_dist_ax, x_offset=-0.05, y_offset=-0.05)
+    mag_dist_ax.set_title(f"{MAG_FREQ:g} Hz magnetic stimulation", fontsize=FP.FS_TITLE)
 
     # ── Plot Row 3: Visual gratings (positive) ───────────────────────────────
     statistics.plot_spectrum(vis_spectra_ax, vis_fou_alt.flatten(), vis_ff_alt, VIS_FREQ, vis_fou0, legend=False,
-                              real_color=FP.COLOR_VIS, imag_color=_lighten(FP.COLOR_VIS),
-                              stem_color="black", sigma_color="gray")
-    vis_spectra_ax.set_title("Visual")
+                              dot_color=FP.COLOR_VIS, stem_color="black", sigma_color="gray")
+    vis_spectra_ax.set_title("Visual", fontsize=FP.FS_TITLE)
     vis_spectra_ax.set_ylabel("Amplitude")
     vis_spectra_ax.set_xlabel("Freq (Hz)")
-    statistics.boundary_ticks(vis_spectra_ax)
-    statistics.nestle_labels(vis_spectra_ax, y=True, x=True, x_offset=-0.05)
+    vis_spectra_ax.spines["top"].set_visible(False)
+    vis_spectra_ax.spines["right"].set_visible(False)
+    statistics.boundary_ticks(vis_spectra_ax, y=False)
+
+    # Shared y-axis (Amplitude) between the two spectra -- makes their
+    # scales directly comparable, even though it squashes E's much smaller
+    # scatter/stem (mag's |c_s| is far smaller than vis's) down near the
+    # bottom of the shared range.
+    spectra_ylim = (0, max(mag_spectra_ax.get_ylim()[1], vis_spectra_ax.get_ylim()[1]))
+    mag_spectra_ax.set_ylim(spectra_ylim)
+    vis_spectra_ax.set_ylim(spectra_ylim)
 
     statistics.draw_hist(fourier_df.loc[fourier_df.rec == VIS_CONTINGENCY, "NFC"],
-                         vis_dist_ax, xlim=12, inset=True, bar_color=FP.COLOR_VIS)
+                         vis_dist_ax, xlim=12, inset=True, bar_color=FP.COLOR_VIS,
+                         legend_fontsize=FP.FS_LEGEND)
     # exemplar_NFC_vis (~7.79) sits out in this population's right tail --
     # consistent with this being a deliberately strong (tightly phase-
     # concentrated), not just barely-significant, exemplar (see module
     # docstring), on top of an already strong "positive control" population
-    # (22% of units significant at this orientation).
-    vis_dist_ax.annotate("", (exemplar_NFC_vis, 0.03), xytext=(exemplar_NFC_vis, 0.25),
-                         textcoords="data", arrowprops=dict(facecolor="black", arrowstyle="->"))
+    # (22% of units significant at this orientation). Arrow below the
+    # x-axis, same as mag_dist_ax -- see that arrow's comment.
+    vis_xaxis_trans = vis_dist_ax.get_xaxis_transform()
+    vis_dist_ax.annotate("", xy=(exemplar_NFC_vis, -0.02), xytext=(exemplar_NFC_vis, -0.14),
+                         xycoords=vis_xaxis_trans, textcoords=vis_xaxis_trans,
+                         annotation_clip=False,
+                         arrowprops=dict(facecolor="black", edgecolor="black", arrowstyle="->",
+                                         linewidth=2, mutation_scale=20))
     statistics.boundary_ticks(vis_dist_ax, yprec=1)
     statistics.nestle_labels(vis_dist_ax, x_offset=-0.05, y_offset=-0.05)
+    vis_dist_ax.set_title(f"{VIS_FREQ:g} Hz visual stimulation", fontsize=FP.FS_TITLE)
 
     # ── Kolmogorov-Smirnov diagnostic plot ────────────────────────────────────
+    # Each ECDF-deviation curve is now an inset within its own dist panel
+    # (mag_dist_ax/vis_dist_ax's otherwise-empty upper-right corner) rather
+    # than a separate full-width axes -- the frequency/modality info that
+    # used to live in each curve's own "lonely" one-line legend now lives in
+    # the panel's title instead, so no legend is needed at all.
     mag_NFC = fourier_df.loc[fourier_df.rec == MAG_CONTINGENCY, "NFC"].values
     vis_NFC = fourier_df.loc[fourier_df.rec == VIS_CONTINGENCY, "NFC"].values
 
     # Convert NFC to p-values
     mag_pvals = 1 - normalized_Fourier_CDF(mag_NFC)
     vis_pvals = 1 - normalized_Fourier_CDF(vis_NFC)
+
+    ecdf_mag_ax = mag_dist_ax.inset_axes([0.52, 0.48, 0.45, 0.44])
+    ecdf_vis_ax = vis_dist_ax.inset_axes([0.52, 0.48, 0.45, 0.44])
 
     # Plot mag K-S diagnostic: ECDF(x) - x with 95% CI
     mag_x, mag_lower, mag_upper = bootstrap_ecdf_band(mag_pvals, alpha=0.05)
@@ -337,15 +432,15 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     mag_ks_dev = mag_ecdf - mag_x
     mag_ks_lower = mag_lower - mag_x
     mag_ks_upper = mag_upper - mag_x
-    ecdf_mag_ax.plot(mag_x, mag_ks_dev, color=FP.COLOR_MAG, linewidth=FP.LW_TRACE, label=f"{MAG_FREQ:g} Hz (mag)")
+    ecdf_mag_ax.plot(mag_x, mag_ks_dev, color=FP.COLOR_MAG, linewidth=FP.LW_TRACE)
     ecdf_mag_ax.fill_between(mag_x, mag_ks_lower, mag_ks_upper, color=FP.COLOR_MAG, alpha=FP.ALPHA_CONFIDENCE)
     ecdf_mag_ax.axhline(0, color=FP.COLOR_NULL, linestyle="--", linewidth=FP.LW_REFERENCE, alpha=0.6)
-    ecdf_mag_ax.set_xlabel("p-value")
-    ecdf_mag_ax.set_ylabel("ECDF deviation from null")
+    ecdf_mag_ax.set_xlabel("p-value", fontsize=FP.FS_LEGEND, labelpad=1)
+    ecdf_mag_ax.set_ylabel("ECDF dev.", fontsize=FP.FS_LEGEND, labelpad=1)
     ecdf_mag_ax.set_xlim((0, 1))
-    ecdf_mag_ax.legend(loc="upper right", fontsize=7)
-    statistics.boundary_ticks(ecdf_mag_ax)
-    statistics.nestle_labels(ecdf_mag_ax, y=True, x_offset=-0.05)
+    ecdf_mag_ax.tick_params(labelsize=FP.FS_LEGEND, pad=1)
+    statistics.boundary_ticks(ecdf_mag_ax, y=False)
+    statistics.nestle_labels(ecdf_mag_ax, y=False, x_offset=-0.1)
     ecdf_mag_ax.spines["top"].set_visible(False)
     ecdf_mag_ax.spines["right"].set_visible(False)
 
@@ -357,23 +452,26 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     vis_ks_dev = vis_ecdf - vis_x
     vis_ks_lower = vis_lower - vis_x
     vis_ks_upper = vis_upper - vis_x
-    ecdf_vis_ax.plot(vis_x, vis_ks_dev, color=FP.COLOR_VIS, linewidth=FP.LW_TRACE, label=f"{VIS_FREQ:g} Hz (visual)")
+    ecdf_vis_ax.plot(vis_x, vis_ks_dev, color=FP.COLOR_VIS, linewidth=FP.LW_TRACE)
     ecdf_vis_ax.fill_between(vis_x, vis_ks_lower, vis_ks_upper, color=FP.COLOR_VIS, alpha=FP.ALPHA_CONFIDENCE)
     ecdf_vis_ax.axhline(0, color=FP.COLOR_NULL, linestyle="--", linewidth=FP.LW_REFERENCE, alpha=0.6)
-    ecdf_vis_ax.set_xlabel("p-value")
+    ecdf_vis_ax.set_xlabel("p-value", fontsize=FP.FS_LEGEND, labelpad=1)
+    ecdf_vis_ax.set_ylabel("ECDF dev.", fontsize=FP.FS_LEGEND, labelpad=1)
     ecdf_vis_ax.set_xlim((0, 1))
-    ecdf_vis_ax.legend(loc="upper right", fontsize=7)
-    statistics.boundary_ticks(ecdf_vis_ax)
-    statistics.nestle_labels(ecdf_vis_ax, y=True, x_offset=-0.05)
+    ecdf_vis_ax.tick_params(labelsize=FP.FS_LEGEND, pad=1)
+    statistics.boundary_ticks(ecdf_vis_ax, y=False)
+    statistics.nestle_labels(ecdf_vis_ax, y=False, x_offset=-0.1)
     ecdf_vis_ax.spines["top"].set_visible(False)
     ecdf_vis_ax.spines["right"].set_visible(False)
 
-    # ── Phase colorwheel + average spike-waveform legend, stacked in the
+    # ── Average spike-waveform + phase colorwheel legend, stacked in the
     # narrow column between panels B and C (see legend_gs above) -- own
     # (blank) axes rather than insets over either raw-trace panel, so
     # neither needs an opaque backdrop to keep trace data from showing
-    # through their titles/tick labels.
-    statistics.plot_phase_colorwheel(wheel_ax, cmap=PHASE_CMAP, angle_unit="radians", fontsize=10)
+    # through their titles/tick labels. The wheel is the smaller of the two,
+    # so its labels shrink to match (see waveform_ax's own inset_axes bounds
+    # above for its narrower/taller sizing).
+    statistics.plot_phase_colorwheel(wheel_ax, cmap=PHASE_CMAP, angle_unit="radians", fontsize=7)
 
     n_samples = waveforms.shape[1]
     half_width_samples = n_samples // 2
@@ -388,15 +486,18 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
 
     # ── Panel labels ──────────────────────────────────────────────────────────
     _label_kw = dict(xycoords="axes fraction", fontfamily="arial", fontsize=11, weight="bold")
+    # Reading order left-to-right, top-to-bottom: A (cartoon); B, C (raw
+    # traces); D, E, F, G (mag raster, mag spectrum, vis raster, vis
+    # spectrum); H, I (mag dist+ECDF combined, vis dist+ECDF combined).
     cartoon_ax.annotate("A", xy=(-0.03, 1.1), **_label_kw)
     mag_raw_ax.annotate("B", xy=(-0.05, 1.1), **_label_kw)
     vis_raw_ax.annotate("C", xy=(-0.05, 1.1), **_label_kw)
-    mag_spectra_ax.annotate("D", xy=(-0.15, 1.1), **_label_kw)
+    mag_raster_ax.annotate("D", xy=(-0.15, 1.1), **_label_kw)
+    mag_spectra_ax.annotate("E", xy=(-0.15, 1.1), **_label_kw)
+    vis_raster_ax.annotate("F", xy=(-0.15, 1.1), **_label_kw)
     vis_spectra_ax.annotate("G", xy=(-0.15, 1.1), **_label_kw)
-    mag_dist_ax.annotate("E", xy=(-0.15, 1.1), **_label_kw)
-    vis_dist_ax.annotate("F", xy=(-0.15, 1.1), **_label_kw)
-    ecdf_mag_ax.annotate("H", xy=(-0.15, 1.1), **_label_kw)
-    ecdf_vis_ax.annotate("I", xy=(-0.15, 1.1), **_label_kw)
+    mag_dist_ax.annotate("H", xy=(-0.15, 1.1), **_label_kw)
+    vis_dist_ax.annotate("I", xy=(-0.15, 1.1), **_label_kw)
     out_path = out_dir / "Fig1.pdf"
     fig.savefig(out_path, bbox_inches="tight", dpi=FP.DPI)
     print(f"Saved {out_path}")

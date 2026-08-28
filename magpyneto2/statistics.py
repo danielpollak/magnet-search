@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import scipy.stats
 from scipy.integrate import quad
+from scipy.ndimage import gaussian_filter1d
 from scipy.stats import norm
 from .utils import save_and_close
 
@@ -1664,7 +1665,7 @@ def boundarize_and_nestle(ax, x=True, y=True, xprec=1, yprec=1, x_offset=0, y_of
 
 def plot_spectrum(ax:plt.Axes.axes, fou_alt:np.complex64, win, stimulus_frequency,
     stimulus_frequency_power:np.complex64, legend=False, central_tendency=False,
-    real_color="black", imag_color="grey", stem_color="blue", sigma_color=None):
+    dot_color="black", stem_color="blue", sigma_color=None):
     """Plots the spectrum of a fourier transformed signal around some frequency of interest
     Parameters
     ----------
@@ -1678,35 +1679,33 @@ def plot_spectrum(ax:plt.Axes.axes, fou_alt:np.complex64, win, stimulus_frequenc
         The frequency of the stimulus
     stimulus_frequency_power : np.complex64
         The power of the stimulus frequency
-    real_color, imag_color : optional
-        Colors for the off-frequency real/imaginary scatter series. Default
-        to the original black/grey.
+    dot_color : optional
+        Color for the off-frequency |c_n| scatter series. Defaults to black.
     stem_color : optional
         Color for the on-frequency stem+marker (the |c_s| point). Defaults
         to the original blue.
     sigma_color : optional
         Color for the sgm_c reference line. Defaults to None (matplotlib's
         own default cycle color, matching original behavior) -- pass an
-        explicit color (e.g. "gray") when `real_color` would otherwise clash
-        with it (e.g. when `real_color` is also blue-ish).
+        explicit color (e.g. "gray") when `dot_color` would otherwise clash
+        with it (e.g. when `dot_color` is also blue-ish).
     """
-    # NB: this deliberately plots the raw terms that feed NFC = |c_s|/sgm_c,
-    # not a distributionally-matched comparison -- fou_alt.real/.imag are the
-    # actual per-bin scalars averaged into sgm_c (no per-bin modulus is ever
-    # computed anywhere in the pipeline), sgm_c is that literal denominator,
-    # and |stimulus_frequency_power| is the literal numerator. The numerator
-    # (Rayleigh-distributed modulus) and the real/imag scatter (half-normal
-    # marginals) are different distributions of the same underlying sigma --
-    # that's inherent to how NFC itself is defined, not a plotting bug, so
-    # don't "fix" it by scattering |fou_alt| moduli instead (that would swap
-    # in a quantity that plays no role in the actual calculation). The fair,
-    # distributionally-calibrated comparison already lives elsewhere in the
-    # figure (the population NFC histogram this exemplar is plotted against).
-    sgm_c = np.sqrt(.5 * np.mean(np.concatenate([fou_alt.real, fou_alt.imag])**2))
+    # sgm_c is the literal NFC denominator (get_sgm/get_NFC in
+    # fourier_analysis, and the manuscript's own
+    # sigma_c = sqrt(1/2 * <|c_n|^2>) definition): mean(|c_n|^2) over the M
+    # off-frequency bins, times 1/2, then sqrt.
+    sgm_c = np.sqrt(.5 * np.mean(np.abs(fou_alt)**2))
     ax.axhline(sgm_c, **({} if sigma_color is None else dict(color=sigma_color)))
 
-    ax.plot(win, np.abs(fou_alt.real), ".", color=real_color, alpha=0.5, markersize=1, label="real")
-    ax.plot(win, np.abs(fou_alt.imag), ".", color=imag_color, alpha=0.5, markersize=1, label="imaginary")
+    # Fixed (2026-08-28): previously plotted |fou_alt.real| and |fou_alt.imag|
+    # as two separate series ("real"/"imaginary") -- each individually
+    # half-normal, not the quantity that's actually compared against sgm_c
+    # anywhere else in the figure. |stimulus_frequency_power| (the stem) is a
+    # modulus, and sgm_c is built from |c_n|^2 (real^2+imag^2 combined per
+    # bin, not real/imag scattered separately -- see get_sgm), so the
+    # off-frequency scatter now plots the same quantity, |fou_alt|, putting
+    # every marker in this panel on a consistent "modulus" footing.
+    ax.plot(win, np.abs(fou_alt), ".", color=dot_color, alpha=0.85, markersize=1, label=r"$|c_n|$")
 
     markerline, stemline, baseline = ax.stem(
         [stimulus_frequency], np.abs(stimulus_frequency_power), stem_color, bottom=sgm_c)
@@ -1720,8 +1719,8 @@ def plot_spectrum(ax:plt.Axes.axes, fou_alt:np.complex64, win, stimulus_frequenc
     ax.set_ylim((0, ylim[1]))
 
     if central_tendency:
-        ax.axhline(np.median(np.abs(np.concatenate([fou_alt.real, fou_alt.imag]))), color="green", alpha=0.5, markersize=1, label="median")
-        ax.axhline(np.mean(np.abs(np.concatenate([fou_alt.real, fou_alt.imag]))), color="yellow", alpha=0.5, markersize=1, label="mean")
+        ax.axhline(np.median(np.abs(fou_alt)), color="green", alpha=0.5, markersize=1, label="median")
+        ax.axhline(np.mean(np.abs(fou_alt)), color="yellow", alpha=0.5, markersize=1, label="mean")
 
     if legend:
         ax.legend()
@@ -1861,6 +1860,186 @@ def raw_NPIX(raw_NPIX_ax, ldr, spks, unitrow, window, freq, label=0.100,
     label_text = f"{label:.3g} s" if label >= 1 else f"{int(round(label * 1000))} ms"
     raw_NPIX_ax.annotate(label_text, (t_on, scalebar_y + 0.05 * data_range))
     raw_NPIX_ax.hlines(scalebar_y, t_on, t_on + spike_sr * label, "k")
+
+
+_PHASE_TICKS = [0, np.pi / 2, np.pi, 3 * np.pi / 2, 2 * np.pi]
+_PHASE_TICKLABELS = ["0", r"$\pi/2$", r"$\pi$", r"$3\pi/2$", r"$2\pi$"]
+
+
+def phase_fold(spks, window, freq):
+    """Folds spikes in `spks` that fall within `window` onto stimulus phase.
+
+    Unlike `raw_NPIX`'s own phase calculation (anchored to the first spike in
+    the window, fine for coloring a handful of phasor markers), this anchors
+    phase=0 to the window's own start `t_on` -- so consecutive stimulus
+    cycles are literal, fixed-length `1/freq`-second slices starting at
+    `t_on`, and `cycle_idx` can be used directly as raster row numbers.
+
+    Parameters
+    ----------
+    spks : array-like
+        Spike times in seconds.
+    window : tuple
+        (t_on, t_off) window to fold, in seconds.
+    freq : float
+        Stimulus frequency in Hz.
+
+    Returns
+    -------
+    cycle_idx : np.ndarray(int)
+        Which stimulus cycle (0-indexed from `t_on`) each in-window spike falls in.
+    phase : np.ndarray
+        Each in-window spike's phase within its own cycle, in radians (0 to 2*pi).
+    """
+    t_on, t_off = window
+    subspks = np.asarray(spks)
+    subspks = subspks[(subspks > t_on) & (subspks < t_off)] - t_on
+    period = 1 / freq
+    cycle_idx = np.floor(subspks / period).astype(int)
+    phase = (subspks % period) / period * (2 * np.pi)
+    return cycle_idx, phase
+
+
+def plot_phase_raster(ax, spks, window, freq, color="black", markersize=4, linewidth=1):
+    """Rasterplot of spikes folded onto stimulus phase (x axis in radians, 0
+    to 2*pi), one row per stimulus cycle within `window` (see `phase_fold`)
+    -- visualizes, cycle by cycle, the periodicity that the Fourier fit at
+    `freq` is actually testing for (a stimulus-locked unit's ticks line up in
+    a vertical band; an unlocked unit's scatter across the row).
+
+    `window` need not match any raw-trace snippet shown elsewhere -- pass
+    the full span of `spks` (e.g. `(0, spks.max())`) to raster every spike
+    that actually went into the unit's Fourier fit/NFC, not just the handful
+    visible in a short illustrative voltage-trace window. Use
+    `mark_cycle_range` to annotate, within that full raster, which cycles
+    correspond to such a shorter window plotted elsewhere.
+    """
+    n_cycles = int(np.floor((window[1] - window[0]) * freq))
+    cycle_idx, phase = phase_fold(spks, window, freq)
+    ax.plot(phase, cycle_idx, "|", color=color, markersize=markersize, markeredgewidth=linewidth)
+    ax.set_xlim(0, 2 * np.pi)
+    ax.set_ylim(n_cycles - 0.5, -0.5)  # row 0 (first cycle) on top
+    ax.set_xticks(_PHASE_TICKS)
+    ax.set_xticklabels(_PHASE_TICKLABELS)
+    ax.set_xlabel("Phase (rad)")
+    ax.set_ylabel("Cycle")
+    return cycle_idx, phase
+
+
+def mark_cycle_range(ax, window, freq, color="grey", label=None, fontsize=8, x=1.02, text_x=1.07):
+    """Marks, on a `plot_phase_raster` axes whose own `window` spans a longer
+    recording, which stimulus cycles fall inside some other, shorter
+    `window` (e.g. the raw-trace snippet shown elsewhere in the same
+    figure) -- a vertical line spanning that cycle range, drawn just outside
+    the axes' own right edge (`x`, in axes-fraction coordinates; y stays in
+    data/cycle coordinates via a blended transform), plus an optional
+    `label` rotated to read bottom-to-top alongside it.
+
+    Parameters
+    ----------
+    ax : matplotlib.Axes
+        A `plot_phase_raster` axes (shares its y-axis cycle numbering).
+    window : tuple
+        (t_on, t_off) of the shorter window to mark, in the same absolute
+        time base as whatever `window` was passed to `plot_phase_raster`.
+    freq : float
+        Stimulus frequency in Hz (same as passed to `plot_phase_raster`).
+    color : optional
+        Color of both the line and the label text. Defaults to grey.
+    label : str, optional
+        Text to draw alongside the line, rotated 90 degrees (reads
+        bottom-to-top). Omitted if not given.
+    x, text_x : float, optional
+        Axes-fraction x-position of the line / label text, respectively.
+    """
+    t_on, t_off = window
+    cycle_low = int(np.floor(t_on * freq))
+    cycle_high = int(np.floor(t_off * freq))
+    trans = ax.get_yaxis_transform()
+    ax.plot([x, x], [cycle_low, cycle_high], transform=trans, color=color,
+            linewidth=1.2, clip_on=False, solid_capstyle="butt")
+    if label:
+        ax.text(text_x, (cycle_low + cycle_high) / 2, label, transform=trans,
+                rotation=90, color=color, fontsize=fontsize, ha="left", va="center")
+    return cycle_low, cycle_high
+
+
+def plot_phase_psth(ax, spks, window, freq, color="black", n_bins=20):
+    """Peri-stimulus-phase histogram: spike counts binned by stimulus phase
+    (radians, 0 to 2*pi), pooled across every stimulus cycle in `window` --
+    the same phase-folding `plot_phase_raster` shows row-by-row, collapsed
+    into one distribution.
+    """
+    _, phase = phase_fold(spks, window, freq)
+    bins = np.linspace(0, 2 * np.pi, n_bins + 1)
+    ax.hist(phase, bins=bins, color=color)
+    ax.set_xlim(0, 2 * np.pi)
+    ax.set_xticks(_PHASE_TICKS)
+    ax.set_xticklabels(_PHASE_TICKLABELS)
+    ax.set_xlabel("Phase (rad)")
+    ax.set_ylabel("Spike count")
+
+
+def plot_smoothed_phase_psth(raster_ax, spks, window, freq, color="grey", n_bins=36, smooth_bins=2.0):
+    """Overlays a smoothed peri-stimulus-phase firing-rate curve on a
+    `plot_phase_raster` axes, via a twin y-axis (`raster_ax.twinx()`, so it
+    shares the raster's x-axis) -- lets a reader see the aggregate
+    firing-rate trend across stimulus phase at a glance, alongside the raw,
+    cycle-by-cycle raster. This smoothed curve plays no role in the actual
+    Fourier/NFC computation -- it's a visual aid only.
+
+    Parameters
+    ----------
+    raster_ax : matplotlib.Axes
+        A `plot_phase_raster` axes to twin.
+    spks, window, freq : same as `plot_phase_raster` -- pass the SAME
+        arguments so this PSTH is computed over the same spikes/cycles as
+        the raster it overlays.
+    color : optional
+        Color of the PSTH line AND its twin y-axis (spine, ticks, label).
+        Defaults to grey, so the overlay reads as secondary to the raster.
+    n_bins : int, optional
+        Number of phase bins (0 to 2*pi) before smoothing.
+    smooth_bins : float, optional
+        Gaussian-smoothing sigma, in units of bins. Smoothing wraps across
+        the phase=0/2*pi boundary (`mode="wrap"`) since phase is circular.
+
+    Returns
+    -------
+    psth_ax : matplotlib.Axes
+        The new twin axes (right-hand y-axis), in case further styling is
+        wanted.
+    """
+    n_cycles = int(np.floor((window[1] - window[0]) * freq))
+    _, phase = phase_fold(spks, window, freq)
+    bins = np.linspace(0, 2 * np.pi, n_bins + 1)
+    counts, _ = np.histogram(phase, bins=bins)
+
+    # Counts -> average firing rate (Hz): each bin is sampled once per
+    # cycle, for bin_width_s seconds each time.
+    bin_width_s = (1 / freq) / n_bins
+    rate = counts / (n_cycles * bin_width_s) if n_cycles > 0 else np.zeros_like(counts, dtype=float)
+    smoothed = gaussian_filter1d(rate.astype(float), sigma=smooth_bins, mode="wrap")
+
+    bin_centers = (bins[:-1] + bins[1:]) / 2
+
+    psth_ax = raster_ax.twinx()
+    psth_ax.plot(bin_centers, smoothed, color=color, linewidth=1.5, alpha=0.6)
+    psth_ax.set_ylim(bottom=0)
+    psth_ax.set_ylabel("PSTH (FR, Hz)", color=color)
+    psth_ax.tick_params(axis="y", colors=color)
+    psth_ax.spines["right"].set_color(color)
+    psth_ax.spines["top"].set_visible(False)
+
+    # Send the PSTH curve behind the raster ticks -- twinx() otherwise
+    # stacks the new axes (and everything on it) in FRONT of raster_ax,
+    # since it's created after. Lowering psth_ax's zorder below raster_ax's
+    # own, and making raster_ax's own background patch transparent so
+    # psth_ax's line shows through it, puts the raster ticks visually on
+    # top of the smoothed curve instead of the other way around.
+    psth_ax.set_zorder(raster_ax.get_zorder() - 1)
+    raster_ax.patch.set_visible(False)
+    return psth_ax
 
 
 def plot_phase_colorwheel(wheel_ax, cmap="twilight", size=200, label="phase", angle_unit="period",
