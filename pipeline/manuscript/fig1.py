@@ -84,10 +84,10 @@ import matplotlib
 if not in_notebook:
     matplotlib.use("Agg")
 import matplotlib.gridspec as gridspec
-import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from scipy import ndimage
 
 import colorcet  # noqa: F401 -- import side effect registers "cet_*" colormaps with matplotlib
 from ecdfbounds import bootstrap_ecdf_band
@@ -104,6 +104,26 @@ import format_parameters as FP
 # actual NAS layout -- confirmed by listing the NAS directly.)
 RAW_DATA_ROOT = r"\\datanas\family\data_raw\20230413\second_site"
 AGGREGATED_PATH = r"\\datanas\family\data_aggregated\20230413_secondsite"
+
+# ── Column geometry ───────────────────────────────────────────────────────────
+# Width of the narrow spacer column between the B and C columns, relative to
+# each data column's own width, and the gap on either side of it. It holds
+# the waveform + phase-colorwheel legends; both tolerate a fairly tight fit,
+# so this is kept small to buy width for the data panels (and, in the top
+# row, for the cartoons, which are height-limited and so gain proportionally
+# as the figure narrows around them). cartoon_gs and bc_gs share these so
+# each cartoon stays centered over the column it describes.
+SPACER_COL_WIDTH = 0.26
+COL_WSPACE = 0.07
+
+# ── Top-row cartoons ──────────────────────────────────────────────────────────
+# Hand-drawn schematics of the two stimulus configurations, sitting side by
+# side in the top row directly above their own data columns: the magnetic
+# coil pair (left, above panel B) and the grating screen (right, above panel
+# C). They live in the figure output directory alongside the PDFs rather
+# than under data/ -- they're figure assets, not pipeline data.
+CARTOON_MAG_PATH = Path(FP.OUT_DIR) / "Pig mag - August 26, 2026 18.51.58.jpg"
+CARTOON_VIS_PATH = Path(FP.OUT_DIR) / "Pig screen - August 29, 2026 18.51.58.jpg"
 
 # ── Experiment / exemplar unit ────────────────────────────────────────────────
 EXPERIMENT = "20230413_secondsite"
@@ -181,6 +201,103 @@ WAVEFORM_SEED = 0
 
 #%%
 
+def _band_mask(img):
+    """Mask of the cartoons' saturated blue coil band.
+
+    Keyed on blue dominating both other channels rather than on an absolute
+    blue level, so it ignores the drawings' black ink and grey pencil
+    shading (where the three channels track each other) without needing a
+    hand-tuned brightness cutoff.
+    """
+    r, g, b = (img[..., i].astype(np.int16) for i in range(3))
+    return (b > 90) & (b - r > 50) & (b - g > 50)
+
+
+def _load_cartoons(paths, pad_frac: float = 0.02, min_component_px: int = 100,
+                   bottom: str = "ink"):
+    """Read the cartoon JPEGs and trim white margin with a SHARED crop box.
+
+    The drawings share one canvas and are ~93% pixel-identical: the same
+    bird, drawn once, with a different apparatus added around it. Cropping
+    each to its OWN ink bounding box would therefore scale them
+    differently -- the screen drawing's ink extends further left and up, so
+    its (larger) crop box shrinks more to fit the same cell, rendering the
+    very same bird ~12% smaller than in the magnet drawing.
+
+    So the union of every image's ink bbox is used as one common crop box,
+    applied identically to all of them. Every returned array has the same
+    shape, which keeps the shared bird at the same scale AND in the same
+    relative position across panels, while still dropping the wide dead
+    margin the raw canvas carries (cropping the pair together is purely a
+    framing change; it cannot introduce a scale difference the way
+    per-image cropping does). `pad_frac` re-pads by a fraction of the
+    cropped size so strokes don't touch the edge.
+
+    Isolated ink specks smaller than `min_component_px` (stray pen marks
+    and scan dust) are ignored when measuring the box -- otherwise they
+    hold dead margin open far past the drawing: a 24px dot alone kept 215
+    columns of empty space on the right, and three specks below the tail
+    kept ~80 rows below it. The threshold isn't finely tuned; every value
+    from ~60 to ~500 yields the identical box here, since there's nothing
+    of intermediate size outside the drawing. Only the BOX is measured
+    this way -- the full image is what gets cropped and drawn, so specks
+    inside the box still render; only ones outside it are cut.
+
+    `bottom` picks where the crop ends. "ink" keeps the whole drawing.
+    "band" instead cuts flush at the bottom of the blue coil band, dropping
+    the wings and tail below it: the drawings are much taller than they are
+    wide, and in a wide, short figure row they're limited by the row's
+    HEIGHT, so shortening them is the only way to make them render larger
+    and use more of the row's width. The band spans the full width of the
+    bird, so cutting at its lowest row leaves a clean, deliberate-looking
+    horizontal edge; no bottom padding is added there, which would
+    reintroduce a sliver of tail below it.
+    """
+    imgs = []
+    for path in paths:
+        img = plt.imread(path)
+        if img.dtype != np.uint8:  # matplotlib gives float [0, 1] for some formats
+            img = (img * 255).astype(np.uint8)
+        imgs.append(img)
+
+    ink = np.zeros(imgs[0].shape[:2], dtype=bool)
+    for img in imgs:
+        if img.shape[:2] != ink.shape:  # a shared box is only meaningful on a shared canvas
+            raise ValueError(f"cartoon canvases differ: {img.shape[:2]} vs {ink.shape}")
+        ink |= img[..., :3].min(axis=-1) < 245
+    # 8-connectivity, so a diagonal pen stroke counts as one component
+    # rather than a string of separate single pixels.
+    labels, n_labels = ndimage.label(ink, structure=np.ones((3, 3)))
+    sizes = np.asarray(ndimage.sum(ink, labels, range(1, n_labels + 1)))
+    kept = np.flatnonzero(sizes >= min_component_px) + 1
+    solid = ink & np.isin(labels, kept)
+    if not solid.any():  # everything is speck-sized -- fall back to all ink
+        solid = ink
+
+    rows = np.flatnonzero(solid.any(axis=1))
+    cols = np.flatnonzero(solid.any(axis=0))
+    if rows.size == 0 or cols.size == 0:  # all blank -- nothing to crop to
+        return imgs
+
+    pad_r = int(round(pad_frac * (rows[-1] - rows[0] + 1)))
+    pad_c = int(round(pad_frac * (cols[-1] - cols[0] + 1)))
+    r0 = max(rows[0] - pad_r, 0)
+    r1 = min(rows[-1] + 1 + pad_r, ink.shape[0])
+    c0 = max(cols[0] - pad_c, 0)
+    c1 = min(cols[-1] + 1 + pad_c, ink.shape[1])
+    if bottom == "band":
+        band = np.zeros(ink.shape, dtype=bool)
+        for img in imgs:
+            band |= _band_mask(img)
+        band_rows = np.flatnonzero(band.any(axis=1))
+        if band_rows.size:
+            r1 = min(band_rows[-1] + 1, r1)  # flush cut, no bottom pad
+    elif bottom != "ink":
+        raise ValueError(f"bottom must be 'ink' or 'band', got {bottom!r}")
+
+    return [img[r0:r1, c0:c1] for img in imgs]
+
+
 def load_data(data_dir: str):
     cfg = load_experiment(Path(__file__).parent.parent.parent / "experiments" / f"{EXPERIMENT}.yml")
     io_r, nwbfile = nwb_io.read_nwbfile(str(Path(data_dir) / f"{EXPERIMENT}.nwb"))
@@ -191,7 +308,8 @@ def load_data(data_dir: str):
     return modulation_df, fourier_df, group_df, unit_df
 
 
-def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: Path):
+def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: Path,
+                        out_name: str = "Fig1.pdf", cartoon_bottom: str = "ink"):
     # Fig1_NPIX_data only reads unitrow.cluster_id (not .ch) -- no NAS-backed
     # cluster_info.tsv lookup needed here, just the cluster id itself.
     unitrow = pd.Series({"cluster_id": CLUSTER_ID})
@@ -212,25 +330,50 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     font = {"family": FP.FONT_FAMILY, "size": FP.FS_BODY}
     matplotlib.rc("font", **font)
 
-    # Three stacked rows: full-width cartoon; mag/vis raw traces + phase
+    # Three stacked rows: the two stimulus cartoons side by side; mag/vis
     # rasters + spectra (2 columns); and the dist+ECDF pairs (mag pair then
     # vis pair) at the bottom -- spectra sit next to their own raster, and
     # each NFC distribution sits next to its own ECDF-deviation plot, so
     # nothing needs a whole row to itself just to show 1-2 panels.
-    fig = plt.figure(figsize=(FP.FIGSIZE_FIG1[0], FP.FIGSIZE_FIG1[1] * 1.5), tight_layout=True)
-    # Top (cartoon, currently a placeholder) is given more room, and the two
-    # busier rows below it correspondingly less -- the cartoon isn't cramped
-    # by content the way the other two rows are, so it can afford to grow.
-    outer_gs = gridspec.GridSpec(3, 1, left=0, bottom=0, right=1, top=1,
-                                  height_ratios=[0.9, 1.3, 0.85], hspace=0.4)
+    fig = plt.figure(figsize=FP.FIGSIZE_FIG1_COMPOSITE, tight_layout=True)
+    # The top (cartoon) row is given more room, and the two busier rows
+    # below it correspondingly less -- the cartoons aren't cramped by
+    # content the way the other two rows are, so they can afford to grow.
+    # Explicit spacer rows with hspace=0, rather than one uniform hspace --
+    # GridSpec's hspace is a single figure-wide value, but the cartoon row
+    # needs far less air beneath it (nothing hangs below the drawings) than
+    # the B/C row does (whose "Phase (rad)" axis labels would otherwise
+    # collide with the H/I panel labels below them).
+    outer_gs = gridspec.GridSpec(5, 1, left=0, bottom=0, right=1, top=1,
+                                  height_ratios=[0.9, 0.10, 1.3, 0.40, 0.85],
+                                  hspace=0)
 
-    cartoon_ax = fig.add_subplot(outer_gs[0])
+    # Top row: the two stimulus-configuration cartoons side by side, each
+    # sitting directly above the data column it describes -- magnet (left,
+    # over panel B) and grating screen (right, over panel C). The same
+    # width_ratios as bc_gs below, so each cartoon is horizontally centered
+    # on its own column rather than on a naive half of the figure.
+    cartoon_gs = outer_gs[0].subgridspec(1, 3, width_ratios=[1, SPACER_COL_WIDTH, 1],
+                                    wspace=COL_WSPACE)
+    # Each drawing goes in an inset filling a blank full-cell container
+    # (same pattern as waveform_cell_ax below): imshow's equal aspect
+    # shrinks the axes box itself to the image, which would drag a panel
+    # label annotated in axes coordinates inward with it -- the container
+    # keeps its full cell width, so panel A's label stays aligned with
+    # panel B's directly below it.
+    cartoon_mag_cell = fig.add_subplot(cartoon_gs[0, 0])
+    cartoon_vis_cell = fig.add_subplot(cartoon_gs[0, 2])
+    cartoon_mag_cell.axis("off")
+    cartoon_vis_cell.axis("off")
+    cartoon_mag_ax = cartoon_mag_cell.inset_axes([0, 0, 1, 1])
+    cartoon_vis_ax = cartoon_vis_cell.inset_axes([0, 0, 1, 1])
 
     # A narrow middle column between B and C holds the average-waveform
     # (top) and phase-colorwheel (bottom) legends, stacked -- keeping them
     # off of either raw-trace panel's own data instead of overlaid on top of
     # it.
-    bc_gs = outer_gs[1].subgridspec(1, 3, width_ratios=[1, 0.4, 1], wspace=0.12)
+    bc_gs = outer_gs[2].subgridspec(1, 3, width_ratios=[1, SPACER_COL_WIDTH, 1],
+                               wspace=COL_WSPACE)
 
     # Each of B/C is itself 2 stacked rows: the raw trace (with its own
     # embedded raster/phasors, via raw_NPIX) on top, and the phase raster +
@@ -245,7 +388,7 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     vis_col_gs = bc_gs[0, 2].subgridspec(2, 1, height_ratios=[1.1, 1.0], hspace=0.15)
 
     mag_raw_ax = fig.add_subplot(mag_col_gs[0, 0])
-    mag_bottom_gs = mag_col_gs[1, 0].subgridspec(1, 2, width_ratios=[1.5, 1], wspace=1.0)
+    mag_bottom_gs = mag_col_gs[1, 0].subgridspec(1, 2, width_ratios=[1.5, 1], wspace=0.62)
     mag_raster_ax = fig.add_subplot(mag_bottom_gs[0, 0])
     mag_spectra_ax = fig.add_subplot(mag_bottom_gs[0, 1])
 
@@ -254,7 +397,7 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     # amplitude difference between them) below, so a shared y-axis is what
     # makes the raw traces honestly comparable.
     vis_raw_ax = fig.add_subplot(vis_col_gs[0, 0], sharey=mag_raw_ax)
-    vis_bottom_gs = vis_col_gs[1, 0].subgridspec(1, 2, width_ratios=[1.5, 1], wspace=1.0)
+    vis_bottom_gs = vis_col_gs[1, 0].subgridspec(1, 2, width_ratios=[1.5, 1], wspace=0.62)
     vis_raster_ax = fig.add_subplot(vis_bottom_gs[0, 0])
     vis_spectra_ax = fig.add_subplot(vis_bottom_gs[0, 1])
 
@@ -279,17 +422,22 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     # share a single panel (the ECDF as a small inset in the dist panel's
     # otherwise-empty upper-right corner) -- mag then vis -- rather than 4
     # separate axes, 2 of which were just a lone curve with its own legend.
-    de_hi_gs = outer_gs[2].subgridspec(1, 2, wspace=0.35)
+    de_hi_gs = outer_gs[4].subgridspec(1, 2, wspace=0.22)
     mag_dist_ax = fig.add_subplot(de_hi_gs[0, 0])
     vis_dist_ax = fig.add_subplot(de_hi_gs[0, 1])
 
     # ── Plot Row 1 ────────────────────────────────────────────────────────────
-    # Cartoon placeholder
-    cartoon_ax.add_patch(patches.Rectangle((0.05, 0.1), 0.9, 0.8, fill=False, edgecolor="black", linewidth=1))
-    cartoon_ax.text(0.5, 0.5, "Neuropixel\nProbe", ha="center", va="center", fontsize=8)
-    cartoon_ax.set_xlim(0, 1)
-    cartoon_ax.set_ylim(0, 1)
-    cartoon_ax.axis("off")
+    # Stimulus-configuration cartoons. imshow's default aspect="equal"
+    # keeps each drawing undistorted, so it shrinks to fit the row height
+    # and centers itself in its own (wider) cell rather than being
+    # stretched to fill it.
+    # Loaded as a pair so both get the same crop box -- see _load_cartoons
+    # for why per-image cropping would rescale the shared bird.
+    for _ax, _img in zip((cartoon_mag_ax, cartoon_vis_ax),
+                         _load_cartoons((CARTOON_MAG_PATH, CARTOON_VIS_PATH),
+                                        bottom=cartoon_bottom)):
+        _ax.imshow(_img, interpolation="antialiased")
+        _ax.axis("off")
 
     # Mean-subtract only (no per-trace min-max rescaling) so panels B/C's
     # shared y-axis (see sharey above) reflects each trace's real amplitude
@@ -301,14 +449,14 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     statistics.raw_NPIX(mag_raw_ax, None, mag_spks, None, MAG_WINDOW, MAG_FREQ,
                          label=1 / MAG_FREQ, trace=mag_trace, spike_sr=MAG_TRACE_SR,
                          raster_lw=RASTER_LW, phase_cmap=PHASE_CMAP, normalize=mean_subtract,
-                         stem_scale=ARROW_STEM_SCALE)
+                         stem_scale=ARROW_STEM_SCALE, scalebar_frac=0.5)
     mag_raw_ax.set_title("Voltage trace snippet from magnetic stimulation", fontsize=FP.FS_TITLE)
 
     # Visual raw NPIX (positive result) -- same unit, same primitive as the mag panel
     statistics.raw_NPIX(vis_raw_ax, None, vis_spks, None, VIS_WINDOW, VIS_FREQ,
                          label=1 / VIS_FREQ, trace=vis_trace, spike_sr=VIS_TRACE_SR,
                          raster_lw=RASTER_LW, phase_cmap=PHASE_CMAP, normalize=mean_subtract,
-                         stem_scale=ARROW_STEM_SCALE)
+                         stem_scale=ARROW_STEM_SCALE, scalebar_frac=0.5)
     vis_raw_ax.set_title("Voltage trace snippet from visual stimulation", fontsize=FP.FS_TITLE)
 
     # Phase raster: ALL spikes that actually went into this unit's Fourier
@@ -338,18 +486,32 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     # Smoothed firing-rate PSTH overlay -- not part of the actual Fourier/NFC
     # computation, just a visual aid for the trend across phase -- on its
     # own grey twin y-axis so it reads as secondary to the raster itself.
-    statistics.plot_smoothed_phase_psth(mag_raster_ax, mag_spks, mag_full_window, MAG_FREQ, color="grey")
+    mag_psth_ax = statistics.plot_smoothed_phase_psth(
+        mag_raster_ax, mag_spks, mag_full_window, MAG_FREQ, color="grey")
 
     statistics.plot_phase_raster(vis_raster_ax, vis_spks, vis_full_window, VIS_FREQ, color=FP.COLOR_VIS)
     vis_raster_ax.spines["top"].set_visible(False)
     vis_raster_ax.spines["right"].set_visible(False)
-    statistics.plot_smoothed_phase_psth(vis_raster_ax, vis_spks, vis_full_window, VIS_FREQ, color="grey")
+    vis_psth_ax = statistics.plot_smoothed_phase_psth(
+        vis_raster_ax, vis_spks, vis_full_window, VIS_FREQ, color="grey")
+
+    # The width between each raster and its spectrum is set by two FACING
+    # axis decorations -- the raster's PSTH twin axis on the right and the
+    # spectrum's "Amplitude" axis on the left -- not by empty space, so the
+    # panels can only be brought closer by shrinking those. The PSTH axis is
+    # already deliberately secondary (grey, a visual aid rather than part of
+    # the Fourier computation), so it takes the smaller legend font; the
+    # spectrum keeps body-size labels and just loses its tick padding.
+    for _psth_ax in (mag_psth_ax, vis_psth_ax):
+        _psth_ax.set_ylabel("PSTH (Hz)", color="grey", fontsize=FP.FS_LEGEND, labelpad=1)
+        _psth_ax.tick_params(axis="y", labelsize=FP.FS_LEGEND, pad=1)
 
     # ── Plot Row 2: Magnetic stimulation (null) ──────────────────────────────
     statistics.plot_spectrum(mag_spectra_ax, fou_alt.flatten(), ff_alt, MAG_FREQ, fou0, legend=False,
                               dot_color=FP.COLOR_MAG, stem_color="black", sigma_color="gray")
     mag_spectra_ax.set_title("Magnetic", fontsize=FP.FS_TITLE)
-    mag_spectra_ax.set_ylabel("Amplitude")
+    mag_spectra_ax.set_ylabel("Amplitude", labelpad=1)
+    mag_spectra_ax.tick_params(axis="y", pad=1)
     mag_spectra_ax.set_xlabel("Freq (Hz)")
     mag_spectra_ax.spines["top"].set_visible(False)
     mag_spectra_ax.spines["right"].set_visible(False)
@@ -375,7 +537,8 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     statistics.plot_spectrum(vis_spectra_ax, vis_fou_alt.flatten(), vis_ff_alt, VIS_FREQ, vis_fou0, legend=False,
                               dot_color=FP.COLOR_VIS, stem_color="black", sigma_color="gray")
     vis_spectra_ax.set_title("Visual", fontsize=FP.FS_TITLE)
-    vis_spectra_ax.set_ylabel("Amplitude")
+    vis_spectra_ax.set_ylabel("Amplitude", labelpad=1)
+    vis_spectra_ax.tick_params(axis="y", pad=1)
     vis_spectra_ax.set_xlabel("Freq (Hz)")
     vis_spectra_ax.spines["top"].set_visible(False)
     vis_spectra_ax.spines["right"].set_visible(False)
@@ -486,10 +649,12 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
 
     # ── Panel labels ──────────────────────────────────────────────────────────
     _label_kw = dict(xycoords="axes fraction", fontfamily="arial", fontsize=11, weight="bold")
-    # Reading order left-to-right, top-to-bottom: A (cartoon); B, C (raw
-    # traces); D, E, F, G (mag raster, mag spectrum, vis raster, vis
-    # spectrum); H, I (mag dist+ECDF combined, vis dist+ECDF combined).
-    cartoon_ax.annotate("A", xy=(-0.03, 1.1), **_label_kw)
+    # Reading order left-to-right, top-to-bottom: A (both stimulus cartoons,
+    # labelled once on the left one -- they're two views of a single setup
+    # panel, not two independently-referenced panels); B, C (raw traces);
+    # D, E, F, G (mag raster, mag spectrum, vis raster, vis spectrum);
+    # H, I (mag dist+ECDF combined, vis dist+ECDF combined).
+    cartoon_mag_cell.annotate("A", xy=(-0.05, 1.0), **_label_kw)
     mag_raw_ax.annotate("B", xy=(-0.05, 1.1), **_label_kw)
     vis_raw_ax.annotate("C", xy=(-0.05, 1.1), **_label_kw)
     mag_raster_ax.annotate("D", xy=(-0.15, 1.1), **_label_kw)
@@ -498,7 +663,7 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     vis_spectra_ax.annotate("G", xy=(-0.15, 1.1), **_label_kw)
     mag_dist_ax.annotate("H", xy=(-0.15, 1.1), **_label_kw)
     vis_dist_ax.annotate("I", xy=(-0.15, 1.1), **_label_kw)
-    out_path = out_dir / "Fig1.pdf"
+    out_path = out_dir / out_name
     fig.savefig(out_path, bbox_inches="tight", dpi=FP.DPI)
     print(f"Saved {out_path}")
     if not in_notebook:
@@ -517,6 +682,10 @@ def main():
     print("Loading NPIX data...")
     modulation_df, fourier_df, group_df, unit_df = load_data(args.data_dir)
     plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir)
+    # Same figure, cartoons cut off at the bottom of the coil band -- see
+    # _load_cartoons' `bottom` for why that makes them render wider.
+    plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir,
+                        out_name="Fig1_wide.pdf", cartoon_bottom="band")
 
 
 if __name__ == "__main__":

@@ -19,6 +19,12 @@ FS_LEGEND   = 8       # legend text, all figures (~89% of FS_TITLE; was 5-7pt in
 
 # ── Figure dimensions (figsize) ────────────────────────────────────────────────
 FIGSIZE_FIG1 = (8.5, 6)       # composite NPIX + GCaMP + ECDF
+# fig1.py's own composite is taller and narrower than FIGSIZE_FIG1: narrower
+# because its panels were tightened up horizontally (see SPACER_COL_WIDTH /
+# COL_WSPACE there), which lets the height-limited top-row cartoons take a
+# proportionally larger share of the width. Separate from FIGSIZE_FIG1 so
+# fig1_auditory.py, which still uses that, is unaffected.
+FIGSIZE_FIG1_COMPOSITE = (7.0, 9.0)
 FIGSIZE_FIG2 = (8.5, 6.5)   # excess counts + distributions
 FIGSIZE_FIG3 = (8, 4)       # p/q-value uniformity
 FIGSIZE_FIG4 = (11, 8)    # modulation sensitivity (A left / B right in a squished top band, C+D side-by-side below)
