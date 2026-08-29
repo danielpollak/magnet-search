@@ -1939,7 +1939,8 @@ def normalize_timeseries(arr):
 
 def raw_NPIX(raw_NPIX_ax, ldr, spks, unitrow, window, freq, label=0.100,
              trace=None, spike_sr=None, raster_lw=2, max_phasors=None, phase_cmap="twilight",
-             normalize=normalize_timeseries, stem_scale=1.0, phasor_size=12):
+             normalize=normalize_timeseries, stem_scale=1.0, phasor_size=12,
+             scalebar_frac=0.0):
     """GENERATE RAW DATA VISUALIZATION WITH PERIODS AND PHASORS
     Parameters
     ----------
@@ -1990,7 +1991,13 @@ def raw_NPIX(raw_NPIX_ax, ldr, spks, unitrow, window, freq, label=0.100,
         mapping itself) -- i.e. each spike still shows its phase as both a
         color and a pointing direction, just smaller.
     phasor_size : float, optional
-        Full-size (`stem_scale=1`) marker size in points, by default 12."""
+        Full-size (`stem_scale=1`) marker size in points, by default 12.
+    scalebar_frac : float, optional
+        Where to put the scale bar along the x-axis, as a fraction of the
+        space left over once the bar's own width is subtracted: 0.0 (the
+        default) flushes it left exactly where it has always been drawn,
+        0.5 centers it, 1.0 flushes it right. Useful when the bottom-left
+        corner is crowded by a neighbouring panel."""
     # Window
     t_on, t_off = window
 
@@ -2065,8 +2072,14 @@ def raw_NPIX(raw_NPIX_ax, ldr, spks, unitrow, window, freq, label=0.100,
     # multi-second period (e.g. a slow white-noise cycle) doesn't show as an
     # ungainly 4-digit ms count.
     label_text = f"{label:.3g} s" if label >= 1 else f"{int(round(label * 1000))} ms"
-    raw_NPIX_ax.annotate(label_text, (t_on, scalebar_y + 0.05 * data_range))
-    raw_NPIX_ax.hlines(scalebar_y, t_on, t_on + spike_sr * label, "k")
+    # The trace is plotted against sample index, so the bar's width in x is
+    # its duration in samples. `scalebar_frac` slides it through whatever x
+    # the bar itself doesn't occupy; at the default 0.0 this is exactly the
+    # old flush-left `t_on` origin.
+    bar_width = spike_sr * label
+    bar_x0 = t_on + scalebar_frac * (len(plot_trace) - bar_width)
+    raw_NPIX_ax.annotate(label_text, (bar_x0, scalebar_y + 0.05 * data_range))
+    raw_NPIX_ax.hlines(scalebar_y, bar_x0, bar_x0 + bar_width, "k")
 
 
 _PHASE_TICKS = [0, np.pi / 2, np.pi, 3 * np.pi / 2, 2 * np.pi]
