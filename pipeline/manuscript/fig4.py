@@ -105,6 +105,24 @@ SENSITIVITY_PERCENTILE = 90.0  # panel C / panel D outline: top decile by comput
 
 FREQ        = 5
 
+# Panel A palette. Everything in this panel is achromatic on purpose: Fig4 is
+# a SIMULATION, and the manuscript reserves blue/orange (FP.COLOR_MAG /
+# FP.COLOR_VIS) for real magnetic vs. visual stimulation -- using either here
+# would imply a stimulus contingency these synthetic spike trains don't have.
+# Within the panel, darkness encodes what's primary: the on-frequency stem
+# (the quantity the panel is about) is black, the off-frequency |c_n| cloud
+# and the raster ticks are mid-grey, and the PSTH curve -- a visual aid that
+# plays no part in the Fourier/NFC computation -- is lighter still.
+SPECTRUM_DOT_COLOR = "0.45"
+SIGMA_COLOR        = "0.6"
+RASTER_COLOR       = "0.45"
+PSTH_COLOR         = "0.7"
+
+# Panel B mod-condition hues. Dark2 rather than seaborn's Set1 default, whose
+# first two entries are a red and a blue close enough to the manuscript's own
+# stimulus colors to be misread as them.
+PALETTE_FIG4B = "Dark2"
+
 # Panel B (ported from fig4_pilot.py) sweep grids -- matches Markus Meister's
 # MM_Analysis_3.ipynb notebook's own grids. Named "_RESP" (for the
 # responder-count sweep computed below), not "_B" -- the panel letter this
@@ -456,53 +474,100 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
     # panel D).
     gs = gridspec.GridSpec(3, 6, left=0, bottom=0, right=1, top=1, wspace=0.5, hspace=0.5,
                             height_ratios=[0.6, 0.6, 1.6])
-    # Panel A's spectra/PSTH rows get their own nested gridspec so their
+    # Panel A's raster/spectra rows get their own nested gridspec so their
     # vertical gap can be tightened independently of the outer hspace (which
     # still needs to separate this whole A/B band from C/D below).
+    # Raster+PSTH on TOP, spectrum BELOW: the raster is the raw observation
+    # and the spectrum is what the analysis makes of it, so reading the
+    # column top-to-bottom now follows that order.
     gs_A = gridspec.GridSpecFromSubplotSpec(2, 3, subplot_spec=gs[0:2, 0:3], hspace=0.25, wspace=0.5)
 
-    ax_A1 = fig.add_subplot(gs_A[0, 0])  # spectrum, A=0
-    ax_A3 = fig.add_subplot(gs_A[0, 1])  # spectrum, A=0.5
-    ax_A5 = fig.add_subplot(gs_A[0, 2])  # spectrum, A=1
-    ax_A2 = fig.add_subplot(gs_A[1, 0])  # PSTH,     A=0
-    ax_A4 = fig.add_subplot(gs_A[1, 1])  # PSTH,     A=0.5
-    ax_A6 = fig.add_subplot(gs_A[1, 2])  # PSTH,     A=1
+    ax_A2 = fig.add_subplot(gs_A[0, 0])  # raster+PSTH, A=0
+    ax_A4 = fig.add_subplot(gs_A[0, 1])  # raster+PSTH, A=0.5
+    ax_A6 = fig.add_subplot(gs_A[0, 2])  # raster+PSTH, A=1
+    ax_A1 = fig.add_subplot(gs_A[1, 0])  # spectrum,    A=0
+    ax_A3 = fig.add_subplot(gs_A[1, 1])  # spectrum,    A=0.5
+    ax_A5 = fig.add_subplot(gs_A[1, 2])  # spectrum,    A=1
     ax_scatter     = fig.add_subplot(gs[0:2, 3:6])  # FR-vs-NFC scatter, panel B
     ax_heatmap     = fig.add_subplot(gs[2, 0:3])    # full pseudopopulation, panel C
     ax_heatmap_top = fig.add_subplot(gs[2, 3:6])    # top-decile-sensitivity subset, panel D
 
     spectra_axes = [ax_A1, ax_A3, ax_A5]
-    psth_axes    = [ax_A2, ax_A4, ax_A6]
+    raster_axes  = [ax_A2, ax_A4, ax_A6]
 
-    psth_max = 0
+    # Phase-raster window, shared by all three mod conditions so their cycle
+    # counts (and hence y-limits) match. Snapped OUT to whole stimulus
+    # periods around the example unit's own span: the floor keeps phase
+    # anchored to t=0, which is where warp_mod's phase-0 modulation is
+    # anchored too (so the modulation trough lands at the phase it should),
+    # while still dropping the ~150 empty leading cycles a literal (0, max)
+    # window would raster. warp_mod only moves spikes WITHIN their own
+    # period, so this window is identical for every A.
+    period = 1 / FREQ
+    raster_window = (np.floor(example_spk.min() / period) * period,
+                     np.ceil(example_spk.max() / period) * period)
+
+    spectra_max = 0
+    psth_axes = []
     for mod_i, A in enumerate([0, 0.5, 1]):
         warped = statistics.warp_mod(example_spk, A, 1 / FREQ, 0)
         (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, NFC) = \
             statistics.fourier_analysis([warped], freq=FREQ, Q=FOURIER_Q)
 
-        spectra_axes[mod_i].plot(ff_alt, fou_alt.real.T, ".", color="orange")
-        spectra_axes[mod_i].plot(fff[i0], fou0.real.T, ".")
+        # Same modulus-consistent spectrum panel Fig1 uses (see
+        # statistics.plot_spectrum): off-frequency |c_n| scatter, a sgm_c
+        # reference line, and a stem+marker at the stimulus frequency for
+        # |c_s|. Replaces an older real-component-only scatter, which plotted
+        # a quantity that isn't what NFC actually compares against.
+        # Deliberately achromatic: this figure is a simulation, and the
+        # manuscript's blue/orange are reserved for magnetic vs. visual
+        # stimulation elsewhere -- coloring a simulated spectrum with either
+        # would read as a stimulus contingency it doesn't have.
+        statistics.plot_spectrum(spectra_axes[mod_i], fou_alt.flatten(), ff_alt, FREQ, fou0,
+                                 legend=False, dot_color=SPECTRUM_DOT_COLOR,
+                                 stem_color="black", sigma_color=SIGMA_COLOR)
         spectra_axes[mod_i].set_xlabel("Hz")
-        spectra_axes[mod_i].set_title(f"A={A}", fontsize=FP.FS_TITLE)
+        spectra_max = max(spectra_max, spectra_axes[mod_i].get_ylim()[1])
         if mod_i == 0:
-            spectra_axes[mod_i].set_ylabel("Real component")
+            spectra_axes[mod_i].set_ylabel("Magnitude")
         else:
             spectra_axes[mod_i].set_yticks([])
 
-        counts, _, _ = psth_axes[mod_i].hist(np.squeeze(warped % (1 / FREQ)), bins=25)
-        psth_max = max(psth_max, counts.max())
-        psth_axes[mod_i].set_xlabel("Time (s)")
-        if mod_i == 0:
-            psth_axes[mod_i].set_ylabel("Spike counts")
-        else:
-            psth_axes[mod_i].set_yticks([])
+        # Phase raster + smoothed-PSTH overlay, the same pair of helpers
+        # Fig1's panels C/D use -- replaces a plain `warped % period`
+        # histogram, which threw away the cycle-by-cycle structure the
+        # modulation actually imposes. Both get the SAME (spks, window,
+        # freq), so the curve summarizes exactly the ticks drawn under it.
+        statistics.plot_phase_raster(raster_axes[mod_i], np.squeeze(warped), raster_window, FREQ,
+                                     color=RASTER_COLOR, markersize=2, linewidth=0.5)
+        raster_axes[mod_i].set_title(f"A={A}", fontsize=FP.FS_TITLE)
+        psth_axes.append(statistics.plot_smoothed_phase_psth(
+            raster_axes[mod_i], np.squeeze(warped), raster_window, FREQ, color=PSTH_COLOR))
+        if mod_i != 0:
+            raster_axes[mod_i].set_ylabel("")
+            raster_axes[mod_i].set_yticks([])
 
-    [ax.set_ylim((-1, 4)) for ax in spectra_axes]
-    # Headroom scaled off the tallest bin actually observed across the three
-    # panels (was a hardcoded (0, 30) that clipped once the pigeon-HP
-    # pseudopopulation's higher-spike-count example units pushed bin counts
-    # past 30).
-    [ax.set_ylim((0, psth_max * 1.1)) for ax in psth_axes]
+    # Shared magnitude scale across the three mod conditions -- required for
+    # the yticks-stripped panels 2/3 to be readable off panel 1's axis, and
+    # it's the growth of |c_s| relative to a roughly fixed |c_n| cloud that
+    # the row is there to show.
+    [ax.set_ylim((0, spectra_max * 1.05)) for ax in spectra_axes]
+
+    # Same treatment for the PSTH twin axes, mirrored: one shared rate scale,
+    # but labelled on the RIGHTMOST panel (where a twinx' axis naturally
+    # lives) rather than the leftmost, so the raster's "Cycle" axis and the
+    # PSTH's rate axis bracket the row instead of stacking three twin axes
+    # into the row's already-tight wspace.
+    psth_max = max(ax.get_ylim()[1] for ax in psth_axes)
+    for mod_i, psth_ax in enumerate(psth_axes):
+        psth_ax.set_ylim(0, psth_max * 1.05)  # headroom, as for the spectra above
+        if mod_i != len(psth_axes) - 1:
+            psth_ax.set_ylabel("")
+            psth_ax.set_yticks([])
+            psth_ax.spines["right"].set_visible(False)
+        else:
+            psth_ax.set_ylabel("PSTH (Hz)", color=PSTH_COLOR, fontsize=FP.FS_LEGEND, labelpad=1)
+            psth_ax.tick_params(axis="y", labelsize=FP.FS_LEGEND, pad=1)
 
     # Panel C (q-value/FDR responder-count heatmap, ported from
     # fig4_pilot.py's plot_fig4_pilot), on this file's own full
@@ -541,10 +606,10 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
     # same points already drawn -- same hue/palette so the outlined points
     # keep their mod-condition fill color.
     sns.scatterplot(data=NFC_modulation_FR_df, x="FR", y="NFC", hue="mod",
-                    palette="Set1", s=5, linewidth=0, alpha=FP.ALPHA_SCATTER, ax=ax_scatter)
+                    palette=PALETTE_FIG4B, s=5, linewidth=0, alpha=FP.ALPHA_SCATTER, ax=ax_scatter)
     top_ids = set(np.where(top_decile_mask)[0].tolist())
     top_df = NFC_modulation_FR_df[NFC_modulation_FR_df["id"].isin(top_ids)]
-    sns.scatterplot(data=top_df, x="FR", y="NFC", hue="mod", palette="Set1",
+    sns.scatterplot(data=top_df, x="FR", y="NFC", hue="mod", palette=PALETTE_FIG4B,
                     s=5, linewidth=0.6, edgecolor="black", alpha=FP.ALPHA_SCATTER,
                     ax=ax_scatter, legend=False)
     handles, labels = ax_scatter.get_legend_handles_labels()
@@ -564,26 +629,54 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
     ax_scatter.set_xscale("log")
     ax_scatter.set_xlabel("Firing rate (Hz)")
 
-    # Panel letters: each row is now uniform height within itself, so a
-    # simple per-axis axes-fraction annotate suffices (no cross-row
-    # figure-coordinate alignment hack needed, unlike an earlier layout
-    # where A/B/D shared one taller row-span).
-    ax_A1.annotate("A", xy=(-0.12, 1.35), xycoords="axes fraction", fontfamily="arial", fontsize=12)
-    ax_scatter.annotate("B", xy=(-0.03, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
-    ax_heatmap.annotate("C", xy=(-0.05, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
-    ax_heatmap_top.annotate("D", xy=(-0.05, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
+    # Panel letters: placed in FIGURE coordinates, offset by the same fixed
+    # pad from each panel's own top-left corner, so all four sit on a
+    # consistent rectangle (the two top-band letters share a y, the two
+    # bottom-row letters share a y, and the two left-column letters share an
+    # x). Axes-fraction offsets can't do this -- the same fraction means a
+    # different physical distance on each panel, which is why "A" (on one
+    # short spectra axes, offset far enough up to clear its "A=0" title)
+    # used to sit well outside the others. gs spans the full figure
+    # (left=0/bottom=0/right=1/top=1) and no auto-layout engine is active,
+    # so ax.get_position() is already the final figure-coordinate box.
+    PANEL_PAD_X = 0.035   # figure fraction, left of the panel's left edge
+    PANEL_PAD_Y = 0.02    # figure fraction, above the panel's top edge
+
+    def panel_letter(ax, letter):
+        bbox = ax.get_position()
+        fig.text(bbox.x0 - PANEL_PAD_X, bbox.y1 + PANEL_PAD_Y, letter,
+                 fontfamily="arial", fontsize=12,
+                 ha="left", va="bottom")
+
+    panel_letter(ax_A2, "A")
+    panel_letter(ax_scatter, "B")
+    panel_letter(ax_heatmap, "C")
+    panel_letter(ax_heatmap_top, "D")
 
     statistics.boundarize_and_nestle(ax_A1, y=False, x_offset=-0.06)
     statistics.boundarize_and_nestle(ax_A3, y=False, x_offset=-0.06)
     statistics.boundarize_and_nestle(ax_A5, y=False, x_offset=-0.06)
-    # PSTH row's x_offset is more negative than the spectra row's -- these
+    # Raster row's x_offset is more negative than the spectra row's -- these
     # axes got shorter under the new height_ratios (row A is squished to
     # make room for panels C/D below), and unlike the spectra row's edge-only
-    # ticks (3, 7), the PSTH row's middle tick (0.1) sits right where a
-    # -0.1-nestled "Time (s)" label would collide with it.
+    # ticks (3, 7), the raster's phase axis carries interior ticks
+    # (pi/2, pi, 3pi/2) right where a -0.1-nestled "Phase (rad)" would land.
     statistics.nestle_labels(ax_A2, y=False, x_offset=-0.16)
     statistics.nestle_labels(ax_A4, y=False, x_offset=-0.16)
     statistics.nestle_labels(ax_A6, y=False, x_offset=-0.16)
+
+    # Open (top/right-despined) boxes throughout, matching Fig1's style. Done
+    # in one pass at the end so it also catches the heatmaps, whose top/right
+    # spines just re-outlined the imshow extent. The PSTH twin axes are
+    # excluded -- their data axis IS the right spine, and only the rightmost
+    # of them still shows it (see the loop above); fig.axes' colorbar axes
+    # are excluded for the same reason (a despined colorbar reads as broken).
+    _cbar_axes = {im.colorbar.ax for im in (im, im_top)}
+    for _ax in fig.axes:
+        if _ax in psth_axes or _ax in _cbar_axes:
+            continue
+        _ax.spines["top"].set_visible(False)
+        _ax.spines["right"].set_visible(False)
 
     out_path = out_dir / "Fig4.pdf"
     fig.savefig(out_path, bbox_inches="tight", dpi=FP.DPI)
