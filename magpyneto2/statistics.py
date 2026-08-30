@@ -1938,9 +1938,9 @@ def normalize_timeseries(arr):
 
 
 def raw_NPIX(raw_NPIX_ax, ldr, spks, unitrow, window, freq, label=0.100,
-             trace=None, spike_sr=None, raster_lw=2, max_phasors=None, phase_cmap="twilight",
-             normalize=normalize_timeseries, stem_scale=1.0, phasor_size=12,
-             scalebar_frac=0.0):
+             trace=None, spike_sr=None, raster_lw=2, raster_color="blue", max_phasors=None,
+             phase_cmap="twilight", normalize=normalize_timeseries, stem_scale=1.0,
+             phasor_size=12, scalebar_frac=0.0):
     """GENERATE RAW DATA VISUALIZATION WITH PERIODS AND PHASORS
     Parameters
     ----------
@@ -1965,6 +1965,10 @@ def raw_NPIX(raw_NPIX_ax, ldr, spks, unitrow, window, freq, label=0.100,
         query it from).
     raster_lw : float, optional
         Line width of the spike-raster tick marks (eventplot), by default 2.
+    raster_color : optional
+        Color of the spike-raster tick marks, by default "blue". Set it per
+        panel when a figure colors each stimulus modality consistently (e.g.
+        a magnetic panel and a visual panel side by side).
     max_phasors : int, optional
         If given and more spikes than this fall in `window`, draw phasors
         for only an evenly-spaced subset of that size (the raster ticks
@@ -2032,7 +2036,7 @@ def raw_NPIX(raw_NPIX_ax, ldr, spks, unitrow, window, freq, label=0.100,
     subspks = subspks * spike_sr
 
     # Plot spike rasters
-    raw_NPIX_ax.eventplot(subspks, linelengths=.1 * data_range, color="blue", linewidths=raster_lw, lineoffsets=raster_y)
+    raw_NPIX_ax.eventplot(subspks, linelengths=.1 * data_range, color=raster_color, linewidths=raster_lw, lineoffsets=raster_y)
     raw_NPIX_ax.set_xticklabels(np.round(raw_NPIX_ax.get_xticks(),2))
     raw_NPIX_ax.set_xlabel("")
 
@@ -2120,7 +2124,8 @@ def phase_fold(spks, window, freq):
     return cycle_idx, phase
 
 
-def plot_phase_raster(ax, spks, window, freq, color="black", markersize=4, linewidth=1):
+def plot_phase_raster(ax, spks, window, freq, color="black", markersize=4, linewidth=1,
+                       phase_cmap=None):
     """Rasterplot of spikes folded onto stimulus phase (x axis in radians, 0
     to 2*pi), one row per stimulus cycle within `window` (see `phase_fold`)
     -- visualizes, cycle by cycle, the periodicity that the Fourier fit at
@@ -2133,6 +2138,11 @@ def plot_phase_raster(ax, spks, window, freq, color="black", markersize=4, linew
     visible in a short illustrative voltage-trace window. Use
     `mark_cycle_range` to annotate, within that full raster, which cycles
     correspond to such a shorter window plotted elsewhere.
+
+    `phase_cmap`, if given, is the same cyclic colormap passed to `raw_NPIX`
+    /`plot_phase_colorwheel`; each phase tick label is then drawn in that
+    colormap's own color for the phase it marks, so the x axis doubles as a
+    second read of the colorwheel legend.
     """
     n_cycles = int(np.floor((window[1] - window[0]) * freq))
     cycle_idx, phase = phase_fold(spks, window, freq)
@@ -2141,9 +2151,26 @@ def plot_phase_raster(ax, spks, window, freq, color="black", markersize=4, linew
     ax.set_ylim(n_cycles - 0.5, -0.5)  # row 0 (first cycle) on top
     ax.set_xticks(_PHASE_TICKS)
     ax.set_xticklabels(_PHASE_TICKLABELS)
+    if phase_cmap is not None:
+        color_phase_ticklabels(ax, phase_cmap)
     ax.set_xlabel("Phase (rad)")
     ax.set_ylabel("Cycle")
     return cycle_idx, phase
+
+
+def color_phase_ticklabels(ax, cmap, ticks=None):
+    """Colors `ax`'s x tick labels by the cyclic `cmap`'s own color at the
+    phase each one marks -- the same mapping `raw_NPIX` uses for its phasor
+    colors and `plot_phase_colorwheel` draws as a legend, so a reader can
+    tie a position on a phase axis back to a color without crossing to the
+    wheel. `ticks` defaults to the axes' current x ticks, read in radians
+    and taken mod 2*pi (so 0 and 2*pi share a color, as they must).
+    """
+    cmap = cm.get_cmap(cmap)
+    if ticks is None:
+        ticks = ax.get_xticks()
+    for tick, label in zip(ticks, ax.get_xticklabels()):
+        label.set_color(cmap((tick % (2 * np.pi)) / (2 * np.pi)))
 
 
 def mark_cycle_range(ax, window, freq, color="grey", label=None, fontsize=8, x=1.02, text_x=1.07):

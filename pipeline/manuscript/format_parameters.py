@@ -24,7 +24,23 @@ FIGSIZE_FIG1 = (8.5, 6)       # composite NPIX + GCaMP + ECDF
 # COL_WSPACE there), which lets the height-limited top-row cartoons take a
 # proportionally larger share of the width. Separate from FIGSIZE_FIG1 so
 # fig1_auditory.py, which still uses that, is unaffected.
-FIGSIZE_FIG1_COMPOSITE = (7.0, 9.0)
+# Height cut from 9.0: at width=\textwidth in the manuscript, the old 1.29
+# aspect made the graphic alone 425pt tall against a 550pt \textheight,
+# leaving too little for Figure 1's long caption -- LaTeX floats are one
+# unbreakable box (graphic + caption), so it couldn't be placed, and since
+# floats are emitted in order that parked every LATER figure behind it too.
+# The three content rows were shortened in fig1.py's own height_ratios (top
+# -10%, other two -20%) and this height reduced by the same total, so the
+# two spacer rows keep their absolute size rather than absorbing the cut.
+# Then trimmed a further 5% (7.68 -> 7.30), uniformly so those row
+# proportions are preserved: at 7.68 the graphic was 367pt at \textwidth,
+# and the placement threshold is ~360pt. Note that threshold is NOT the one
+# LaTeX warns about -- \@largefloatcheck only reports "Float too large" past
+# \textheight (550pt), but PLACING a float at the top of a page also needs
+# \textfloatsep to fit, so between those two limits a float silently defers
+# to the back of the document with nothing in the log. 7.30 gives 350pt,
+# ~10pt of margin, so a later caption edit doesn't quietly re-break it.
+FIGSIZE_FIG1_COMPOSITE = (7.0, 7.30)
 FIGSIZE_FIG2 = (8.5, 6.5)   # excess counts + distributions
 FIGSIZE_FIG3 = (8, 4)       # p/q-value uniformity
 FIGSIZE_FIG4 = (11, 8)    # modulation sensitivity (A left / B right in a squished top band, C+D side-by-side below)

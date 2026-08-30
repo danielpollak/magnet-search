@@ -14,20 +14,20 @@ doesn't respond to the magnet.
 This unit fires only modestly (~1.7-3.1Hz) -- a deliberate change from an
 earlier iteration of this worktree (cluster 566, same experiment, ~20-27Hz),
 which turned out to be a mistake for this figure's purpose despite satisfying
-an earlier "prefer higher firing" request. The phasor-arrow colors in panels
-B/C encode phase *relative to each panel's own window*, so a genuinely
+an earlier "prefer higher firing" request. The phasor-arrow colors in panel
+B encode phase *relative to each trace's own window*, so a genuinely
 stimulus-locked spike train should show arrows clustering on one dominant hue,
 not a rainbow -- that's the whole visual point of the colorwheel. Cluster 566
 was significant (p=0.0035) purely because of its very high spike count (n=1794
 at 45 degrees); its actual phase concentration (circular resultant length
-R=0.075) was tiny, so its arrows in panels B/C looked like uniform noise even
+R=0.075) was tiny, so its arrows in panel B looked like uniform noise even
 across 6 stimulus cycles -- a real "just significant, not astronomical" effect
 can still be too visually diffuse to see by eye. Cluster 540, despite far fewer
 spikes, has R=0.457 at 45 degrees (the tightest concentration found among this
-experiment's null-to-mag, significant-to-visual candidates) -- its panel-C
-arrows visibly cluster on warm hues (red/orange/yellow) across 15 stimulus
-cycles, while panel B's arrows (mag, null) stay scattered across the whole
-wheel. Firing rate and phase concentration turned out to trade off against each
+experiment's null-to-mag, significant-to-visual candidates) -- its
+visual-trace arrows in panel B visibly cluster on warm hues
+(red/orange/yellow) across 15 stimulus cycles, while the magnetic trace's
+arrows (null) stay scattered across the whole wheel. Firing rate and phase concentration turned out to trade off against each
 other among this experiment's candidate units; satisfying "see a pattern by
 eye" took priority here since that was the more recent, more specific request.
 
@@ -35,11 +35,11 @@ Choice of experiment matters here as much as choice of unit: unlike
 20230414_firstsite (a previous iteration of this same worktree, cluster 100),
 whose visual-gratings *population* only had 4.9-12.1% of units significant at
 any given orientation -- a fairly weak "positive control" for the population
-histogram in panel I -- 20230413_secondsite's visual_movinggratings3Hz
+histogram in panel F -- 20230413_secondsite's visual_movinggratings3Hz
 population has up to 22.0% of units significant at a single orientation (45
 or 90 degrees), while its own mag recs stay near the ~2-9% chance rate. That
-makes the population-level story in panels D-I honestly stronger, not just
-the single-exemplar story in panels B/C. (Population significance fractions
+makes the population-level story in panels C-F honestly stronger, not just
+the single-exemplar story in panel B. (Population significance fractions
 per rec were scanned across all NPIX experiments with visual-gratings data;
 see git history / session notes for the full comparison table.)
 
@@ -47,8 +47,9 @@ The best null (Mag3) and best positive (visual_movinggratings3Hz, orientation
 45) conditions are both at 3Hz, so this comparison isolates modality rather
 than confounding it with frequency.
 
-Phasor arrows in panels B/C are colored by phase (cyclic `hsv` colormap, 0 to
-one stimulus period) -- see the colorwheel legend between panels B and C.
+Phasor arrows in panel B are colored by phase (cyclic `hsv` colormap, 0 to
+one stimulus period) -- see the colorwheel legend between its two traces,
+whose mapping the phase axes of panels C/D repeat in their tick colors.
 
 A previous version of this figure (pipeline/manuscript/fig1_auditory.py)
 instead compared magnetic stimulation to the 0.8Hz auditory white-noise
@@ -85,6 +86,7 @@ if not in_notebook:
     matplotlib.use("Agg")
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
+import matplotlib.transforms
 import numpy as np
 import pandas as pd
 from scipy import ndimage
@@ -119,8 +121,8 @@ COL_WSPACE = 0.07
 # ── Top-row cartoons ──────────────────────────────────────────────────────────
 # Hand-drawn schematics of the two stimulus configurations, sitting side by
 # side in the top row directly above their own data columns: the magnetic
-# coil pair (left, above panel B) and the grating screen (right, above panel
-# C). They live in the figure output directory alongside the PDFs rather
+# coil pair (left, above panel B's magnetic trace) and the grating screen
+# (right, above its visual trace). They live in the figure output directory alongside the PDFs rather
 # than under data/ -- they're figure assets, not pipeline data.
 CARTOON_MAG_PATH = Path(FP.OUT_DIR) / "Pig mag - August 26, 2026 18.51.58.jpg"
 CARTOON_VIS_PATH = Path(FP.OUT_DIR) / "Pig screen - August 29, 2026 18.51.58.jpg"
@@ -162,7 +164,7 @@ VIS_FREQ = 3
 # degrees p=0.019 NFC=2.84) -- also the tightest phase concentration
 # (circular resultant length R=0.457) found among this experiment's
 # null-to-mag, visual-significant candidates, which is what actually makes
-# the phasor-arrow colors in panel C visibly cluster by eye (see module
+# the phasor-arrow colors on panel B's visual trace visibly cluster by eye (see module
 # docstring). Also 3Hz, matching MAG_FREQ, so the null-vs-positive comparison
 # isolates modality, not frequency.
 VIS_WINDOW = (91.789, 96.789)  # 5s = 15 cycles at 3Hz (see MAG_WINDOW comment), ~16 spikes
@@ -179,17 +181,27 @@ RASTER_LW = 0.5
 
 # Shrinks the phasor markers (via raw_NPIX's stem_scale) down from their
 # full default size -- each spike still shows its phase as both a color and
-# a pointing direction (the chevron shape), just smaller, so B/C read as a
+# a pointing direction (the chevron shape), just smaller, so panel B's
+# two traces read as a
 # field of small phase markers rather than a dense cluster of larger ones.
 ARROW_STEM_SCALE = 0.6
 
 # Cyclic colormap for phase-coloring the phasor arrows in both raw_NPIX
 # panels -- paired with a colorwheel legend (statistics.plot_phase_colorwheel)
-# drawn between panels B and C. colorcet's CET_C6s (importing colorcet
+# drawn between panel B's two traces. colorcet's CET_C6s (importing colorcet
 # auto-registers it with matplotlib as "cet_CET_C6s") avoids "twilight"'s
 # near-white anchor at phase=0, which would make arrows nearly invisible
 # against this figure's white background.
 PHASE_CMAP = "cet_CET_C6s"
+
+# Raises the waveform + colorwheel legend stack within its own column, as a
+# fraction of one legend cell's height. Both are lifted rather than just the
+# wheel, so the pair keeps its own spacing. The wheel's bottom "3pi/2" label
+# would otherwise sit right on top of panel D's label, which is annotated
+# relative to the visual phase raster directly below it; there's headroom
+# above the waveform to absorb the shift, since the two raw-trace titles it
+# sits between are horizontally clear of this narrow middle column.
+LEGEND_LIFT = 0.25
 
 # ── Average spike-waveform panel ──────────────────────────────────────────────
 # 100 randomly-sampled raw waveforms (seeded for reproducibility) for this
@@ -342,15 +354,16 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     # Explicit spacer rows with hspace=0, rather than one uniform hspace --
     # GridSpec's hspace is a single figure-wide value, but the cartoon row
     # needs far less air beneath it (nothing hangs below the drawings) than
-    # the B/C row does (whose "Phase (rad)" axis labels would otherwise
-    # collide with the H/I panel labels below them).
+    # the trace/raster row does (whose "Phase (rad)" axis labels would
+    # otherwise collide with the E/F panel labels below them).
     outer_gs = gridspec.GridSpec(5, 1, left=0, bottom=0, right=1, top=1,
-                                  height_ratios=[0.9, 0.10, 1.3, 0.40, 0.85],
+                                  height_ratios=[0.81, 0.10, 1.04, 0.40, 0.68],
                                   hspace=0)
 
     # Top row: the two stimulus-configuration cartoons side by side, each
     # sitting directly above the data column it describes -- magnet (left,
-    # over panel B) and grating screen (right, over panel C). The same
+    # over the magnetic column) and grating screen (right, over the visual
+    # column). The same
     # width_ratios as bc_gs below, so each cartoon is horizontally centered
     # on its own column rather than on a naive half of the figure.
     cartoon_gs = outer_gs[0].subgridspec(1, 3, width_ratios=[1, SPACER_COL_WIDTH, 1],
@@ -368,14 +381,14 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     cartoon_mag_ax = cartoon_mag_cell.inset_axes([0, 0, 1, 1])
     cartoon_vis_ax = cartoon_vis_cell.inset_axes([0, 0, 1, 1])
 
-    # A narrow middle column between B and C holds the average-waveform
+    # A narrow middle column between the magnetic and visual traces holds the average-waveform
     # (top) and phase-colorwheel (bottom) legends, stacked -- keeping them
     # off of either raw-trace panel's own data instead of overlaid on top of
     # it.
     bc_gs = outer_gs[2].subgridspec(1, 3, width_ratios=[1, SPACER_COL_WIDTH, 1],
                                wspace=COL_WSPACE)
 
-    # Each of B/C is itself 2 stacked rows: the raw trace (with its own
+    # Each of the two stimulus columns is itself 2 stacked rows: the raw trace (with its own
     # embedded raster/phasors, via raw_NPIX) on top, and the phase raster +
     # Fourier spectrum side by side below it -- the raster's the SAME spikes
     # folded onto stimulus phase, and the spectrum is the Fourier transform
@@ -403,9 +416,9 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
 
     # Waveform and phase colorwheel are both confined to a cell matching
     # mag_col_gs/vis_col_gs's own top (raw-trace) row -- so the waveform is
-    # top-aligned with the B/C titles, and the wheel sits directly below it,
+    # top-aligned with the raw-trace titles, and the wheel sits directly below it,
     # instead of the wheel being pushed all the way down to the bottom of
-    # the whole B/C block. The lower cell (matching the raster/spectra row)
+    # the whole raw-trace block. The lower cell (matching the raster/spectra row)
     # is left empty.
     legend_gs = bc_gs[0, 1].subgridspec(2, 1, height_ratios=[1.1, 1.0], hspace=0.15)
     legend_top_gs = legend_gs[0, 0].subgridspec(2, 1, height_ratios=[1, 1], hspace=0.15)
@@ -415,8 +428,13 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     # cell, which is the wrong aspect for a waveform trace.
     waveform_cell_ax = fig.add_subplot(legend_top_gs[0, 0])
     waveform_cell_ax.axis("off")
-    waveform_ax = waveform_cell_ax.inset_axes([0.25, 0.1, 0.5, 1.15])
-    wheel_ax = fig.add_subplot(legend_top_gs[1, 0])
+    waveform_ax = waveform_cell_ax.inset_axes([0.25, 0.1 + LEGEND_LIFT, 0.5, 1.15])
+    # Same blank-container + inset pattern as the waveform above, purely so
+    # the wheel can be lifted by LEGEND_LIFT -- a plain add_subplot would be
+    # pinned to its own cell.
+    wheel_cell_ax = fig.add_subplot(legend_top_gs[1, 0])
+    wheel_cell_ax.axis("off")
+    wheel_ax = wheel_cell_ax.inset_axes([0, LEGEND_LIFT, 1, 1])
 
     # Bottom row: each NFC distribution and its own ECDF-deviation plot now
     # share a single panel (the ECDF as a small inset in the dist panel's
@@ -433,13 +451,19 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     # stretched to fill it.
     # Loaded as a pair so both get the same crop box -- see _load_cartoons
     # for why per-image cropping would rescale the shared bird.
-    for _ax, _img in zip((cartoon_mag_ax, cartoon_vis_ax),
-                         _load_cartoons((CARTOON_MAG_PATH, CARTOON_VIS_PATH),
-                                        bottom=cartoon_bottom)):
+    # Titled on the inset (not the blank container) axes so each title sits
+    # directly above its own drawing -- imshow's equal aspect shrinks the
+    # inset's box down to the image, so a container-level title would float
+    # a variable gap above whichever cartoon ended up shorter.
+    for _ax, _img, _title in zip((cartoon_mag_ax, cartoon_vis_ax),
+                                 _load_cartoons((CARTOON_MAG_PATH, CARTOON_VIS_PATH),
+                                                bottom=cartoon_bottom),
+                                 ("Magnetic stimulation", "Visual stimulation")):
         _ax.imshow(_img, interpolation="antialiased")
         _ax.axis("off")
+        _ax.set_title(_title, fontsize=FP.FS_TITLE)
 
-    # Mean-subtract only (no per-trace min-max rescaling) so panels B/C's
+    # Mean-subtract only (no per-trace min-max rescaling) so panel B's two traces'
     # shared y-axis (see sharey above) reflects each trace's real amplitude
     # relative to the other, rather than both being independently stretched
     # to fill [0, 1].
@@ -450,14 +474,17 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
                          label=1 / MAG_FREQ, trace=mag_trace, spike_sr=MAG_TRACE_SR,
                          raster_lw=RASTER_LW, phase_cmap=PHASE_CMAP, normalize=mean_subtract,
                          stem_scale=ARROW_STEM_SCALE, scalebar_frac=0.5)
-    mag_raw_ax.set_title("Voltage trace snippet from magnetic stimulation", fontsize=FP.FS_TITLE)
+    mag_raw_ax.set_title(f"Voltage trace during magnetic stimulation at {MAG_FREQ:g} Hz",
+                          fontsize=FP.FS_TITLE)
 
     # Visual raw NPIX (positive result) -- same unit, same primitive as the mag panel
     statistics.raw_NPIX(vis_raw_ax, None, vis_spks, None, VIS_WINDOW, VIS_FREQ,
                          label=1 / VIS_FREQ, trace=vis_trace, spike_sr=VIS_TRACE_SR,
                          raster_lw=RASTER_LW, phase_cmap=PHASE_CMAP, normalize=mean_subtract,
-                         stem_scale=ARROW_STEM_SCALE, scalebar_frac=0.5)
-    vis_raw_ax.set_title("Voltage trace snippet from visual stimulation", fontsize=FP.FS_TITLE)
+                         stem_scale=ARROW_STEM_SCALE, scalebar_frac=0.5,
+                         raster_color=FP.COLOR_VIS)
+    vis_raw_ax.set_title(f"Voltage trace during visual stimulation at {VIS_FREQ:g} Hz",
+                          fontsize=FP.FS_TITLE)
 
     # Phase raster: ALL spikes that actually went into this unit's Fourier
     # fit/NFC at MAG_FREQ/VIS_FREQ (the whole recording, via mag_spks/
@@ -480,7 +507,9 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     mag_full_window = (mag_start_t, float(np.max(mag_spks)) + 1e-6)
     vis_full_window = (vis_start_t, float(np.max(vis_spks)) + 1e-6)
 
-    statistics.plot_phase_raster(mag_raster_ax, mag_spks, mag_full_window, MAG_FREQ, color=FP.COLOR_MAG)
+    statistics.plot_phase_raster(mag_raster_ax, mag_spks, mag_full_window, MAG_FREQ,
+                                  color=FP.COLOR_MAG, phase_cmap=PHASE_CMAP)
+    mag_raster_ax.set_title("Spike phases", fontsize=FP.FS_TITLE)
     mag_raster_ax.spines["top"].set_visible(False)
     mag_raster_ax.spines["right"].set_visible(False)
     # Smoothed firing-rate PSTH overlay -- not part of the actual Fourier/NFC
@@ -489,7 +518,9 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     mag_psth_ax = statistics.plot_smoothed_phase_psth(
         mag_raster_ax, mag_spks, mag_full_window, MAG_FREQ, color="grey")
 
-    statistics.plot_phase_raster(vis_raster_ax, vis_spks, vis_full_window, VIS_FREQ, color=FP.COLOR_VIS)
+    statistics.plot_phase_raster(vis_raster_ax, vis_spks, vis_full_window, VIS_FREQ,
+                                  color=FP.COLOR_VIS, phase_cmap=PHASE_CMAP)
+    vis_raster_ax.set_title("Spike phases", fontsize=FP.FS_TITLE)
     vis_raster_ax.spines["top"].set_visible(False)
     vis_raster_ax.spines["right"].set_visible(False)
     vis_psth_ax = statistics.plot_smoothed_phase_psth(
@@ -509,8 +540,8 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     # ── Plot Row 2: Magnetic stimulation (null) ──────────────────────────────
     statistics.plot_spectrum(mag_spectra_ax, fou_alt.flatten(), ff_alt, MAG_FREQ, fou0, legend=False,
                               dot_color=FP.COLOR_MAG, stem_color="black", sigma_color="gray")
-    mag_spectra_ax.set_title("Magnetic", fontsize=FP.FS_TITLE)
-    mag_spectra_ax.set_ylabel("Amplitude", labelpad=1)
+    mag_spectra_ax.set_title("Fourier coefficients", fontsize=FP.FS_TITLE)
+    mag_spectra_ax.set_ylabel("Magnitude", labelpad=1)
     mag_spectra_ax.tick_params(axis="y", pad=1)
     mag_spectra_ax.set_xlabel("Freq (Hz)")
     mag_spectra_ax.spines["top"].set_visible(False)
@@ -531,20 +562,19 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
                                          linewidth=2, mutation_scale=20))
     statistics.boundary_ticks(mag_dist_ax, yprec=1)
     statistics.nestle_labels(mag_dist_ax, x_offset=-0.05, y_offset=-0.05)
-    mag_dist_ax.set_title(f"{MAG_FREQ:g} Hz magnetic stimulation", fontsize=FP.FS_TITLE)
 
     # ── Plot Row 3: Visual gratings (positive) ───────────────────────────────
     statistics.plot_spectrum(vis_spectra_ax, vis_fou_alt.flatten(), vis_ff_alt, VIS_FREQ, vis_fou0, legend=False,
                               dot_color=FP.COLOR_VIS, stem_color="black", sigma_color="gray")
-    vis_spectra_ax.set_title("Visual", fontsize=FP.FS_TITLE)
-    vis_spectra_ax.set_ylabel("Amplitude", labelpad=1)
+    vis_spectra_ax.set_title("Fourier coefficients", fontsize=FP.FS_TITLE)
+    vis_spectra_ax.set_ylabel("Magnitude", labelpad=1)
     vis_spectra_ax.tick_params(axis="y", pad=1)
     vis_spectra_ax.set_xlabel("Freq (Hz)")
     vis_spectra_ax.spines["top"].set_visible(False)
     vis_spectra_ax.spines["right"].set_visible(False)
     statistics.boundary_ticks(vis_spectra_ax, y=False)
 
-    # Shared y-axis (Amplitude) between the two spectra -- makes their
+    # Shared y-axis (Magnitude) between the two spectra -- makes their
     # scales directly comparable, even though it squashes E's much smaller
     # scatter/stem (mag's |c_s| is far smaller than vis's) down near the
     # bottom of the shared range.
@@ -569,7 +599,6 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
                                          linewidth=2, mutation_scale=20))
     statistics.boundary_ticks(vis_dist_ax, yprec=1)
     statistics.nestle_labels(vis_dist_ax, x_offset=-0.05, y_offset=-0.05)
-    vis_dist_ax.set_title(f"{VIS_FREQ:g} Hz visual stimulation", fontsize=FP.FS_TITLE)
 
     # ── Kolmogorov-Smirnov diagnostic plot ────────────────────────────────────
     # Each ECDF-deviation curve is now an inset within its own dist panel
@@ -628,7 +657,7 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     ecdf_vis_ax.spines["right"].set_visible(False)
 
     # ── Average spike-waveform + phase colorwheel legend, stacked in the
-    # narrow column between panels B and C (see legend_gs above) -- own
+    # narrow column between panel B's two traces (see legend_gs above) -- own
     # (blank) axes rather than insets over either raw-trace panel, so
     # neither needs an opaque backdrop to keep trace data from showing
     # through their titles/tick labels. The wheel is the smaller of the two,
@@ -648,21 +677,42 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     fig.canvas.draw()
 
     # ── Panel labels ──────────────────────────────────────────────────────────
-    _label_kw = dict(xycoords="axes fraction", fontfamily="arial", fontsize=11, weight="bold")
-    # Reading order left-to-right, top-to-bottom: A (both stimulus cartoons,
-    # labelled once on the left one -- they're two views of a single setup
-    # panel, not two independently-referenced panels); B, C (raw traces);
-    # D, E, F, G (mag raster, mag spectrum, vis raster, vis spectrum);
-    # H, I (mag dist+ECDF combined, vis dist+ECDF combined).
-    cartoon_mag_cell.annotate("A", xy=(-0.05, 1.0), **_label_kw)
-    mag_raw_ax.annotate("B", xy=(-0.05, 1.1), **_label_kw)
-    vis_raw_ax.annotate("C", xy=(-0.05, 1.1), **_label_kw)
-    mag_raster_ax.annotate("D", xy=(-0.15, 1.1), **_label_kw)
-    mag_spectra_ax.annotate("E", xy=(-0.15, 1.1), **_label_kw)
-    vis_raster_ax.annotate("F", xy=(-0.15, 1.1), **_label_kw)
-    vis_spectra_ax.annotate("G", xy=(-0.15, 1.1), **_label_kw)
-    mag_dist_ax.annotate("H", xy=(-0.15, 1.1), **_label_kw)
-    vis_dist_ax.annotate("I", xy=(-0.15, 1.1), **_label_kw)
+    _label_kw = dict(fontfamily="arial", fontsize=11, weight="bold")
+    # Reading order left-to-right, top-to-bottom. Each of A, B, C, D covers a
+    # PAIR of axes, labelled once on the pair's leftmost member: the two
+    # stimulus cartoons (A), the two raw voltage traces (B), and each
+    # column's own phase raster + spectrum (C magnetic, D visual). Each pair
+    # is one panel -- either the same view under two stimulus conditions, or
+    # one argument made in two steps (fold the spikes onto stimulus phase,
+    # then Fourier-transform them) -- rather than two independently
+    # referenced panels, and every member carries its own descriptive title.
+    # E and F are the two NFC distributions (each with its own ECDF inset).
+    #
+    # x is a per-COLUMN figure coordinate, not each axes' own fraction: the
+    # axes stacked in a column have different widths (a raw voltage trace
+    # spans the whole column, a phase raster only the left ~60% of it), so a
+    # constant axes-fraction offset lands their labels at visibly different
+    # x. Taking each column's leftmost axes edge and stepping a fixed
+    # figure-space LABEL_DX left of it puts A/B/C/E on one vertical line and
+    # D/F on another. y stays in each axes' own fraction (blended transform
+    # below), so each label keeps whatever vertical offset clears its own
+    # title.
+    LABEL_DX = 0.05
+    left_x = min(a.get_position().x0 for a in
+                 (cartoon_mag_cell, mag_raw_ax, mag_raster_ax, mag_dist_ax)) - LABEL_DX
+    right_x = min(a.get_position().x0 for a in (vis_raster_ax, vis_dist_ax)) - LABEL_DX
+
+    def _panel_label(ax, text, x_fig, y_axes):
+        ax.annotate(text, xy=(x_fig, y_axes), annotation_clip=False, **_label_kw,
+                     xycoords=matplotlib.transforms.blended_transform_factory(
+                         fig.transFigure, ax.transAxes))
+
+    _panel_label(cartoon_mag_cell, "A", left_x, 1.0)
+    _panel_label(mag_raw_ax, "B", left_x, 1.1)
+    _panel_label(mag_raster_ax, "C", left_x, 1.12)
+    _panel_label(vis_raster_ax, "D", right_x, 1.12)
+    _panel_label(mag_dist_ax, "E", left_x, 1.1)
+    _panel_label(vis_dist_ax, "F", right_x, 1.1)
     out_path = out_dir / out_name
     fig.savefig(out_path, bbox_inches="tight", dpi=FP.DPI)
     print(f"Saved {out_path}")
