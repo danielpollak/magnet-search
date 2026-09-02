@@ -43,9 +43,23 @@ the single-exemplar story in panel B. (Population significance fractions
 per rec were scanned across all NPIX experiments with visual-gratings data;
 see git history / session notes for the full comparison table.)
 
-The best null (Mag3) and best positive (visual_movinggratings3Hz, orientation
-45) conditions are both at 3Hz, so this comparison isolates modality rather
-than confounding it with frequency.
+The best null (Mag3_inclined) and best positive (visual_movinggratings3Hz,
+orientation 45) conditions are both at 3Hz, so this comparison isolates
+modality rather than confounding it with frequency.
+
+Mag3_inclined, not the plain (non-inclined) Mag3 trial, is used for the null
+panels (2026-09-02) -- both are 3Hz and both are non-significant for this
+unit (Mag3 p=0.708, Mag3_inclined p=0.374), so either satisfies the
+modality-isolation argument above equally well. But Mag3's own 204-unit
+population turned out to sit unusually far out on the tail of the
+population-level p-value ECDF-deviation distribution across all comparable
+NPIX null recordings (mean deviation -0.050, 2nd-most-extreme of 67 -- see
+pipeline/manuscript/fig1E_qfrac_diagnostic.py, which confirmed this wasn't
+fixable by any Q_frac choice and reflects finite-N sampling noise specific
+to that recording, not a bug). Mag3_inclined's population sits right in the
+middle of that same distribution (mean deviation -0.009), so panel E's
+null-PDF/ECDF fit reads as unremarkable instead of an outlier, with no
+other change to the figure's narrative.
 
 Phasor arrows in panel B are colored by phase (cyclic `hsv` colormap, 0 to
 one stimulus period) -- see the colorwheel legend between its two traces,
@@ -131,12 +145,14 @@ CARTOON_VIS_PATH = Path(FP.OUT_DIR) / "Pig screen - August 29, 2026 18.51.58.jpg
 EXPERIMENT = "20230413_secondsite"
 CLUSTER_ID = 540  # single unit, used for both the null and positive panels
 
-MAG_CONTINGENCY = "2023-04-13_17-17-14_W25R_second_site_mag3"
+MAG_CONTINGENCY = "2023-04-13_17-06-27_W25R_second_site_mag3_inclined"
 MAG_FREQ = 3
-# Non-significant (p=0.708, NFC=0.83) across this unit's mag3 trial -- of this
-# unit's 7 null magnetic trials (p 0.374-0.916, all non-significant), this is
-# the 3Hz one, chosen to match VIS_FREQ below so the null-vs-positive
-# comparison isolates modality, not frequency.
+# Non-significant (p=0.374, NFC=1.40) across this unit's mag3_inclined trial
+# -- of this unit's 7 null magnetic trials (p 0.374-0.916, all
+# non-significant), this is the 3Hz one now used (see module docstring's
+# "Mag3_inclined, not the plain Mag3" note for why, 2026-09-02), chosen to
+# match VIS_FREQ below so the null-vs-positive comparison isolates modality,
+# not frequency.
 # 15 cycles at 3Hz (period 1/3 s), not 1 -- with the phasor arrows now
 # phase-colored, a single-cycle window is diagnostically uninformative: phase
 # is computed as time-since-window-start mod period, which for a window no
@@ -147,7 +163,7 @@ MAG_FREQ = 3
 # ~1.7Hz here, so 15 cycles (5s) -- rather than a smaller cycle count -- is
 # needed just to get a handful of spikes to look at; see the module docstring
 # for why a sparser-but-tighter-locking unit was chosen over a denser one.
-MAG_WINDOW = (49.143, 54.143)  # 5s = 15 cycles at 3Hz, ~8 spikes
+MAG_WINDOW = (77.484, 82.484)  # 5s = 15 cycles at 3Hz, ~8 spikes, evenly spread
 
 # Visual gratings: recname is NOT orientation-split in the raw OpenEphys
 # folder (all 8 orientations are one continuous recording, played back to
@@ -613,6 +629,16 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     mag_pvals = 1 - normalized_Fourier_CDF(mag_NFC)
     vis_pvals = 1 - normalized_Fourier_CDF(vis_NFC)
 
+    # Same conversion, applied to the single exemplar unit's own NFC -- so its
+    # position along the ECDF-deviation curve's own x-axis (p-value) can be
+    # marked explicitly, the same way the arrow below mag_dist_ax/vis_dist_ax
+    # already marks its NFC on the histogram's x-axis.
+    exemplar_p_mag = float(1 - normalized_Fourier_CDF(np.array([exemplar_NFC]))[0])
+    exemplar_p_vis = float(1 - normalized_Fourier_CDF(np.array([exemplar_NFC_vis]))[0])
+
+    def _fmt_p(p):
+        return "p<0.001" if p < 0.001 else f"p={p:.2g}"
+
     ecdf_mag_ax = mag_dist_ax.inset_axes([0.52, 0.48, 0.45, 0.44])
     ecdf_vis_ax = vis_dist_ax.inset_axes([0.52, 0.48, 0.45, 0.44])
 
@@ -627,6 +653,13 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     ecdf_mag_ax.plot(mag_x, mag_ks_dev, color=FP.COLOR_MAG, linewidth=FP.LW_TRACE)
     ecdf_mag_ax.fill_between(mag_x, mag_ks_lower, mag_ks_upper, color=FP.COLOR_MAG, alpha=FP.ALPHA_CONFIDENCE)
     ecdf_mag_ax.axhline(0, color=FP.COLOR_NULL, linestyle="--", linewidth=FP.LW_REFERENCE, alpha=0.6)
+    # Exemplar unit's own p-value, marked the same way across both ECDF
+    # insets (see exemplar_p_mag/_fmt_p above).
+    ecdf_mag_ax.axvline(exemplar_p_mag, color="black", linewidth=1, alpha=0.8, zorder=3)
+    ecdf_mag_ax.annotate(_fmt_p(exemplar_p_mag), xy=(exemplar_p_mag, 1.0),
+                         xycoords=("data", "axes fraction"), xytext=(2, -2),
+                         textcoords="offset points", ha="left", va="top",
+                         fontsize=FP.FS_LEGEND, color="black")
     ecdf_mag_ax.set_xlabel("p-value", fontsize=FP.FS_LEGEND, labelpad=1)
     ecdf_mag_ax.set_ylabel("ECDF dev.", fontsize=FP.FS_LEGEND, labelpad=1)
     ecdf_mag_ax.set_xlim((0, 1))
@@ -647,6 +680,14 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     ecdf_vis_ax.plot(vis_x, vis_ks_dev, color=FP.COLOR_VIS, linewidth=FP.LW_TRACE)
     ecdf_vis_ax.fill_between(vis_x, vis_ks_lower, vis_ks_upper, color=FP.COLOR_VIS, alpha=FP.ALPHA_CONFIDENCE)
     ecdf_vis_ax.axhline(0, color=FP.COLOR_NULL, linestyle="--", linewidth=FP.LW_REFERENCE, alpha=0.6)
+    # exemplar_p_vis is tiny (~1e-14, NFC=7.79) -- right at the left edge of
+    # the (0,1) x-axis, same place its own bar sits in vis_dist_ax's ECDF
+    # curve (see exemplar_p_mag's comment above for why this is marked at all).
+    ecdf_vis_ax.axvline(exemplar_p_vis, color="black", linewidth=1, alpha=0.8, zorder=3)
+    ecdf_vis_ax.annotate(_fmt_p(exemplar_p_vis), xy=(exemplar_p_vis, 1.0),
+                         xycoords=("data", "axes fraction"), xytext=(2, -2),
+                         textcoords="offset points", ha="left", va="top",
+                         fontsize=FP.FS_LEGEND, color="black")
     ecdf_vis_ax.set_xlabel("p-value", fontsize=FP.FS_LEGEND, labelpad=1)
     ecdf_vis_ax.set_ylabel("ECDF dev.", fontsize=FP.FS_LEGEND, labelpad=1)
     ecdf_vis_ax.set_xlim((0, 1))
