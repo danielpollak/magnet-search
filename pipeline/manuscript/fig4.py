@@ -5,6 +5,15 @@ trains from every experiment YAML with species=="Pigeon" and area=="HP" --
 then synthetically modulates the pooled units to show detection thresholds.
 Pooling this way (instead of a single recording) keeps Fig4's population
 consistent with the "Pigeon HP" population Fig2/Fig3 already report on.
+
+Because the pooled sessions were recorded for four different lengths, every
+unit is put on one common EQUAL_WINDOW_S (60 s) observation window before
+anything is computed -- units spanning less are dropped, longer ones are
+truncated to their first 60 s (see equalize_unit_windows). This applies to
+the whole file, not just one panel: the same `spks` list feeds panel A's
+example unit, panel B's scatter, compute_sensitivity's top-decile ranking
+and panels C/D's responder sweep, so equalizing anywhere but at the loader
+would leave those panels describing different populations.
 Panel C ports fig4_pilot.py's Storey q-value/FDR responder-count heatmap
 onto this file's full pseudopopulation. Panel D repeats that exact
 analysis restricted to the top decile (>=90th percentile) by a synthetic-
@@ -103,6 +112,22 @@ import format_parameters as FP
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _EXPERIMENTS_DIR = _REPO_ROOT / "experiments"
 
+# Every pooled unit is observed over the SAME window: units whose own
+# first-to-last-spike span is shorter than this are dropped outright, and
+# every surviving unit is truncated to its first EQUAL_WINDOW_S seconds (see
+# equalize_unit_windows). Without this the pooled units carry the four source
+# sessions' four different recording durations (medians ~62 s, ~64 s, ~96 s,
+# ~236 s), and since a longer observation shrinks the null NFC while leaving
+# a real modulation's NFC roughly fixed, panel B's scatter split into visible
+# per-duration bands -- an artifact of how long each unit happened to be
+# recorded, not of anything about the unit. 60 s is the largest round window
+# the two shortest sessions can supply; it costs 16% of the units (249/1555,
+# all of them below the 60 s span) and leaves 300 stimulus cycles at FREQ=5 Hz
+# per unit.
+EQUAL_WINDOW_S = 60.0
+MIN_SPIKES = 6  # same floor load_unit_spks_for_experiment applies at load time
+_WINDOW_TAG = f"{EQUAL_WINDOW_S:g}s"
+
 # _pigeon_hp_pseudopop suffix: deliberately distinct from the old
 # single-recording cache filenames (modulation_strength_vs_excess_count.pkl /
 # modulation_strength_vs_FR.pkl) so a stale single-session cache can never be
@@ -112,11 +137,17 @@ _EXPERIMENTS_DIR = _REPO_ROOT / "experiments"
 # panel it fed; qvalue_responder_df_pigeon_hp_pseudopop.pkl, if a stale copy
 # lingers, is unaffected.) FR_DF_CACHE additionally carries a "_v3" suffix:
 # compute_fr_df's FR values have changed meaning twice now -- v2 normalized
-# by each unit's own experiment's mag-trial window T; v3 (current) instead
-# bounds T by each unit's own first-to-last-spike span, a strictly tighter
-# per-unit bound -- so any older _pigeon_hp_pseudopop.pkl / "_v2".pkl left
-# on disk is stale and must not be silently reloaded.
-FR_DF_CACHE   = _REPO_ROOT / "data" / "manuscript" / "modulation_strength_vs_FR_pigeon_hp_pseudopop_v3.pkl"
+# by each unit's own experiment's mag-trial window T; v3 bounded T by each
+# unit's own first-to-last-spike span, a strictly tighter per-unit bound;
+# v3_{_WINDOW_TAG} (current) divides instead by the one common observation
+# window every unit now shares, see unit_firing_rates -- so any older
+# _pigeon_hp_pseudopop.pkl / "_v2".pkl / unstamped "_v3".pkl left on disk is
+# stale and must not be silently reloaded. Every cache path below
+# is additionally stamped with _WINDOW_TAG, so changing EQUAL_WINDOW_S (which
+# changes both which units are pooled and how much of each one is kept, hence
+# every NFC in every panel) can never silently reload a pickle computed for a
+# different window.
+FR_DF_CACHE   = _REPO_ROOT / "data" / "manuscript" / f"modulation_strength_vs_FR_pigeon_hp_pseudopop_v3_{_WINDOW_TAG}.pkl"
 # "_lineargrid" suffix: AMPLITUDES_RESP/PARTICIPATION_RESP went through a
 # log-spaced detour (several different ranges) before settling back on a
 # plain linear arange -- any older qvalue_responder_df*.pkl (any "_log*"
@@ -132,8 +163,8 @@ FR_DF_CACHE   = _REPO_ROOT / "data" / "manuscript" / "modulation_strength_vs_FR_
 # reloaded as if it already had repeats or the new grid: either difference
 # would otherwise corrupt plot_fig4's pivot()/groupby() silently rather
 # than raising a loud error.
-RESP_DF_CACHE = _REPO_ROOT / "data" / "manuscript" / "qvalue_responder_df_pigeon_hp_pseudopop_lineargrid_halfpart_10rep.pkl"
-RESP_DF_TOP_DECILE_CACHE = _REPO_ROOT / "data" / "manuscript" / "qvalue_responder_df_pigeon_hp_pseudopop_top_decile_lineargrid_halfpart_10rep.pkl"
+RESP_DF_CACHE = _REPO_ROOT / "data" / "manuscript" / f"qvalue_responder_df_pigeon_hp_pseudopop_lineargrid_halfpart_10rep_{_WINDOW_TAG}.pkl"
+RESP_DF_TOP_DECILE_CACHE = _REPO_ROOT / "data" / "manuscript" / f"qvalue_responder_df_pigeon_hp_pseudopop_top_decile_lineargrid_halfpart_10rep_{_WINDOW_TAG}.pkl"
 
 SENSITIVITY_PERCENTILE = 90.0  # panel C / panel D outline: top decile by compute_sensitivity
 
@@ -166,6 +197,14 @@ PSTH_SMOOTH_BINS = 6.0
 # count. Without it the axes limits snap exactly to the data, so spikes at
 # phase 0/2*pi and on the first/last cycle are drawn half-under the spines,
 # and the PSTH curve's troughs sit right on the bottom spine.
+# Panel A's rasters keep only the endpoint/midpoint phase ticks rather than
+# statistics._PHASE_TICKS' full five. At FIGSIZE_FIG4's width each raster is
+# under an inch wide, and five LaTeX-rendered labels ("0", "$\pi/2$", ...)
+# run into each other. Overridden here rather than in the shared helper
+# because fig1's rasters are wide enough to keep all five.
+RASTER_PHASE_TICKS      = [0, np.pi, 2 * np.pi]
+RASTER_PHASE_TICKLABELS = ["0", r"$\pi$", r"$2\pi$"]
+
 RASTER_PAD_X = 0.03
 RASTER_PAD_Y = 0.03
 PSTH_PAD_Y   = 0.06
@@ -290,12 +329,51 @@ def load_unit_spks_for_experiment(data_dir: str, experiment: str):
     return unit_spks, Q_frac
 
 
+def equalize_unit_windows(unit_spks, window_s=EQUAL_WINDOW_S, min_spikes=MIN_SPIKES):
+    """Put every unit on a common observation window: drop any unit whose own
+    first-to-last-spike span is shorter than `window_s`, and truncate each
+    survivor to its first `window_s` seconds (measured from its own first
+    spike). Returns a new dict; the input is not modified.
+
+    This is the fix for panel B's duration banding -- see EQUAL_WINDOW_S.
+    Both halves matter and neither alone is enough: truncating without
+    dropping would leave the short units contributing sub-window spans (the
+    very thing being equalized), and dropping without truncating would leave
+    the survivors spread over 60-239 s.
+
+    A unit long enough to survive the span test can still fall below
+    `min_spikes` once truncated (a sparse unit firing mostly late in its
+    recording), so the same floor load_unit_spks_for_experiment applies at
+    load time is re-applied here rather than assumed to still hold.
+    """
+    kept, short, sparse = {}, 0, 0
+    for key, spkt in unit_spks.items():
+        if spkt.max() - spkt.min() < window_s:
+            short += 1
+            continue
+        trunc = spkt[spkt - spkt.min() < window_s]
+        if len(trunc) < min_spikes:
+            sparse += 1
+            continue
+        kept[key] = trunc
+    print(f"  equalized to a common {window_s:g} s window: {len(kept)} units kept, "
+          f"{short} dropped for spanning <{window_s:g} s, "
+          f"{sparse} dropped for having <{min_spikes} spikes left after truncation")
+    if not kept:
+        raise ValueError(
+            f"No units survive the {window_s:g} s common window -- every pooled unit "
+            f"spans less than that. Lower EQUAL_WINDOW_S."
+        )
+    return kept
+
+
 def load_pseudopopulation_spks(data_dir: str, experiments):
     """Pool load_unit_spks_for_experiment() across every given experiment
-    into one pigeon-HP pseudopopulation, sorted by spike count ascending
-    (plot_fig4 picks its example unit via spks[len(spks) // 2], i.e. the
-    median-by-spike-count unit -- same convention the old single-recording
-    load_spks used).
+    into one pigeon-HP pseudopopulation, put every unit on the same
+    EQUAL_WINDOW_S observation window (see equalize_unit_windows), then sort
+    by spike count ascending (plot_fig4 picks its example unit via
+    spks[len(spks) // 2], i.e. the median-by-spike-count unit -- same
+    convention the old single-recording load_spks used).
     """
     all_units = {}
     q_fracs = {}
@@ -303,6 +381,7 @@ def load_pseudopopulation_spks(data_dir: str, experiments):
         unit_spks, Q_frac = load_unit_spks_for_experiment(data_dir, experiment)
         all_units.update(unit_spks)
         q_fracs[experiment] = Q_frac
+    all_units = equalize_unit_windows(all_units)
 
     unique_q_fracs = set(q_fracs.values())
     if len(unique_q_fracs) > 1:
@@ -465,16 +544,27 @@ def _fr_cell(task):
     return A, NFCs
 
 
+def unit_firing_rates(spks, window_s=EQUAL_WINDOW_S):
+    """Each unit's spike count over the common observation window every
+    pooled unit now shares (see equalize_unit_windows).
+
+    This used to divide by each unit's OWN first-to-last-spike span, back
+    when units carried four different recording durations and a per-unit
+    span was the tightest defensible T available. Under a common window that
+    denominator is no longer just tighter, it's inconsistent: a unit that
+    falls silent partway through its 60 s window has a span shorter than the
+    window, but its NFC is still computed over the full window
+    (fourier_analysis derives one population-wide T), so a span-based FR
+    would plot it against a denominator the y axis doesn't use. The effect
+    is small but not negligible -- 23% of units span <99% of the window and
+    the most extreme spans only 39 s, a 1.54x inflation.
+    """
+    return np.array([len(spkt) / window_s for spkt in spks])
+
+
 def compute_fr_df(spks, FOURIER_Q, workers=1):
-    """Each unit's firing rate is its own spike count divided by its own
-    first-to-last-spike span (`spkt.max() - spkt.min()`) -- bounded per
-    unit, not by an experiment-wide or pooled-population-wide window. A
-    unit's real observation window (a mag-trial epoch, or several pooled
-    together) is generally longer than the interval between its own first
-    and last spike, so this is a strictly tighter (smaller) T than either
-    of those alternatives -- it can only push a unit's displayed FR up,
-    never down, relative to a window-based T, which is the direction that
-    shrinks the low-FR pileup this was tuned to address.
+    """Panel B's data: each unit's NFC at each modulation amplitude, against
+    its firing rate over the common window (see unit_firing_rates).
     """
     tasks = [(A,) for A in [0, 0.3, 0.6]]
     results = _run_parallel(tasks, _fr_cell, spks, FREQ, FOURIER_Q, workers,
@@ -483,7 +573,7 @@ def compute_fr_df(spks, FOURIER_Q, workers=1):
     for A, NFCs in results:
         rows.append(pd.DataFrame({
             "mod": A,
-            "FR": [len(spkt) / (spkt.max() - spkt.min()) for spkt in spks],
+            "FR": unit_firing_rates(spks),
             "NFC": NFCs,
             "id": np.arange(len(spks)),
         }))
@@ -694,29 +784,57 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
     matplotlib.rc("font", **font)
 
     fig = plt.figure(figsize=FP.FIGSIZE_FIG4)
-    # 3 rows x 6 cols. Top row-band (grid rows 0-1, squished vertically via
-    # height_ratios below) is split left/right down the middle: the left
-    # half is panel A (spectra on grid row 0, PSTHs on grid row 1 -- one
-    # column per mod condition, squished into 3 of the 6 columns instead of
-    # spanning the full width); the right half is B (the FR-vs-NFC scatter,
-    # spanning both rows next to A). The bottom row holds C and D
-    # side-by-side -- the SAME q-value responder-count heatmap analysis, C
-    # on the full pseudopopulation, D restricted to the top-decile-
-    # sensitivity subset (see compute_sensitivity) -- given the whole bottom
-    # row (instead of half the figure height each, stacked, as in the
-    # previous layout) so each comes out closer to square. Variable names
-    # still reflect what each axis plots, not its current letter (e.g.
-    # ax_scatter is panel B here, ax_heatmap is panel C, ax_heatmap_top is
-    # panel D).
-    gs = gridspec.GridSpec(3, 6, left=0, bottom=0, right=1, top=1, wspace=0.5, hspace=0.5,
-                            height_ratios=[0.6, 0.6, 1.6])
+    # Two row-bands, each with its own 1x2 column split, rather than one
+    # 3x6 grid. The top band is panel A (three mod-condition columns, its
+    # own nested gs_A below) beside panel B (the FR-vs-NFC scatter); the
+    # bottom band is C and D side by side -- the SAME q-value
+    # responder-count heatmap analysis, C on the full pseudopopulation, D
+    # restricted to the top-decile-sensitivity subset (see
+    # compute_sensitivity) -- given the whole band width (instead of half
+    # the figure height each, stacked, as in an earlier layout) so each
+    # comes out closer to square. Variable names still reflect what each
+    # axis plots, not its current letter (e.g. ax_scatter is panel B here,
+    # ax_heatmap is panel C, ax_heatmap_top is panel D).
+    #
+    # Separate per-band splits specifically so the two bands' column
+    # boundaries can differ: A needs more width than B (three sub-panels
+    # against one scatter), while C and D want an EVEN split. A single
+    # shared 6-column grid couldn't express that -- A and C spanned the same
+    # columns, so widening A necessarily widened C too. The cost is that the
+    # panel letters no longer land on one rectangle (B's and D's sit at
+    # different x); that's accepted deliberately.
+    #
+    # height_ratios/hspace here are the values that reproduce the previous
+    # 3-row grid's vertical layout: that grid's top band spanned two rows
+    # PLUS the gap between them, so its band-to-band proportion was
+    # 1.04:1.00, not the 1.2:1.6 its raw height_ratios suggested.
+    gs = gridspec.GridSpec(2, 1, left=0, bottom=0, right=1, top=1, hspace=0.29,
+                           height_ratios=[1.04, 1.0])
+
+    # Top band. width_ratios tilt toward A; wspace is wider than the bottom
+    # band's because this gap has to keep panel A's rightmost PSTH twin axis
+    # (its "PSTH (Hz)" label and tick labels, which sit on the axis's RIGHT
+    # side) clear of B's "NFC" -- without the extra room the two y-labels
+    # end up collinear. Both are fixed point sizes that don't shrink with
+    # the figure, so the room has to be taken from B's width rather than
+    # scaled.
+    gs_top = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=gs[0],
+                                              wspace=0.32, width_ratios=[1.43, 1.0])
+    # Bottom band: even split, so C is exactly as wide as D. wspace holds
+    # C's colorbar tick labels + colorbar label against D's y tick labels
+    # (D's y-label itself is dropped, see below).
+    gs_bot = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=gs[1], wspace=0.2)
     # Panel A's raster/spectra rows get their own nested gridspec so their
     # vertical gap can be tightened independently of the outer hspace (which
     # still needs to separate this whole A/B band from C/D below).
     # Raster+PSTH on TOP, spectrum BELOW: the raster is the raw observation
     # and the spectrum is what the analysis makes of it, so reading the
     # column top-to-bottom now follows that order.
-    gs_A = gridspec.GridSpecFromSubplotSpec(2, 3, subplot_spec=gs[0:2, 0:3], hspace=0.25, wspace=0.5)
+    # wspace here is well below the outer grid's: panel A packs three columns
+    # into half the figure width, so at FIGSIZE_FIG4's 6 in each is under an
+    # inch wide and a gap proportional to that width is mostly wasted space,
+    # while the outer gaps still have to clear B's and C/D's y-axis labels.
+    gs_A = gridspec.GridSpecFromSubplotSpec(2, 3, subplot_spec=gs_top[0], hspace=0.4, wspace=0.3)
 
     ax_A2 = fig.add_subplot(gs_A[0, 0])  # raster+PSTH, A=0
     ax_A4 = fig.add_subplot(gs_A[0, 1])  # raster+PSTH, A=0.5
@@ -724,9 +842,9 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
     ax_A1 = fig.add_subplot(gs_A[1, 0])  # spectrum,    A=0
     ax_A3 = fig.add_subplot(gs_A[1, 1])  # spectrum,    A=0.5
     ax_A5 = fig.add_subplot(gs_A[1, 2])  # spectrum,    A=1
-    ax_scatter     = fig.add_subplot(gs[0:2, 3:6])  # FR-vs-NFC scatter, panel B
-    ax_heatmap     = fig.add_subplot(gs[2, 0:3])    # full pseudopopulation, panel C
-    ax_heatmap_top = fig.add_subplot(gs[2, 3:6])    # top-decile-sensitivity subset, panel D
+    ax_scatter     = fig.add_subplot(gs_top[1])  # FR-vs-NFC scatter, panel B
+    ax_heatmap     = fig.add_subplot(gs_bot[0])  # full pseudopopulation, panel C
+    ax_heatmap_top = fig.add_subplot(gs_bot[1])  # top-decile-sensitivity subset, panel D
 
     spectra_axes = [ax_A1, ax_A3, ax_A5]
     raster_axes  = [ax_A2, ax_A4, ax_A6]
@@ -781,6 +899,10 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
         psth_axes.append(statistics.plot_smoothed_phase_psth(
             raster_axes[mod_i], np.squeeze(warped), raster_window, FREQ, color=PSTH_COLOR,
             n_bins=PSTH_N_BINS, smooth_bins=PSTH_SMOOTH_BINS, alpha=1.0))
+        # After the PSTH overlay, not before: plot_smoothed_phase_psth
+        # re-applies statistics._PHASE_TICKS to the same axes.
+        raster_axes[mod_i].set_xticks(RASTER_PHASE_TICKS)
+        raster_axes[mod_i].set_xticklabels(RASTER_PHASE_TICKLABELS)
         if mod_i != 0:
             raster_axes[mod_i].set_ylabel("")
             raster_axes[mod_i].set_yticks([])
@@ -832,7 +954,13 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
         pivot.values, aspect="auto", origin="lower",
         extent=[pivot.columns.min(), pivot.columns.max(), pivot.index.min(), pivot.index.max()],
     )
-    fig.colorbar(im, ax=ax_heatmap, label="Number of responders (q < 0.05)")
+    # No label on C's colorbar: it is the same quantity as D's, and D's
+    # colorbar -- the rightmost thing in the row -- carries the label for
+    # both. (The two colorbars' SCALES differ, C's running to the full
+    # population and D's to the top decile, which is why both keep their own
+    # tick labels.) Mirrors the same call made on D's y-axis, which C's
+    # y-label covers.
+    fig.colorbar(im, ax=ax_heatmap)
     contour_level = 10 # max(1, len(spks) // 10)
     ax_heatmap.contour(pivot.columns, pivot.index, pivot.values, levels=[contour_level],
                         colors="white", linestyles="dashed")
@@ -859,7 +987,10 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
     ax_heatmap_top.contour(pivot_top.columns, pivot_top.index, pivot_top.values, levels=[contour_level_top],
                            colors="white", linestyles="dashed")
     ax_heatmap_top.set_xlabel("5 Hz modulation amplitude (A)")
-    ax_heatmap_top.set_ylabel("Fraction of population modulated")
+    # No y label: D's y axis is the same quantity as C's, on the same scale,
+    # immediately to its left -- C's label reads for both. Dropping it also
+    # clears the collision it had with C's own colorbar label.
+    ax_heatmap_top.set_ylabel("")
 
     # Panel B: FR vs NFC scatter. Top-decile-sensitivity units (same
     # definition as panel D's subset) get a black outline, overlaid on the
@@ -913,17 +1044,21 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
     panel_letter(ax_heatmap, "C")
     panel_letter(ax_heatmap_top, "D")
 
-    statistics.boundarize_and_nestle(ax_A1, y=False, x_offset=-0.06)
-    statistics.boundarize_and_nestle(ax_A3, y=False, x_offset=-0.06)
-    statistics.boundarize_and_nestle(ax_A5, y=False, x_offset=-0.06)
-    # Raster row's x_offset is more negative than the spectra row's -- these
-    # axes got shorter under the new height_ratios (row A is squished to
-    # make room for panels C/D below), and unlike the spectra row's edge-only
-    # ticks (3, 7), the raster's phase axis carries interior ticks
-    # (pi/2, pi, 3pi/2) right where a -0.1-nestled "Phase (rad)" would land.
-    statistics.nestle_labels(ax_A2, y=False, x_offset=-0.16)
-    statistics.nestle_labels(ax_A4, y=False, x_offset=-0.16)
-    statistics.nestle_labels(ax_A6, y=False, x_offset=-0.16)
+    # Endpoint ticks plus one at FREQ itself, so each spectrum states the
+    # frequency being driven rather than leaving it to be read off the
+    # stem's position. The "Hz" label is deliberately NOT nestled back up
+    # between the ticks the way it was before the FREQ tick existed -- a
+    # nestled label sits at the axis center, which is exactly where the
+    # 5 Hz tick label now lands (the window is symmetric about FREQ).
+    for _ax in spectra_axes:
+        statistics.boundary_ticks(_ax, y=False)
+        statistics.stimulus_frequency_tick(_ax, FREQ)
+    # The raster row's "Phase (rad)" is deliberately NOT nestled. A nestled
+    # label is placed at a fixed axes FRACTION below the axis, which pinned
+    # it much closer to its tick labels than the spectra row's "Hz" sits to
+    # its own -- matplotlib places an un-nestled label by a fixed point
+    # offset from the tick labels instead. Leaving both rows un-nestled is
+    # what makes the two label gaps equal.
 
     # Open (top/right-despined) boxes throughout, matching Fig1's style. Done
     # in one pass at the end so it also catches the heatmaps, whose top/right

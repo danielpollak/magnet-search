@@ -20,6 +20,21 @@ duration, independent y scales -- all data kept) and OUT_NAME_EQUAL (the
 by-recording-time page recomputed with every unit truncated to one common
 window -- data thrown away, bands gone).
 
+Both companions are now near-degenerate by construction: fig4 itself
+equalizes the pseudopopulation to a common EQUAL_WINDOW_S window at load
+time (that investigation's conclusion, adopted into the figure), so every
+unit reaching this script already has essentially the same T (59.7-59.9 s
+median in every source session, against 62/64/96/236 s before). OUT_NAME_SPLIT
+therefore collapses to a single duration axis -- every unit now falls in
+SPLIT_EDGES' first bin. OUT_NAME_EQUAL still does something, just something
+narrower than it was written for: its default window is the shortest span
+left in the already-equalized pool (~39 s -- a unit can clear the 60 s span
+test and still fall silent partway through its own window), so it now asks
+whether truncating a further third off every unit changes anything, rather
+than whether equalizing four different session lengths does. Both are kept
+as the record of the comparison that motivated the change -- set
+fig4.EQUAL_WINDOW_S to 0 to see the original spread of durations.
+
 The main PDF has three pages, the same four panels each time: page 1 in a flat
 hue, page 2 colored by total recording time, page 3 colored by Fano factor
 -- for checking whether the structure left on a given x axis is still the
@@ -119,7 +134,8 @@ def mod_color():
 
 def load_keyed_pseudopopulation(data_dir: str, experiments):
     """fig4.load_pseudopopulation_spks, but keeping each unit's
-    "{experiment}:{cluster_id}" key. Same pooling order and same
+    "{experiment}:{cluster_id}" key. Same pooling order, same
+    EQUAL_WINDOW_S common-window equalization and same
     spike-count-ascending sort, so the returned list index equals the `id`
     column fig4.compute_fr_df writes (np.arange(len(spks)) over exactly
     this list).
@@ -130,6 +146,11 @@ def load_keyed_pseudopopulation(data_dir: str, experiments):
         unit_spks, Q_frac = fig4.load_unit_spks_for_experiment(data_dir, experiment)
         all_units.update(unit_spks)
         q_fracs[experiment] = Q_frac
+    # Same common-window equalization fig4.load_pseudopopulation_spks applies
+    # -- not optional here: this script joins fig4's own FR cache onto these
+    # units by position, so pooling a different unit set than fig4 did would
+    # trip the cache-staleness guard in main() (or, worse, silently misalign).
+    all_units = fig4.equalize_unit_windows(all_units)
     unique_q_fracs = set(q_fracs.values())
     if len(unique_q_fracs) > 1:
         raise ValueError(f"mag_Q_frac/Q_frac differs across pooled experiments: {q_fracs}")
@@ -139,7 +160,8 @@ def load_keyed_pseudopopulation(data_dir: str, experiments):
     return keys_sorted, spks, unique_q_fracs.pop()
 
 
-def compute_fr_df_one_mod(spks, FOURIER_Q, workers=1, mod=MOD_LEVEL):
+def compute_fr_df_one_mod(spks, FOURIER_Q, workers=1, mod=MOD_LEVEL,
+                          window_s=fig4.EQUAL_WINDOW_S):
     """fig4.compute_fr_df restricted to a single modulation amplitude --
     same worker (fig4._fr_cell), same FR definition, one grid cell instead
     of three. Deliberately not written to fig4.FR_DF_CACHE: that cache is
@@ -150,7 +172,7 @@ def compute_fr_df_one_mod(spks, FOURIER_Q, workers=1, mod=MOD_LEVEL):
     A, NFCs = results[0]
     return pd.DataFrame({
         "mod": A,
-        "FR": [len(spkt) / (spkt.max() - spkt.min()) for spkt in spks],
+        "FR": fig4.unit_firing_rates(spks, window_s),
         "NFC": NFCs,
         "id": np.arange(len(spks)),
     })
@@ -175,20 +197,26 @@ def fano_factor(spkt, bin_s):
     return counts.var(ddof=1) / counts.mean()
 
 
-def build_unit_metrics(keys, spks, bin_s):
+def build_unit_metrics(keys, spks, bin_s, window_s=fig4.EQUAL_WINDOW_S):
     """One row per unit: the per-unit x variables the panels plot against.
     `id` matches fig4.compute_fr_df's own `id`.
+
+    `T` stays each unit's actual first-to-last-spike span -- panel A plots
+    it, and post-equalization it is exactly the diagnostic of how much of
+    its common window a unit actually fills. `FR` must instead use
+    `window_s`, matching fig4.unit_firing_rates, or main()'s cache
+    cross-check against fig4's own FR column would fail.
     """
     rows = []
-    for i, (key, spkt) in enumerate(zip(keys, spks)):
-        span = spkt.max() - spkt.min()
+    frs = fig4.unit_firing_rates(spks, window_s)
+    for i, (key, spkt, fr) in enumerate(zip(keys, spks, frs)):
         rows.append({
             "id": i,
             "unit": key,
             "experiment": key.split(":")[0],
-            "T": span,
+            "T": spkt.max() - spkt.min(),
             "n_spk": len(spkt),
-            "FR": len(spkt) / span,
+            "FR": fr,
             "fano": fano_factor(spkt, bin_s),
         })
     return pd.DataFrame(rows)
@@ -426,13 +454,16 @@ def build_time_equalized_df(keys, spks, Q_frac, bin_s, workers, window=None,
             )
     else:
         print(f"  Computing time-equalized NFCs at A={MOD_LEVEL}...")
-        fr = compute_fr_df_one_mod(spks_t, FOURIER_Q, workers=workers)
+        fr = compute_fr_df_one_mod(spks_t, FOURIER_Q, workers=workers,
+                                   window_s=T_common)
         nfc_df = pd.DataFrame({"unit": keys_t, "NFC": fr["NFC"].values})
         cache.parent.mkdir(parents=True, exist_ok=True)
         nfc_df.to_pickle(cache)
         print(f"  Cached -> {cache}")
 
-    metrics = build_unit_metrics(keys_t, spks_t, bin_s)
+    # T_common, not EQUAL_WINDOW_S: this companion re-truncates to its own
+    # (shorter) window, so its FR denominator has to follow it.
+    metrics = build_unit_metrics(keys_t, spks_t, bin_s, window_s=T_common)
     df = metrics.merge(nfc_df, on="unit")
     df["mod"] = MOD_LEVEL
 
