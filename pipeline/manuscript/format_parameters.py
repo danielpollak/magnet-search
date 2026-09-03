@@ -43,7 +43,7 @@ FIGSIZE_FIG1 = (8.5, 6)       # composite NPIX + GCaMP + ECDF
 FIGSIZE_FIG1_COMPOSITE = (7.0, 7.30)
 FIGSIZE_FIG2 = (8.5, 6.5)   # excess counts + distributions
 FIGSIZE_FIG3 = (8, 4)       # p/q-value uniformity
-FIGSIZE_FIG4 = (11, 8)    # modulation sensitivity (A left / B right in a squished top band, C+D side-by-side below)
+FIGSIZE_FIG4 = (7, 6)     # modulation sensitivity (A left / B right in a squished top band, C+D side-by-side below)
 
 # ── File paths ────────────────────────────────────────────────────────────────────
 # Anchored to this file's own location (repo_root/pipeline/manuscript/
