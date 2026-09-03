@@ -31,7 +31,7 @@ import format_parameters as FP
 
 
 
-def _fix_excess_legend(ax, ncol=3):
+def _fix_excess_legend(ax, ncol=3, loc=None):
     handles, labels = ax.get_legend_handles_labels()
     # Dedup by DISPLAY label, keeping only the first handle for each --
     # rounding alone (as before) just gave two near-identical-looking rows
@@ -50,8 +50,11 @@ def _fix_excess_legend(ax, ncol=3):
         except ValueError:
             new_lbl = lbl
         deduped.setdefault(new_lbl, h)
-    ax.legend(list(deduped.values()), list(deduped.keys()), title="freq (Hz)", ncol=ncol,
-              fontsize=FP.FS_LEGEND, title_fontsize=FP.FS_LEGEND, frameon=False)
+    legend_kw = dict(title="freq (Hz)", ncol=ncol,
+                     fontsize=FP.FS_LEGEND, title_fontsize=FP.FS_LEGEND, frameon=False)
+    if loc is not None:
+        legend_kw["loc"] = loc
+    ax.legend(list(deduped.values()), list(deduped.keys()), **legend_kw)
 
 
 def flag_sessions_with_excess_suspects(df, freq_harmonic=1):
@@ -112,12 +115,15 @@ def plot_fig2(all_fourier_df, out_dir: Path):
 
     ax_A = fig.add_subplot(gs[0, :])
     ax_B = fig.add_subplot(gs[1, :])
-    ax_C = fig.add_subplot(gs[2, 0])
-    ax_D = fig.add_subplot(gs[2, 1])
-    ax_E = fig.add_subplot(gs[2, 2])
-    ax_F = fig.add_subplot(gs[2, 3])
+    ax_C = fig.add_subplot(gs[2, :2])
+    ax_D = fig.add_subplot(gs[2, 2:])
 
-    statistics.plot_excess_counts(ax_A, all_neg_res, ylim=(-15, 35))
+    # One palette shared by A and B, defined over the union of both panels'
+    # frequencies, so 2 Hz and 3 Hz (which occur in both) get the same colour in
+    # each -- see statistics.freq_color_map.
+    freq_levels = np.concatenate([all_neg_res.freq.unique(), all_pos_control.freq.unique()])
+
+    statistics.plot_excess_counts(ax_A, all_neg_res, ylim=(-15, 35), freq_levels=freq_levels)
     _fix_excess_legend(ax_A, ncol=7)
     num_exp_A = all_neg_res.groupby(["species", "area", "rec"]).ngroups
     print(f"Subfig A (magnetic): {num_exp_A} experiments")
@@ -125,8 +131,13 @@ def plot_fig2(all_fourier_df, out_dir: Path):
     # stagger_area_labels=False: unlike panel A, B's areas (wulst/CB/HP/WB)
     # are spaced widely enough that alternating labels above/below the area
     # line isn't needed, so every label just goes below it.
-    statistics.plot_excess_counts(ax_B, all_pos_control, ylim=(-15, 35), stagger_area_labels=False)
-    _fix_excess_legend(ax_B, ncol=2)
+    # ylim[1]=45 (was 35): gives combined 1F+2F overflow labels (e.g.
+    # zebrafish's "699/150"/"672/308") enough headroom that the
+    # keep-inside-frame clamp in plot_excess_counts never has to engage at
+    # all for them.
+    statistics.plot_excess_counts(ax_B, all_pos_control, ylim=(-15, 45),
+                                  stagger_area_labels=False, freq_levels=freq_levels)
+    _fix_excess_legend(ax_B, ncol=3, loc="upper center")
     num_exp_B = all_pos_control.groupby(["species", "area", "rec"]).ngroups
     print(f"Subfig B (visual & auditory): {num_exp_B} experiments")
 
@@ -140,66 +151,21 @@ def plot_fig2(all_fourier_df, out_dir: Path):
     axins_C = statistics.inset_hist(ax_C, vals_neg_res, bins_neg_res, bar_color=FP.COLOR_MAG)
     axins_D = statistics.inset_hist(ax_D, vals_pos_con, bins_pos_con, bar_color=FP.COLOR_VIS)
 
-    # Both panels: suspect_freq=3.0 pinned explicitly (not left to
-    # plot_combo_scatterplot's freqs[0] default) -- that default is just
-    # whichever frequency happens to appear first in the filtered frame, not
-    # a numerically/semantically meaningful choice, and the "many units
-    # significant" story can flip depending on it (e.g. one candidate for
-    # ax_F swung from 5 to 18 suspects purely from that ordering). 3.0 Hz is
-    # also Fig1's own shared exemplar frequency (MAG_FREQ/VIS_FREQ) and ax_F's
-    # own visual-gratings frequency, so both panels stay consistent with that
-    # figure and with each other.
-    statistics.plot_combo_scatterplot(
-        all_fourier_df.loc[
-            (all_fourier_df.date == "20230413_firstsite") &
-            np.array([("mag" in rec.lower()) & ("inclined" not in rec)
-                      for rec in all_fourier_df.rec])
-        ], ax=ax_E, suspect_freq=3.0)
-
-    # Pigeon cerebellum (CB), auditory-only (WN vs. oddball) -- swapped in
-    # 2026-08-28 to replace the previous secondsite WN-vs-visual-gratings
-    # combo. That earlier combo was genuinely cross-modal (audio vs. visual),
-    # but no pigeon CB session records both a visual AND an auditory block at
-    # all, so it had zero CB-area representation; this is the strongest
-    # CB-area combo that exists in the dataset (see
-    # pipeline/manuscript/fig2_combo_sweep.py's exhaustive sweep, which
-    # confirmed this both algorithmically and by generating every candidate
-    # combo as its own scatterplot for visual inspection).
-    #
-    # Caveat kept honest, not hidden: this WN rec alone is significant for
-    # ~50% of its units (168/336) -- one of panel B's "everything is
-    # significant" WN outliers -- so this isn't a clean two-way quadrant
-    # effect the way the old cross-modal combo was; it's presented anyway
-    # per explicit sign-off, with out-of-bounds suspects called out via
-    # statistics.plot_combo_scatterplot's per-quadrant overflow arrows
-    # (mirroring panels A/B's own overflow-arrow convention) rather than
-    # silently clipped off-panel.
-    statistics.plot_combo_scatterplot(
-        all_fourier_df.loc[
-            (all_fourier_df.date == "20230228") &
-            (all_fourier_df.ID == "Pk12L") &
-            np.array([("WN" in rec) or ("oddball" in rec)
-                      for rec in all_fourier_df.rec])
-        ], ax=ax_F, suspect_freq=0.8)
-
     ax_A.set_title("Magnetic stimulation", fontsize=FP.FS_TITLE)
     ax_B.set_title("Visual & auditory stimulation", fontsize=FP.FS_TITLE)
     ax_C.set_title(f"Magnetic (N={len(all_fourier_df_unique_neg_res)})", fontsize=FP.FS_TITLE)
     ax_D.set_title(f"Visual & auditory (N={len(all_unique_pos_control)})", fontsize=FP.FS_TITLE)
-    ax_E.set_title("Magnetic", fontsize=FP.FS_TITLE)
-    ax_F.set_title("Auditory (CB)", fontsize=FP.FS_TITLE)
 
     ax_A.annotate("A", xy=(-0.05, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
     ax_B.annotate("B", xy=(-0.05, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
-    ax_C.annotate("C", xy=(-0.20, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
-    ax_D.annotate("D", xy=(-0.20, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
-    ax_E.annotate("E", xy=(-0.2,  1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
-    ax_F.annotate("F", xy=(-0.2,  1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
+    # -0.10 (was -0.20): C/D are double-width now, and these offsets are in
+    # axes fraction, so keeping -0.20 would have doubled the letters' actual
+    # distance from the panels relative to A/B's.
+    ax_C.annotate("C", xy=(-0.10, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
+    ax_D.annotate("D", xy=(-0.10, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
 
-    statistics.boundarize_and_nestle(ax_C, x_offset=-0.05, y_offset=-0.05, xprec=1, yprec=1)
-    statistics.boundarize_and_nestle(ax_D, x_offset=-0.05, y_offset=-0.05, xprec=1, yprec=1)
-    statistics.boundarize_and_nestle(ax_E, x_offset=-0.05, y_offset=-0.05, xprec=1, yprec=1)
-    statistics.boundarize_and_nestle(ax_F, x_offset=-0.05, y_offset=-0.05, xprec=1, yprec=1)
+    statistics.boundarize_and_nestle(ax_C, x_offset=-0.07, y_offset=-0.03, xprec=1, yprec=1)
+    statistics.boundarize_and_nestle(ax_D, x_offset=-0.07, y_offset=-0.03, xprec=1, yprec=1)
     statistics.boundary_ticks(axins_C, yprec=2, x=False)
     statistics.boundary_ticks(axins_D, yprec=2, x=False)
 

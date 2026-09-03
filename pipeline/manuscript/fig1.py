@@ -195,6 +195,17 @@ VIS_TRACE_SR = 30000
 # wider window).
 RASTER_LW = 0.5
 
+# Padding on the phase rasters and their PSTH overlays, as fractions of the
+# phase span / cycle count / rate range -- the same treatment (and the same
+# values) as Fig4A's rasters, see fig4.py's RASTER_PAD_X/RASTER_PAD_Y/
+# PSTH_PAD_Y. Without it the axes limits snap exactly to the data, so ticks
+# at phase 0/2*pi and on the first/last cycle are drawn half-under the
+# spines, and a PSTH trough that reaches 0 Hz sits right on the raster's
+# bottom spine.
+RASTER_PAD_X = 0.03
+RASTER_PAD_Y = 0.03
+PSTH_PAD_Y   = 0.06
+
 # Shrinks the phasor markers (via raw_NPIX's stem_scale) down from their
 # full default size -- each spike still shows its phase as both a color and
 # a pointing direction (the chevron shape), just smaller, so panel B's
@@ -525,7 +536,8 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     vis_full_window = (vis_start_t, float(np.max(vis_spks)) + 1e-6)
 
     statistics.plot_phase_raster(mag_raster_ax, mag_spks, mag_full_window, MAG_FREQ,
-                                  color=FP.COLOR_MAG, phase_cmap=PHASE_CMAP)
+                                  color=FP.COLOR_MAG, phase_cmap=PHASE_CMAP,
+                                  pad_x=RASTER_PAD_X, pad_y=RASTER_PAD_Y)
     mag_raster_ax.set_title("Spike phases", fontsize=FP.FS_TITLE)
     mag_raster_ax.spines["top"].set_visible(False)
     mag_raster_ax.spines["right"].set_visible(False)
@@ -536,7 +548,8 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
         mag_raster_ax, mag_spks, mag_full_window, MAG_FREQ, color="grey")
 
     statistics.plot_phase_raster(vis_raster_ax, vis_spks, vis_full_window, VIS_FREQ,
-                                  color=FP.COLOR_VIS, phase_cmap=PHASE_CMAP)
+                                  color=FP.COLOR_VIS, phase_cmap=PHASE_CMAP,
+                                  pad_x=RASTER_PAD_X, pad_y=RASTER_PAD_Y)
     vis_raster_ax.set_title("Spike phases", fontsize=FP.FS_TITLE)
     vis_raster_ax.spines["top"].set_visible(False)
     vis_raster_ax.spines["right"].set_visible(False)
@@ -553,6 +566,19 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     for _psth_ax in (mag_psth_ax, vis_psth_ax):
         _psth_ax.set_ylabel("PSTH (Hz)", color="grey", fontsize=FP.FS_LEGEND, labelpad=1)
         _psth_ax.tick_params(axis="y", labelsize=FP.FS_LEGEND, pad=1)
+        # Headroom above the curve plus a matching gap below (see PSTH_PAD_Y),
+        # so a trough that reaches 0 Hz isn't drawn on top of the raster's
+        # bottom spine. Each row keeps its OWN rate scale, unlike Fig4A's
+        # three panels, which share one: those are a single unit at three
+        # modulation amplitudes, where the growth of the curve between them
+        # is the point, whereas these two rows are different stimuli whose
+        # absolute rates aren't meant to be read against each other.
+        _psth_max = _psth_ax.get_ylim()[1]
+        _psth_ax.set_ylim(-_psth_max * PSTH_PAD_Y, _psth_max * 1.05)
+        # The negative bottom limit is padding, not data -- drop any tick the
+        # locator puts below 0, which would read as a negative firing rate.
+        _psth_ax.set_yticks([t for t in _psth_ax.get_yticks()
+                             if 0 <= t <= _psth_max * 1.05])
 
     # ── Plot Row 2: Magnetic stimulation (null) ──────────────────────────────
     statistics.plot_spectrum(mag_spectra_ax, fou_alt.flatten(), ff_alt, MAG_FREQ, fou0, legend=False,
