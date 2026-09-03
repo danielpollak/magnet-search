@@ -2059,6 +2059,33 @@ def boundary_ticks(ax, x=True, y=True, xprec=1, yprec=1):
         ax.set_yticklabels([f"{y0:g}", f"{y1:g}"])
 
 
+def stimulus_frequency_tick(ax, stimulus_frequency, prec=1, x=True):
+    """Adds a tick at `stimulus_frequency` to a spectrum axis that already
+    carries `boundary_ticks`' two endpoint ticks, keeping those two.
+
+    A spectrum panel windowed around the stimulus frequency otherwise labels
+    only its two edges, leaving the reader to infer which frequency was
+    driven from where the stem happens to sit -- which is exactly the thing
+    the panel is asserting. Labeling it directly states it instead.
+
+    The axis label must NOT be nestled (see `nestle_labels`) on an axis
+    treated this way: a nestled label sits at the axis's horizontal center,
+    which is where this tick's own label lands whenever the window is
+    symmetric about the stimulus frequency -- as it is for every
+    `Q_frac`-derived window in this codebase.
+
+    A stimulus frequency that rounds onto one of the existing endpoint ticks
+    is dropped rather than added, so a very narrow window can't end up with
+    two ticks drawn on top of each other.
+    """
+    if not x:
+        return
+    f = round(stimulus_frequency, prec)
+    ticks = sorted({round(t, prec) for t in ax.get_xticks()} | {f})
+    ax.set_xticks(ticks)
+    ax.set_xticklabels([f"{t:g}" for t in ticks])
+
+
 def nestle_labels(ax, x_offset=0, y_offset=0, y=True, x=True):    
     if y:
         ax.yaxis.set_label_coords(y_offset, 0.5)
