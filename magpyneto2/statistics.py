@@ -12,6 +12,7 @@ from .utils import save_and_close
 
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
+import matplotlib.colors as mcolors
 from matplotlib.collections import LineCollection
 from matplotlib.markers import MarkerStyle
 from matplotlib.path import Path
@@ -181,22 +182,58 @@ def normalized_Fourier_CDF_corrected(PDF_vals, r_vals):
     return CDF / CDF[-1]
 
 
-def corrected_pvalues(NFC, Q):
-    """P-value for each NFC value, using the null distribution corrected
-    for finite-Q reference-frequency sampling (see get_epsilon)."""
-    eps = get_epsilon(Q)
-    NFC = np.asarray(NFC)
-    # Extend the null distribution's numerical support to cover this
-    # population's own most extreme observed NFC (with a small margin),
-    # so highly significant units get a real (tiny positive) p-value
-    # instead of being silently clamped to exactly 0.0 at the edge of a
-    # fixed grid -- see get_support's coarse-tail extension for why this
-    # stays cheap even for large NFC.
-    finite_NFC = NFC[np.isfinite(NFC)]
-    upper = max(6.0, float(finite_NFC.max()) * 1.05) if finite_NFC.size else 6.0
+@functools.lru_cache(maxsize=16)
+def corrected_null_grid(eps, upper):
+    """Cached (R, CDF) for `corrected_pvalues` -- the eps-corrected null
+    distribution over a support running out to `upper` (see get_support).
+
+    `normalized_Fourier_PDF_corrected` is a Python-level O(len(support)^2)
+    log-normal convolution -- ~0.6 s at the default upper=6, ~1.7 s once a
+    coarse tail out to upper=25 is appended. So any caller that p-values
+    many NFC vectors against the SAME null (e.g. fig4's responder sweep,
+    which does it ~50k times per call at one fixed Q) must not rebuild it
+    per vector. Memoized on (eps, upper) so such callers pay for it once,
+    provided they pin `upper` (see corrected_pvalues' `upper` argument)
+    rather than letting it float with each vector's own maximum.
+
+    The returned arrays are the cache's own -- treat them as read-only.
+
+    Distinct from `_corrected_null_grid`, which serves
+    `inverse_Rayleigh_CDF`'s inverse lookup on the fixed default support.
+    """
     R, YY = normalized_Fourier_PDF(upper=upper)
     PDF = normalized_Fourier_PDF_corrected(R[1:], R[1:], YY[1:], eps)
     CDF = normalized_Fourier_CDF_corrected(PDF, R[1:])
+    return R, CDF
+
+
+def corrected_pvalues(NFC, Q, *, upper=None):
+    """P-value for each NFC value, using the null distribution corrected
+    for finite-Q reference-frequency sampling (see get_epsilon).
+
+    `upper` (default None) pins the upper end of the null distribution's
+    numerical support instead of deriving it from this vector's own
+    maximum. Pass it when p-valuing many NFC vectors that should share one
+    null: it makes them exactly comparable (a per-vector `upper` gives each
+    one a slightly different grid, hence a slightly different quadrature
+    and CDF normalization) and lets `corrected_null_grid`'s memoization
+    actually hit, collapsing N convolutions into one. Whatever is passed
+    must cover every vector's own maximum or those units get clamped into
+    the grid's tail -- derive it exactly as the default branch below does,
+    but from the maximum over ALL the vectors.
+    """
+    eps = get_epsilon(Q)
+    NFC = np.asarray(NFC)
+    if upper is None:
+        # Extend the null distribution's numerical support to cover this
+        # population's own most extreme observed NFC (with a small margin),
+        # so highly significant units get a real (tiny positive) p-value
+        # instead of being silently clamped to exactly 0.0 at the edge of a
+        # fixed grid -- see get_support's coarse-tail extension for why this
+        # stays cheap even for large NFC.
+        finite_NFC = NFC[np.isfinite(NFC)]
+        upper = max(6.0, float(finite_NFC.max()) * 1.05) if finite_NFC.size else 6.0
+    R, CDF = corrected_null_grid(float(eps), float(upper))
     # Note: does not give np.nan, but rather the max CDF value (1.0) for any NFC > max(R) --
     #  which is correct, since the null distribution is defined only on the support R, and
     #  any NFC > max(R) is in the extreme tail of the null. In practice `upper` above already
@@ -1309,9 +1346,113 @@ def inset_hist(ax, vals, bins, eps=None, bar_color=None):
     return axins
 
 
-def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_level=-13,
-                        label_recs=False, ylim=(-15, 20), stagger_area_labels=True):
+# Area-tier (region line + its label) colour in plot_excess_counts. Dark
+# grey against the black species tier -- see the "Area lines" comment below.
+_AREA_TIER_COLOR = "dimgray"
+
+
+# --- Frequency colour scale for plot_excess_counts -------------------------
+# A categorical palette built to exclude the two hues already spoken for
+# elsewhere in the figure: steelblue (FP.COLOR_MAG, OKLCH h=246) and coral
+# (FP.COLOR_VIS, h=40). No matplotlib qualitative colormap does this -- every
+# one of them leads with blue and orange -- so the hues are generated: walk the
+# hue circle, drop a band around each reserved hue, and place the slots evenly
+# along whatever arc is left (magenta -> red -> olive -> green -> teal ->
+# violet). Lightness alternates between two levels so neighbouring slots differ
+# in more than hue alone.
+#
+# Honest caveat, chosen deliberately: at the ~18 levels the dataset needs this
+# does NOT clear a perceptual-separation check -- some neighbouring pairs (7/8/9
+# and 10 Hz especially) are not reliably distinguishable, and no palette of this
+# size would be. The legend, not the colour, is what resolves an exact
+# frequency; the colour is there to group bars at a glance.
+FREQ_RESERVED_HUES = ((245.7, 48.0),   # steelblue, +/- band in degrees
+                      (40.2, 32.0))    # coral
+FREQ_HUE_STEP = 0.5
+FREQ_SLOT_L = (0.55, 0.74)   # alternating lightness
+FREQ_SLOT_C = 0.17
+
+
+def _oklch_to_hex(L, C, h_deg):
+    """OKLCH -> sRGB hex, reducing chroma until the colour is in gamut."""
+    M2i = np.linalg.inv(np.array([[0.2104542553, 0.7936177850, -0.0040720468],
+                                  [1.9779984951, -2.4285922050, 0.4505937099],
+                                  [0.0259040371, 0.7827717662, -0.8086757660]]))
+    M1i = np.linalg.inv(np.array([[0.4122214708, 0.5363325363, 0.0514459929],
+                                  [0.2119034982, 0.6806995451, 0.1073969566],
+                                  [0.0883024619, 0.2817188376, 0.6299787005]]))
+    for c in np.linspace(C, 0, 200):
+        lab = np.array([L, c * np.cos(np.radians(h_deg)), c * np.sin(np.radians(h_deg))])
+        lin = ((lab @ M2i.T) ** 3) @ M1i.T
+        rgb = np.where(lin <= 0.0031308, lin * 12.92,
+                       1.055 * np.abs(lin) ** (1 / 2.4) - 0.055)
+        if np.all(rgb >= -1e-6) and np.all(rgb <= 1 + 1e-6):
+            return "#{:02x}{:02x}{:02x}".format(*(np.clip(rgb, 0, 1) * 255).round().astype(int))
+    return "#000000"
+
+
+@functools.lru_cache(maxsize=None)
+def _allowed_hue_walk():
+    """The hue circle minus the reserved bands, rotated to start just past the
+    orange band so the sweep runs olive -> green -> teal -> violet -> magenta."""
+    def far_enough(h):
+        return all(min(abs(h - c), 360 - abs(h - c)) > band
+                   for c, band in FREQ_RESERVED_HUES)
+    walk = [h for h in np.arange(0, 360, FREQ_HUE_STEP) if far_enough(h)]
+    h0, band0 = FREQ_RESERVED_HUES[1]
+    start = next(i for i in range(len(walk)) if walk[i] > h0 + band0)
+    return tuple(walk[start:] + walk[:start])
+
+
+def canonical_freq(f):
+    """Collapse the near-duplicate frequency floats that are really one
+    experiment type, matching fig2._fix_excess_legend's own display rounding --
+    engert/medaka's visual_f (0.016666666666666666 vs 0.016667) and the pigeon
+    oddball recs (0.977875286666966 vs 0.9788924940846944) each differ only by
+    floating-point rounding and must land on ONE colour, not two."""
+    f = float(f)
+    return 0.016 if f < 0.02 else round(f, 2)
+
+
+def freq_palette(n):
+    """n categorical colours evenly spaced along the allowed hue arc."""
+    walk = _allowed_hue_walk()
+    idx = np.linspace(0, len(walk) - 1, n).astype(int)
+    return [_oklch_to_hex(FREQ_SLOT_L[i % len(FREQ_SLOT_L)], FREQ_SLOT_C, walk[j])
+            for i, j in enumerate(idx)]
+
+
+def freq_color_map(freqs, levels=None):
+    """freq -> RGBA, assigned by RANK in SORTED frequency order.
+
+    levels: the full set of frequencies the palette is defined over. Pass the
+        union across every panel that shares a legend so a frequency appearing
+        in more than one panel gets the same colour in each -- 2 Hz and 3 Hz are
+        in both Fig2 A and B. Defaults to just `freqs` (single-panel use).
+
+    Ranked, not positioned by value: the frequencies are spaced very unevenly
+    (0.016 -> 10 Hz, with seven of them between 4 and 10), so mapping colour to
+    log-frequency would collapse the whole high-frequency end onto one hue.
+    Assigning by rank spends the available arc evenly across the levels that
+    actually occur. The previous code keyed on bigfig_df.freq.unique(), i.e.
+    order of APPEARANCE in that panel's frame, so 2 Hz was one colour in A and a
+    different one in B, and neither matched the sorted order the legend uses.
     """
+    levels = freqs if levels is None else levels
+    ordered = sorted({canonical_freq(f) for f in levels})
+    palette = freq_palette(len(ordered))
+    slot = {f: mcolors.to_rgba(c) for f, c in zip(ordered, palette)}
+    return {f: slot[canonical_freq(f)] for f in freqs}
+
+
+def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_level=-13,
+                        label_recs=False, ylim=(-15, 20), stagger_area_labels=True,
+                        freq_levels=None):
+    """
+    freq_levels: the full set of frequencies the colour palette should be
+        defined over -- pass the union across every panel sharing the legend so
+        a frequency in more than one panel keeps one colour (see
+        freq_color_map). Defaults to just this panel's own frequencies.
     stagger_area_labels: (bool) if True (default), alternates each area's
         label between just-above and just-below its own area line (see
         raise_area below) so adjacent narrow areas' labels don't collide
@@ -1319,7 +1460,7 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
         panel B's areas are spaced widely enough that staggering isn't
         needed there.
     """
-    jitter = False
+    prev_raised = False
 
     # Fixed early (2026-08-28) so the pixel<->data conversion below is
     # correct even before any bars are drawn -- get_window_extent's bbox is
@@ -1329,9 +1470,8 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
     conf_ax.set_ylim(ylim)
 
     # How far (in data/y units) 4 stacked rotated digit characters take up --
-    # replaces the old alternating 0.5-unit jitter (7 vs 7.5) between
-    # overflow labels on adjacent bars, which was far too small to actually
-    # separate multi-digit rotated numbers and did nothing for readability.
+    # used below as a scaled base unit for the various small gaps around
+    # each overflow label (anchor-to-text, text-to-arrow, arrow length).
     _overflow_fontsize = 7
     _sample_txt = conf_ax.text(0, 0, "0000", fontsize=_overflow_fontsize, rotation=90, ha="center", va="bottom")
     conf_ax.figure.canvas.draw()
@@ -1343,18 +1483,16 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
     counter, counter_last, species_counter, species_counter_last = 0, 0, 0, 0
     xticks, xticklabels = [], []
 
-    CMAP = cm.tab20b
-    unique_freqs = bigfig_df.freq.unique()
-    CMAP_colors = CMAP(np.arange(len(unique_freqs)))
-    color_d = {freq: color for freq, color in zip(unique_freqs, CMAP_colors)}
+    color_d = freq_color_map(bigfig_df.freq.unique(), levels=freq_levels)
     
-    # Quail sits between Pigeon and zebrafish (2026-08-28, was first in the
-    # list) -- panel A's quail (thalamus/nidopallium) used to sit right next
-    # to owl's pallium, both lowered-position labels, and collided
-    # ("nidopalliumpallium"); its new neighbors (pigeon's raised "pallium",
-    # zebrafish's raised "WB") don't share that lowered row.
+    # Quail sits between Pigeon and zebrafish, mouse between zebra finch and
+    # Pigeon (2026-08-28, both used to sit earlier in the list) -- panel A's
+    # quail (thalamus/nidopallium) used to sit right next to owl's pallium,
+    # both lowered-position labels, and collided ("nidopalliumpallium");
+    # spreading quail and mouse out among the other species leaves fewer
+    # narrow same-row labels immediately adjacent to each other.
     desired_order = [
-        'Owl', 'mouse', 'zebra finch', 'Pigeon', 'Quail', 'zebrafish', 'medaka']
+        'Owl', 'zebra finch', 'mouse', 'Pigeon', 'Quail', 'zebrafish', 'medaka']
 
     for species in desired_order:
         species_df = bigfig_df.loc[bigfig_df.species == species, :]
@@ -1421,32 +1559,37 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
                                      if v is not None and v <= ylim[1]]
                     anchor = max(visible_tops) if visible_tops else ylim[1]
 
-                    # Alternate a small extra gap between adjacent
-                    # overflowing bars whose anchors happen to land close
-                    # together (was a full "4 stacked digits" shift when
-                    # anchored to the old shared band; per-bar anchoring
-                    # already does most of the separation work, so this is
-                    # now just a modest safety margin).
-                    jit_shift = (four_digit_shift * 0.3) if jitter else 0.0
-                    jitter = not jitter
-
                     small_gap = four_digit_shift * 0.15
-                    text_y = anchor + small_gap + jit_shift
+                    # Gap between the bar's anchor (its confidence bound or
+                    # tick) and the number above it -- bigger than small_gap
+                    # (2026-08-28): at small_gap alone the label visually sat
+                    # right on top of the confidence-bound line instead of
+                    # clearing it.
+                    anchor_gap = four_digit_shift * 0.4
+                    text_y = anchor + anchor_gap
 
                     t1 = None
                     if over_1f and over_2f:
-                        # Combined "<1F count>/<2F count>", 1F in black and
-                        # 2F in red -- split into two Text objects measured
+                        # Combined "<2F count>, <1F count>" -- 2F in red
+                        # FIRST (2026-09-02), then 1F in black. Rotated 90deg
+                        # the label reads bottom-to-top, so the first-written
+                        # Text is the one read first.
+                        # Split into two Text objects measured
                         # and stacked back-to-back via get_window_extent
                         # (matplotlib mathtext has no \color support to do
-                        # this as a single colored string).
-                        t1 = conf_ax.text(counter - 0.5, text_y, f"{n_empirical}/",
-                                          ha="center", va="bottom", rotation=90, fontsize=_overflow_fontsize, color="black")
+                        # this as a single colored string). A trailing space
+                        # in a string's rendered bbox doesn't count toward
+                        # its width, so t1's own trailing space is invisible
+                        # to get_window_extent -- add small_gap explicitly
+                        # instead, so the gap after the comma actually
+                        # matches the gap before it.
+                        t1 = conf_ax.text(counter - 0.5, text_y, f"{n_empirical_2f}, ",
+                                          ha="center", va="bottom", rotation=90, fontsize=_overflow_fontsize, color="red")
                         conf_ax.figure.canvas.draw()
                         renderer = conf_ax.figure.canvas.get_renderer()
                         bbox_data = t1.get_window_extent(renderer=renderer).transformed(conf_ax.transData.inverted())
-                        t2 = conf_ax.text(counter - 0.5, bbox_data.y1, f"{n_empirical_2f}",
-                                      ha="center", va="bottom", rotation=90, fontsize=_overflow_fontsize, color="red")
+                        t2 = conf_ax.text(counter - 0.5, bbox_data.y1 + small_gap, f"{n_empirical}",
+                                      ha="center", va="bottom", rotation=90, fontsize=_overflow_fontsize, color="black")
                     elif over_2f:
                         t2 = conf_ax.text(counter - 0.5, text_y, str(n_empirical_2f),
                                       ha="center", va="bottom", rotation=90, fontsize=_overflow_fontsize, color="red")
@@ -1460,21 +1603,36 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
                     renderer = conf_ax.figure.canvas.get_renderer()
                     label_top = t2.get_window_extent(renderer=renderer).transformed(conf_ax.transData.inverted()).y1
 
-                    arrow_tail = label_top + small_gap
+                    # Extra clearance (2026-08-28) between the number and
+                    # the arrow above it -- small_gap alone (the same gap
+                    # used between the bar's anchor and the number) read as
+                    # too tight once seen at actual print scale.
+                    arrow_tail = label_top + small_gap * 2.5
                     arrow_head = arrow_tail + small_gap * 3
 
-                    # Keep the whole tower inside the visible frame
-                    # (2026-08-28) -- when a bar's anchor sits close to
-                    # ylim[1] and its label is tall (e.g. a combined 1F+2F
-                    # stack, or a jittered instance), the arrow could
-                    # otherwise land above ylim[1], where annotation_clip's
-                    # default behavior stops clipping it -- it doesn't
-                    # vanish, it just floats above the panel's own frame,
-                    # which looks exactly like a missing arrow. Shift the
-                    # whole tower (text + arrow) down just enough to clear.
+                    # Keep the whole tower inside the visible frame when
+                    # there's room to (2026-08-28) -- when a bar's anchor
+                    # sits close to ylim[1] and its label is tall (e.g. a
+                    # combined 1F+2F stack), the arrow could otherwise land
+                    # above ylim[1], where annotation_clip's default
+                    # behavior stops clipping it -- it doesn't vanish, it
+                    # just floats above the panel's own frame, which looks
+                    # like a missing arrow. Shift the whole tower down to
+                    # clear -- but capped at how far text_y itself can drop
+                    # before the label gets closer to the anchor than
+                    # small_gap. The previous cap (`arrow_tail - text_y`)
+                    # measured the wrong thing -- the space between the
+                    # label and its OWN arrow, not the space between the
+                    # label and the bar below it -- so a tall combined-label
+                    # tower could still be shoved down far enough to
+                    # overlap the confidence-bound bar it's meant to sit
+                    # above. Past this floor, let the tower float above
+                    # ylim[1] instead (Text and Annotation both still
+                    # render outside the axes' data limits by default).
                     max_y = ylim[1] - 0.3
                     if arrow_head > max_y:
-                        excess = arrow_head - max_y
+                        max_shift = max(0.0, anchor_gap - small_gap)
+                        excess = min(arrow_head - max_y, max_shift)
                         arrow_tail -= excess
                         arrow_head -= excess
                         t2.set_position((counter - 0.5, t2.get_position()[1] - excess))
@@ -1487,8 +1645,12 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
                 if label_recs:
                     conf_ax.text(counter, 10, rec.split('\\')[-1].split('/')[-1], ha="center", rotation=90)
             
-            # Area lines
-            conf_ax.hlines(area_line_level, counter_last+0.25, counter-0.25, "black",zorder=2, linewidth=1)
+            # Area lines -- dark grey (2026-09-02), so the area tier reads as
+            # subordinate to the black species-level lines below it rather
+            # than as another rule of equal weight. Their labels below get
+            # the same colour.
+            conf_ax.hlines(area_line_level, counter_last+0.25, counter-0.25,
+                           _AREA_TIER_COLOR, zorder=2, linewidth=1)
             
             # Annotate area
             if area in ("wholebrain", "whole brain"):
@@ -1503,13 +1665,44 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
                 # neighbors.
                 or (area == "pallium" and species == "Pigeon")
             )
-            # Lowered (non-raised) labels sit below the area line -- shifted
-            # down an extra 3 units (2026-08-28), matching the same downward
-            # shift just given to species_line_level (-10 -> -13), so they
-            # keep the same amount of headroom relative to the species line
-            # as before that change.
-            lowered_label_y = area_line_level * 1.4 - 3
-            conf_ax.text((counter + counter_last)/2, area_line_level * 0.8 if raise_area else lowered_label_y, area, ha="center", rotation=0)
+            # Raised and lowered labels clear the area line by the SAME gap
+            # (2026-09-02). Previously the lowered row sat
+            # |area_line_level|*1.4 - 3 (5.4 data units at the default level)
+            # below the line while the raised row cleared it by only 1.2, so
+            # two labels straddling the same line read as sitting at two
+            # different distances from it. One gap now serves both, with va
+            # flipped so the measured text edge is always the one facing the
+            # line (bottom for raised, top for lowered) -- the previous
+            # default va="baseline" would have let the descenders in
+            # "arcopallium"/"hippocampus" eat into the gap.
+            label_gap = abs(area_line_level) * 0.2
+
+            # Two adjacent same-row (both raised) labels across a species
+            # boundary would otherwise collide (2026-08-28) -- e.g. pigeon's
+            # now-raised "pallium" right before quail's raised "thalamus",
+            # once quail was moved to sit next to pigeon. Nudge the second
+            # of any such pair right for clearance; a raised label following
+            # a lowered (or absent) one needs no nudge.
+            text_x = (counter + counter_last) / 2
+            if raise_area and prev_raised:
+                text_x += 1.5
+            prev_raised = raise_area
+
+            # Display-only renames (2026-08-28) -- don't affect the raise_area
+            # substring checks above, which still key off the real values.
+            display_area = area
+            if area == "thalamus":
+                display_area = "thal"
+            elif area == "WB":
+                display_area = "whole brain"
+            elif area == "HP":
+                display_area = "hippocampus"
+
+            conf_ax.text(text_x,
+                         area_line_level + label_gap if raise_area else area_line_level - label_gap,
+                         display_area, ha="center", rotation=0,
+                         va="bottom" if raise_area else "top",
+                         color=_AREA_TIER_COLOR)
         
         # Update species counter
         species_counter = counter
@@ -1520,8 +1713,6 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
         # xticklabels to lowercase
         if species.lower() == "zebra finch":
             xticklabels.append("zebra\nfinch")
-        elif species.lower() == "medaka":
-            xticklabels.append("\nmedaka")
         else:
             xticklabels.append(species.lower())
 
@@ -1557,6 +1748,16 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
 
     conf_ax.spines["top"].set_visible(False)
     conf_ax.spines["right"].set_visible(False)
+    # No bottom frame line (2026-09-02): the area/species rules drawn below
+    # y=0 are this panel's own horizontal lines, and a full-width axis spine
+    # underneath them just read as a third, meaningless one. The species
+    # xticklabels stay; the tick marks go, since they'd dangle off nothing.
+    conf_ax.spines["bottom"].set_visible(False)
+    conf_ax.tick_params(axis="x", length=0)
+    # The left spine likewise stops at y=0 -- everything below it is
+    # annotation space (area/species lines + labels), not part of the
+    # "# Suspects" scale.
+    conf_ax.spines["left"].set_bounds(0, ylim[1])
     return conf_ax
 
 
@@ -2126,7 +2327,7 @@ def phase_fold(spks, window, freq):
 
 
 def plot_phase_raster(ax, spks, window, freq, color="black", markersize=4, linewidth=1,
-                       phase_cmap=None):
+                       phase_cmap=None, pad_x=0.0, pad_y=0.0):
     """Rasterplot of spikes folded onto stimulus phase (x axis in radians, 0
     to 2*pi), one row per stimulus cycle within `window` (see `phase_fold`)
     -- visualizes, cycle by cycle, the periodicity that the Fourier fit at
@@ -2144,12 +2345,20 @@ def plot_phase_raster(ax, spks, window, freq, color="black", markersize=4, linew
     /`plot_phase_colorwheel`; each phase tick label is then drawn in that
     colormap's own color for the phase it marks, so the x axis doubles as a
     second read of the colorwheel legend.
+
+    `pad_x`/`pad_y` (fractions of the phase span / cycle count, default 0 =
+    limits snapped exactly to the data range) pad the axes limits outward,
+    so ticks at phase 0/2*pi and on the first/last cycle aren't half-hidden
+    under the spines that would otherwise run right through them.
     """
     n_cycles = int(np.floor((window[1] - window[0]) * freq))
     cycle_idx, phase = phase_fold(spks, window, freq)
     ax.plot(phase, cycle_idx, "|", color=color, markersize=markersize, markeredgewidth=linewidth)
-    ax.set_xlim(0, 2 * np.pi)
-    ax.set_ylim(n_cycles - 0.5, -0.5)  # row 0 (first cycle) on top
+    x_pad = pad_x * 2 * np.pi
+    y_pad = pad_y * n_cycles
+    ax.set_xlim(-x_pad, 2 * np.pi + x_pad)
+    # row 0 (first cycle) on top
+    ax.set_ylim(n_cycles - 0.5 + y_pad, -0.5 - y_pad)
     ax.set_xticks(_PHASE_TICKS)
     ax.set_xticklabels(_PHASE_TICKLABELS)
     if phase_cmap is not None:
@@ -2256,7 +2465,8 @@ def plot_phase_psth(ax, spks, window, freq, color="black", n_bins=20):
     ax.set_ylabel("Spike count")
 
 
-def plot_smoothed_phase_psth(raster_ax, spks, window, freq, color="grey", n_bins=36, smooth_bins=2.0):
+def plot_smoothed_phase_psth(raster_ax, spks, window, freq, color="grey", n_bins=36, smooth_bins=2.0,
+                              linewidth=1.5, alpha=0.6):
     """Overlays a smoothed peri-stimulus-phase firing-rate curve on a
     `plot_phase_raster` axes, via a twin y-axis (`raster_ax.twinx()`, so it
     shares the raster's x-axis) -- lets a reader see the aggregate
@@ -2279,6 +2489,10 @@ def plot_smoothed_phase_psth(raster_ax, spks, window, freq, color="grey", n_bins
     smooth_bins : float, optional
         Gaussian-smoothing sigma, in units of bins. Smoothing wraps across
         the phase=0/2*pi boundary (`mode="wrap"`) since phase is circular.
+    linewidth, alpha : optional
+        Line weight/opacity of the curve. The defaults keep it a faint
+        overlay; pass `alpha=1` for a solid curve that can carry a darker
+        `color` without washing out to grey.
 
     Returns
     -------
@@ -2299,8 +2513,16 @@ def plot_smoothed_phase_psth(raster_ax, spks, window, freq, color="grey", n_bins
 
     bin_centers = (bins[:-1] + bins[1:]) / 2
 
+    # Close the curve onto the phase axis' own 0/2*pi edges: bin CENTRES stop
+    # half a bin short of both, which otherwise leaves a visible gap between
+    # the curve's ends and the raster it overlays. Phase is circular, so both
+    # edges take the same value -- the wrap-point average of the two end bins.
+    edge_rate = (smoothed[0] + smoothed[-1]) / 2
+    psth_x = np.concatenate(([0.0], bin_centers, [2 * np.pi]))
+    psth_y = np.concatenate(([edge_rate], smoothed, [edge_rate]))
+
     psth_ax = raster_ax.twinx()
-    psth_ax.plot(bin_centers, smoothed, color=color, linewidth=1.5, alpha=0.6)
+    psth_ax.plot(psth_x, psth_y, color=color, linewidth=linewidth, alpha=alpha)
     psth_ax.set_ylim(bottom=0)
     psth_ax.set_ylabel("PSTH (FR, Hz)", color=color)
     psth_ax.tick_params(axis="y", colors=color)
