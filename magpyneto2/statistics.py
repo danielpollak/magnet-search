@@ -12,6 +12,7 @@ from .utils import save_and_close
 
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
+from matplotlib.collections import LineCollection
 from matplotlib.markers import MarkerStyle
 from matplotlib.path import Path
 from matplotlib.transforms import Affine2D
@@ -2153,6 +2154,7 @@ def plot_phase_raster(ax, spks, window, freq, color="black", markersize=4, linew
     ax.set_xticklabels(_PHASE_TICKLABELS)
     if phase_cmap is not None:
         color_phase_ticklabels(ax, phase_cmap)
+        color_phase_xspine(ax, phase_cmap)
     ax.set_xlabel("Phase (rad)")
     ax.set_ylabel("Cycle")
     return cycle_idx, phase
@@ -2171,6 +2173,33 @@ def color_phase_ticklabels(ax, cmap, ticks=None):
         ticks = ax.get_xticks()
     for tick, label in zip(ticks, ax.get_xticklabels()):
         label.set_color(cmap((tick % (2 * np.pi)) / (2 * np.pi)))
+
+
+def color_phase_xspine(ax, cmap, n_segments=200):
+    """Recolors `ax`'s bottom spine as a continuous gradient matching the
+    cyclic `cmap`'s own phase color at each x position (assumes the x axis
+    spans phase in radians over its current xlim, taken mod 2*pi -- same
+    convention as `color_phase_ticklabels`) -- so the whole axis line, not
+    just the 5 tick positions `color_phase_ticklabels` recolors, doubles as
+    a continuous read of the `plot_phase_colorwheel` legend.
+
+    A matplotlib spine is a single Line2D with one color, so a real
+    left-to-right gradient needs a LineCollection of many short segments
+    instead: the real bottom spine is hidden and this collection drawn at
+    the same position (axes-fraction y=0, data-x running over `ax`'s own
+    xlim at call time -- call this AFTER `ax.set_xlim`).
+    """
+    cmap = cm.get_cmap(cmap)
+    x0, x1 = ax.get_xlim()
+    xs = np.linspace(x0, x1, n_segments + 1)
+    points = np.column_stack([xs, np.zeros_like(xs)]).reshape(-1, 1, 2)
+    segments = np.concatenate([points[:-1], points[1:]], axis=1)
+    seg_centers = (xs[:-1] + xs[1:]) / 2
+    colors = cmap((seg_centers % (2 * np.pi)) / (2 * np.pi))
+    lc = LineCollection(segments, colors=colors, linewidths=1.2,
+                        transform=ax.get_xaxis_transform(), clip_on=False, zorder=5)
+    ax.spines["bottom"].set_visible(False)
+    ax.add_collection(lc)
 
 
 def mark_cycle_range(ax, window, freq, color="grey", label=None, fontsize=8, x=1.02, text_x=1.07):

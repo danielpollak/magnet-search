@@ -452,10 +452,11 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     wheel_cell_ax.axis("off")
     wheel_ax = wheel_cell_ax.inset_axes([0, LEGEND_LIFT, 1, 1])
 
-    # Bottom row: each NFC distribution and its own ECDF-deviation plot now
+    # Bottom row: each NFC distribution and its own ECDF-deviation plot
     # share a single panel (the ECDF as a small inset in the dist panel's
     # otherwise-empty upper-right corner) -- mag then vis -- rather than 4
-    # separate axes, 2 of which were just a lone curve with its own legend.
+    # separate axes (tried 2026-09-02, reverted -- 2 panels read cleaner
+    # than 4 smaller ones here).
     de_hi_gs = outer_gs[4].subgridspec(1, 2, wspace=0.22)
     mag_dist_ax = fig.add_subplot(de_hi_gs[0, 0])
     vis_dist_ax = fig.add_subplot(de_hi_gs[0, 1])
@@ -566,16 +567,15 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
 
     statistics.draw_hist(fourier_df.loc[fourier_df.rec == MAG_CONTINGENCY, "NFC"], mag_dist_ax, xlim=9,
                          inset=True, bar_color=FP.COLOR_MAG, legend_fontsize=FP.FS_LEGEND)
-    # Arrow sits below the x-axis (blended transform: x in data coords, y in
-    # axes-fraction) rather than inside the plot -- marks the exemplar's NFC
-    # position along the x-axis without its stem crossing any bars/curves,
-    # now that the ECDF inset also lives inside this same panel.
+    # Triangle sits just above the x-axis, pointing down at it (blended
+    # transform: x in data coords, y in axes-fraction) -- marks the
+    # exemplar's NFC position along the x-axis (2026-09-02: was an arrow
+    # annotation below the axis, then an upward triangle below the axis;
+    # now a downward triangle above it, half-transparent so it doesn't
+    # compete with any bar/curve it happens to sit over).
     mag_xaxis_trans = mag_dist_ax.get_xaxis_transform()
-    mag_dist_ax.annotate("", xy=(exemplar_NFC, -0.02), xytext=(exemplar_NFC, -0.14),
-                         xycoords=mag_xaxis_trans, textcoords=mag_xaxis_trans,
-                         annotation_clip=False,
-                         arrowprops=dict(facecolor="black", edgecolor="black", arrowstyle="->",
-                                         linewidth=2, mutation_scale=20))
+    mag_dist_ax.plot(exemplar_NFC, 0.06, marker="v", color="black", alpha=0.5, markersize=8,
+                     transform=mag_xaxis_trans, clip_on=False, zorder=5)
     statistics.boundary_ticks(mag_dist_ax, yprec=1)
     statistics.nestle_labels(mag_dist_ax, x_offset=-0.05, y_offset=-0.05)
 
@@ -605,14 +605,11 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     # consistent with this being a deliberately strong (tightly phase-
     # concentrated), not just barely-significant, exemplar (see module
     # docstring), on top of an already strong "positive control" population
-    # (22% of units significant at this orientation). Arrow below the
-    # x-axis, same as mag_dist_ax -- see that arrow's comment.
+    # (22% of units significant at this orientation). Triangle above the
+    # x-axis, same as mag_dist_ax -- see that marker's comment.
     vis_xaxis_trans = vis_dist_ax.get_xaxis_transform()
-    vis_dist_ax.annotate("", xy=(exemplar_NFC_vis, -0.02), xytext=(exemplar_NFC_vis, -0.14),
-                         xycoords=vis_xaxis_trans, textcoords=vis_xaxis_trans,
-                         annotation_clip=False,
-                         arrowprops=dict(facecolor="black", edgecolor="black", arrowstyle="->",
-                                         linewidth=2, mutation_scale=20))
+    vis_dist_ax.plot(exemplar_NFC_vis, 0.06, marker="v", color="black", alpha=0.5, markersize=8,
+                     transform=vis_xaxis_trans, clip_on=False, zorder=5)
     statistics.boundary_ticks(vis_dist_ax, yprec=1)
     statistics.nestle_labels(vis_dist_ax, x_offset=-0.05, y_offset=-0.05)
 
@@ -654,8 +651,12 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     ecdf_mag_ax.fill_between(mag_x, mag_ks_lower, mag_ks_upper, color=FP.COLOR_MAG, alpha=FP.ALPHA_CONFIDENCE)
     ecdf_mag_ax.axhline(0, color=FP.COLOR_NULL, linestyle="--", linewidth=FP.LW_REFERENCE, alpha=0.6)
     # Exemplar unit's own p-value, marked the same way across both ECDF
-    # insets (see exemplar_p_mag/_fmt_p above).
-    ecdf_mag_ax.axvline(exemplar_p_mag, color="black", linewidth=1, alpha=0.8, zorder=3)
+    # panels -- a downward triangle above the x-axis, same convention as
+    # mag_dist_ax/vis_dist_ax's own exemplar-NFC marker above (2026-09-02:
+    # was a vertical line, then an upward triangle below the axis).
+    ecdf_mag_xaxis_trans = ecdf_mag_ax.get_xaxis_transform()
+    ecdf_mag_ax.plot(exemplar_p_mag, 0.09, marker="v", color="black", alpha=0.5, markersize=6,
+                     transform=ecdf_mag_xaxis_trans, clip_on=False, zorder=5)
     ecdf_mag_ax.annotate(_fmt_p(exemplar_p_mag), xy=(exemplar_p_mag, 1.0),
                          xycoords=("data", "axes fraction"), xytext=(2, -2),
                          textcoords="offset points", ha="left", va="top",
@@ -682,8 +683,10 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     ecdf_vis_ax.axhline(0, color=FP.COLOR_NULL, linestyle="--", linewidth=FP.LW_REFERENCE, alpha=0.6)
     # exemplar_p_vis is tiny (~1e-14, NFC=7.79) -- right at the left edge of
     # the (0,1) x-axis, same place its own bar sits in vis_dist_ax's ECDF
-    # curve (see exemplar_p_mag's comment above for why this is marked at all).
-    ecdf_vis_ax.axvline(exemplar_p_vis, color="black", linewidth=1, alpha=0.8, zorder=3)
+    # curve (see exemplar_p_mag's comment above for why/how this is marked).
+    ecdf_vis_xaxis_trans = ecdf_vis_ax.get_xaxis_transform()
+    ecdf_vis_ax.plot(exemplar_p_vis, 0.09, marker="v", color="black", alpha=0.5, markersize=6,
+                     transform=ecdf_vis_xaxis_trans, clip_on=False, zorder=5)
     ecdf_vis_ax.annotate(_fmt_p(exemplar_p_vis), xy=(exemplar_p_vis, 1.0),
                          xycoords=("data", "axes fraction"), xytext=(2, -2),
                          textcoords="offset points", ha="left", va="top",
