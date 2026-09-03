@@ -206,6 +206,18 @@ RASTER_PAD_X = 0.03
 RASTER_PAD_Y = 0.03
 PSTH_PAD_Y   = 0.06
 
+# PSTH smoothing for panels C/D's overlays -- finer bins than
+# plot_smoothed_phase_psth's own 36 default, with a proportionally wider
+# Gaussian: sigma 6/72 bins = 30 deg of phase, against the default's 2/36 =
+# 20 deg. Numerically equal to fig4.py's PSTH_N_BINS/PSTH_SMOOTH_BINS (same
+# cross-reference as the padding constants above), so the two figures'
+# curves are smoothed to the same degree in phase units and read as the
+# same kind of summary rather than two differently-filtered ones. Passed
+# explicitly at both call sites rather than changed in the shared helper,
+# whose default fig1_auditory.py still uses.
+PSTH_N_BINS      = 72
+PSTH_SMOOTH_BINS = 6.0
+
 # Shrinks the phasor markers (via raw_NPIX's stem_scale) down from their
 # full default size -- each spike still shows its phase as both a color and
 # a pointing direction (the chevron shape), just smaller, so panel B's
@@ -545,7 +557,8 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     # computation, just a visual aid for the trend across phase -- on its
     # own grey twin y-axis so it reads as secondary to the raster itself.
     mag_psth_ax = statistics.plot_smoothed_phase_psth(
-        mag_raster_ax, mag_spks, mag_full_window, MAG_FREQ, color="grey")
+        mag_raster_ax, mag_spks, mag_full_window, MAG_FREQ, color="grey",
+        n_bins=PSTH_N_BINS, smooth_bins=PSTH_SMOOTH_BINS)
 
     statistics.plot_phase_raster(vis_raster_ax, vis_spks, vis_full_window, VIS_FREQ,
                                   color=FP.COLOR_VIS, phase_cmap=PHASE_CMAP,
@@ -554,7 +567,8 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     vis_raster_ax.spines["top"].set_visible(False)
     vis_raster_ax.spines["right"].set_visible(False)
     vis_psth_ax = statistics.plot_smoothed_phase_psth(
-        vis_raster_ax, vis_spks, vis_full_window, VIS_FREQ, color="grey")
+        vis_raster_ax, vis_spks, vis_full_window, VIS_FREQ, color="grey",
+        n_bins=PSTH_N_BINS, smooth_bins=PSTH_SMOOTH_BINS)
 
     # The width between each raster and its spectrum is set by two FACING
     # axis decorations -- the raster's PSTH twin axis on the right and the
@@ -590,6 +604,7 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     mag_spectra_ax.spines["top"].set_visible(False)
     mag_spectra_ax.spines["right"].set_visible(False)
     statistics.boundary_ticks(mag_spectra_ax, y=False)
+    statistics.stimulus_frequency_tick(mag_spectra_ax, MAG_FREQ)
 
     statistics.draw_hist(fourier_df.loc[fourier_df.rec == MAG_CONTINGENCY, "NFC"], mag_dist_ax, xlim=9,
                          inset=True, bar_color=FP.COLOR_MAG, legend_fontsize=FP.FS_LEGEND)
@@ -615,6 +630,7 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     vis_spectra_ax.spines["top"].set_visible(False)
     vis_spectra_ax.spines["right"].set_visible(False)
     statistics.boundary_ticks(vis_spectra_ax, y=False)
+    statistics.stimulus_frequency_tick(vis_spectra_ax, VIS_FREQ)
 
     # Shared y-axis (Magnitude) between the two spectra -- makes their
     # scales directly comparable, even though it squashes E's much smaller
