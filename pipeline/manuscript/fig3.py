@@ -146,7 +146,10 @@ def _add_qval_inset(ax, wave_sorted_qvals, wave_colors, n_inset=50, x0_frac=0.35
     # against the inset's cramped width without visually competing with the
     # parent axes' own labels.
     axins.tick_params(axis="x", labelsize=FP.FS_BODY * 0.9)
-    axins.tick_params(axis="y", labelsize=FP.FS_BODY - 4)
+    # y-tick labels kept at the parent axes' full size -- there are only a
+    # couple of decade labels, so they don't crowd the inset the way the
+    # x-ticks would.
+    axins.tick_params(axis="y", labelsize=FP.FS_BODY)
 
 
 def plot_uniform_p(waves, axes, percentile=None, colors=None, pval_col="p_value", sens_col="sens",
