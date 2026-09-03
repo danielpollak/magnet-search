@@ -22,6 +22,21 @@ heatmap's 2D amplitude x participation sweep made it a strict
 generalization -- every "% modulated" line the old panel plotted is one
 row of that heatmap's grid.
 
+Panels C/D average N_REPEATS (10) independent random draws of which units
+are in the modulated pool at each (participation, amplitude) grid cell,
+rather than the single deterministic evenly-rank-spaced pool used
+previously -- this washes out a banding/staircase artifact the fixed pool
+selection produced. This is affordable despite the added repeats because
+compute_responder_df builds a per-unit NFC lookup table ONCE per amplitude
+value (a unit's NFC doesn't depend on which other units are also
+modulated), so the repeats only add cheap FDR-recombination work, not
+more Fourier computation -- see compute_responder_df's docstring for the
+full mechanism. compute_responder_df returns every raw per-repeat row
+(tagged by a `repeat` column); plot_fig4 does the actual averaging via an
+explicit, commented groupby-mean step immediately before each panel's
+pivot() call, so the load -> average -> plot flow is visible directly in
+the plotting code.
+
 Requires:
   data/{experiment}.nwb for every discovered pigeon-HP experiment
   seaborn
@@ -34,6 +49,15 @@ Pool, same convention as pipeline/processing.py's/analysis.py's --workers.
 With N>1, each worker renders its own tqdm progress bar (see
 _run_parallel) instead of one pooled counter, so progress is visible
 per-worker -- in a terminal or a notebook cell alike.
+
+At the current grid resolution --workers is worth setting for exactly one
+step: compute_responder_df's per-amplitude NFC lookup table, which is
+~45 min single-process and ~2 min at --workers 20. Panels C/D's responder
+sweep itself, once the dominant cost, is now seconds -- every cell shares
+one pinned null distribution instead of rebuilding it (see
+compute_responder_df's `pvalue_upper`) -- so it deliberately stays
+in-process below _SWEEP_PARALLEL_MIN_CELLS rather than paying Windows
+pool-spawn overhead that exceeds the work itself.
 
 Usage:
     python pipeline/manuscript/fig4.py
@@ -98,8 +122,18 @@ FR_DF_CACHE   = _REPO_ROOT / "data" / "manuscript" / "modulation_strength_vs_FR_
 # plain linear arange -- any older qvalue_responder_df*.pkl (any "_log*"
 # suffix) holds responder counts indexed by one of those OLD grids and must
 # not be silently reloaded as if it matched the current one.
-RESP_DF_CACHE = _REPO_ROOT / "data" / "manuscript" / "qvalue_responder_df_pigeon_hp_pseudopop_lineargrid.pkl"
-RESP_DF_TOP_DECILE_CACHE = _REPO_ROOT / "data" / "manuscript" / "qvalue_responder_df_pigeon_hp_pseudopop_top_decile_lineargrid.pkl"
+# "_halfpart_10rep" suffix (added on top of "_lineargrid"): marks two
+# coupled changes made together -- (a) PARTICIPATION_RESP's resolution was
+# halved (100 -> 50 points, see its definition below) and (b) each grid
+# cell now holds N_REPEATS randomly-pooled repeat rows (a new `repeat`
+# column) instead of a single deterministic rank-spaced pool -- see
+# compute_responder_df. An old "..._lineargrid.pkl" (one pool per cell, no
+# `repeat` column, 100-point participation axis) must never be silently
+# reloaded as if it already had repeats or the new grid: either difference
+# would otherwise corrupt plot_fig4's pivot()/groupby() silently rather
+# than raising a loud error.
+RESP_DF_CACHE = _REPO_ROOT / "data" / "manuscript" / "qvalue_responder_df_pigeon_hp_pseudopop_lineargrid_halfpart_10rep.pkl"
+RESP_DF_TOP_DECILE_CACHE = _REPO_ROOT / "data" / "manuscript" / "qvalue_responder_df_pigeon_hp_pseudopop_top_decile_lineargrid_halfpart_10rep.pkl"
 
 SENSITIVITY_PERCENTILE = 90.0  # panel C / panel D outline: top decile by compute_sensitivity
 
@@ -110,13 +144,31 @@ FREQ        = 5
 # FP.COLOR_VIS) for real magnetic vs. visual stimulation -- using either here
 # would imply a stimulus contingency these synthetic spike trains don't have.
 # Within the panel, darkness encodes what's primary: the on-frequency stem
-# (the quantity the panel is about) is black, the off-frequency |c_n| cloud
-# and the raster ticks are mid-grey, and the PSTH curve -- a visual aid that
-# plays no part in the Fourier/NFC computation -- is lighter still.
+# (the quantity the panel is about) is black, and the off-frequency |c_n|
+# cloud and the raster ticks are mid-grey. The PSTH curve is black too --
+# it plays no part in the Fourier/NFC computation, but it's the only thing
+# in the raster that shows the modulation as a shape rather than as tick
+# density, so it reads as a summary of the grey ticks rather than as
+# something subordinate to them.
 SPECTRUM_DOT_COLOR = "0.45"
 SIGMA_COLOR        = "0.6"
 RASTER_COLOR       = "0.45"
-PSTH_COLOR         = "0.7"
+PSTH_COLOR         = "black"
+
+# PSTH smoothing: finer bins than the helper's 36 default, with a
+# proportionally wider Gaussian (sigma 6/72 bins = 30 deg of phase, vs the
+# default's 20 deg), so the curve reads as a smooth modulation envelope
+# rather than a 36-segment polyline tracing bin-to-bin Poisson noise.
+PSTH_N_BINS      = 72
+PSTH_SMOOTH_BINS = 6.0
+
+# Padding on panel A's rasters, as a fraction of the phase span / cycle
+# count. Without it the axes limits snap exactly to the data, so spikes at
+# phase 0/2*pi and on the first/last cycle are drawn half-under the spines,
+# and the PSTH curve's troughs sit right on the bottom spine.
+RASTER_PAD_X = 0.03
+RASTER_PAD_Y = 0.03
+PSTH_PAD_Y   = 0.06
 
 # Panel B mod-condition hues. Dark2 rather than seaborn's Set1 default, whose
 # first two entries are a red and a blue close enough to the manuscript's own
@@ -140,9 +192,35 @@ PALETTE_FIG4B = "Dark2"
 # compute_responder_df's own amplitude=0.0 baseline-row shortcut skips
 # building a redundant (and pivot()-breaking, since it'd duplicate the
 # (participation, amplitude) index) task for amplitude==0.0 explicitly.
+#
+# PARTICIPATION_RESP's resolution was later halved (100 -> 50 points) to
+# make room for N_REPEATS-fold repetition (see below) at a comparable
+# overall grid cell count: 50 x 10 x 99 = 49,500 cells vs. the old
+# 100 x 99 = 9,900 -- a 5x increase, not 10x, since the y-axis got coarser
+# at the same time repeats were added. This is affordable because
+# compute_responder_df no longer recomputes a Fourier transform per grid
+# cell (see its docstring): the actually expensive step now runs only
+# ~len(AMPLITUDES_RESP) times total (an NFC lookup table, built once),
+# regardless of participation resolution or repeat count.
+#
+# Each grid cell's modulated pool used to be a single DETERMINISTIC
+# rank-spaced subset (evenly spaced by baseline sensitivity rank) -- fully
+# reproducible, but this produced a visible banding/staircase artifact in
+# panels C/D from pool_size = int(participation * n) truncation interacting
+# with that fixed selection. Pool membership is now drawn RANDOMLY per
+# repeat (see compute_responder_df), and N_REPEATS independent draws are
+# averaged (see plot_fig4's explicit groupby-mean step) specifically to
+# wash out that artifact.
 AMPLITUDES_RESP    = np.arange(0, 1, 0.01)
-PARTICIPATION_RESP = np.arange(0, 1, 0.01)
+PARTICIPATION_RESP = np.arange(0, 1, 0.02)
 QVALUE_FDR         = 0.05
+# Responder-sweep cell count above which compute_responder_df bothers with a
+# worker pool -- at ~0.1 ms/cell this is roughly a minute of serial work,
+# comfortably more than pool startup costs. Well above the current grid's
+# 49,500 cells; it only trips if PARTICIPATION_RESP/AMPLITUDES_RESP/N_REPEATS
+# are refined by an order of magnitude.
+_SWEEP_PARALLEL_MIN_CELLS = 500_000
+N_REPEATS          = 10  # independent random-pool draws averaged per (participation, amplitude) cell
 
 
 def discover_pigeon_hp_experiments(experiments_dir: Path):
@@ -273,20 +351,44 @@ def fourier_Q_from_frac(spks, freq, Q_frac, context=""):
 _worker_state = {}
 
 
-def _init_worker(spks, freq, Q):
+def _init_worker(spks, freq, Q, extra=None):
+    # Cleared, not merged into: with --workers 1 every sweep re-inits this
+    # same module-level dict in this same process, so leftover keys from a
+    # previous sweep's `extra` would otherwise still be visible to the next
+    # one (which reads them by name and can't tell they're stale).
+    _worker_state.clear()
     _worker_state["spks"] = spks
     _worker_state["freq"] = freq
     _worker_state["Q"] = Q
     _worker_state["eps"] = statistics.get_epsilon(Q)
+    # Optional extra per-sweep payload (e.g. compute_responder_df's NFC
+    # lookup table) that doesn't fit the spks/freq/Q shape every sweep
+    # shares -- merged in verbatim so worker functions can pull additional
+    # keys out of _worker_state without changing this function's signature
+    # per sweep. None (the default) leaves _worker_state exactly as before,
+    # so sweeps that don't need it (e.g. compute_fr_df's _fr_cell) are
+    # unaffected.
+    if extra:
+        _worker_state.update(extra)
+    # If this sweep pins a shared null-distribution support (see
+    # compute_responder_df's `pvalue_upper`), build it now rather than
+    # letting the first task pay for it: statistics.corrected_null_grid is
+    # memoized per process, so this is one ~1s convolution per worker at
+    # pool startup instead of a stall part-way into that worker's own
+    # progress bar, which would otherwise make its first-iteration rate
+    # look far worse than the sweep's real per-cell cost.
+    if _worker_state.get("pvalue_upper") is not None:
+        statistics.corrected_null_grid(_worker_state["eps"],
+                                       _worker_state["pvalue_upper"])
 
 
-def _init_worker_bars(spks, freq, Q, worker_fn, lock):
+def _init_worker_bars(spks, freq, Q, worker_fn, lock, extra=None):
     """Same as _init_worker, plus stashing worker_fn itself (so _run_chunk
     below can look it up per-process) and re-installing the shared tqdm
     lock -- tqdm's own recipe for rendering multiple bars from separate
     processes without their line-redraws stomping on each other.
     """
-    _init_worker(spks, freq, Q)
+    _init_worker(spks, freq, Q, extra=extra)
     _worker_state["worker_fn"] = worker_fn
     tqdm.tqdm.set_lock(lock)
 
@@ -298,7 +400,7 @@ def _run_chunk(indexed_chunk):
     return idx, [worker_fn(t) for t in bar]
 
 
-def _run_parallel(tasks, worker_fn, spks, freq, Q, workers, desc=""):
+def _run_parallel(tasks, worker_fn, spks, freq, Q, workers, desc="", extra=None):
     """With workers<=1, runs every task in-process behind a single tqdm bar.
     With workers>1, splits tasks round-robin into `workers` chunks -- one
     per pool worker -- and has each worker render its OWN tqdm bar (stacked
@@ -312,18 +414,44 @@ def _run_parallel(tasks, worker_fn, spks, freq, Q, workers, desc=""):
     a notebook -- so this renders correctly both from a terminal and from a
     notebook cell; see tqdm's own parallel-bars recipe (tqdm/examples in the
     tqdm repo) for the set_lock/get_lock pattern this mirrors.
+
+    `extra`, if given, is an additional dict merged into each worker
+    process's _worker_state (see _init_worker) -- e.g. compute_responder_df
+    passes its precomputed NFC lookup table this way instead of via the
+    task tuples themselves, since it's shared read-only state common to
+    every task rather than something that varies per task.
     """
     if workers <= 1:
-        _init_worker(spks, freq, Q)
+        _init_worker(spks, freq, Q, extra=extra)
         return [worker_fn(t) for t in tqdm.tqdm(tasks, desc=desc)]
     workers = min(workers, len(tasks)) or 1
     chunks = [tasks[i::workers] for i in range(workers)]
     lock = RLock()
     with Pool(workers, initializer=_init_worker_bars,
-              initargs=(spks, freq, Q, worker_fn, lock)) as pool:
+              initargs=(spks, freq, Q, worker_fn, lock, extra)) as pool:
         chunk_results = pool.map(_run_chunk, list(enumerate(chunks)))
     chunk_results.sort(key=lambda ic: ic[0])
     return [r for _, chunk in chunk_results for r in chunk]
+
+
+def _nfc_table_cell(task):
+    """One amplitude's row of compute_responder_df's NFC lookup table:
+    warp every unit at this amplitude, then one batched fourier_analysis
+    over the whole population.
+
+    `T` is read from _worker_state rather than recomputed, because it must
+    be the value pinned by the caller's first (unmodulated) pass -- see
+    compute_responder_df's docstring for why the table can't tolerate a
+    per-call T.
+    """
+    (amplitude,) = task
+    spks = _worker_state["spks"]
+    freq = _worker_state["freq"]
+    Q = _worker_state["Q"]
+    T = _worker_state["T"]
+    modulated = [statistics.warp_mod(spkt, amplitude, 1 / freq, 0) for spkt in spks]
+    (_, _, _, _, _, _, _, _, _, NFC) = statistics.fourier_analysis(modulated, freq, Q=Q, T=T)
+    return amplitude, NFC
 
 
 def _fr_cell(task):
@@ -382,71 +510,179 @@ def compute_sensitivity(spks, FOURIER_Q, freq=FREQ):
 
 
 def _responder_cell(task):
-    participation, pool_tuple, amplitude = task
-    spks = _worker_state["spks"]
-    freq = _worker_state["freq"]
+    """Composes one grid cell's NFC vector from compute_responder_df's
+    precomputed lookup table (_worker_state["nfc_table"]/["baseline_NFC"])
+    instead of calling warp_mod/fourier_analysis directly -- see that
+    function's docstring for why this is exact, not an approximation: a
+    unit's NFC at a given amplitude doesn't depend on which OTHER units are
+    simultaneously modulated, so the table already holds, for every unit,
+    exactly the value it would have gotten from a direct per-cell
+    computation. Only the FDR step below -- which genuinely does depend on
+    the whole cell's composed vector -- still runs per cell.
+
+    `upper=` pins corrected_pvalues onto the sweep's single shared null
+    distribution (see compute_responder_df), so the per-cell cost here is
+    an interpolation plus a sort rather than a fresh O(len(support)^2)
+    convolution -- which, left per-cell, was ~1.5 s and accounted for
+    essentially the entire runtime of this sweep.
+    """
+    participation, pool_tuple, amplitude, repeat = task
     Q = _worker_state["Q"]
-    pool_set = set(pool_tuple)
-    modulated = [
-        statistics.warp_mod(spkt, amplitude, 1 / freq, 0) if i in pool_set else spkt
-        for i, spkt in enumerate(spks)
-    ]
-    (_, _, _, _, _, _, _, _, _, NFC) = statistics.fourier_analysis(modulated, freq, Q=Q)
-    pvals = statistics.corrected_pvalues(NFC, Q)
+    nfc_table = _worker_state["nfc_table"]
+    baseline_NFC = _worker_state["baseline_NFC"]
+    NFC = baseline_NFC.copy()
+    if pool_tuple:
+        pool_idx = np.array(pool_tuple, dtype=int)
+        NFC[pool_idx] = nfc_table[amplitude][pool_idx]
+    pvals = statistics.corrected_pvalues(NFC, Q, upper=_worker_state["pvalue_upper"])
     qvals, pi0 = statistics.storey_qvalues(pvals, lambda_=0.5)
     return {
         "amplitude": amplitude,
         "participation": participation,
+        "repeat": repeat,
         "responders": int(np.sum(qvals < QVALUE_FDR)),
         "pi0": pi0,
     }
 
 
-def compute_responder_df(spks, FOURIER_Q, workers=1, freq=FREQ):
+def compute_responder_df(spks, FOURIER_Q, workers=1, freq=FREQ, n_repeats=N_REPEATS):
     """Ports fig4_pilot.py's compute_responder_df onto this file's own
-    (full, un-subsampled) pseudopopulation -- see module docstring. Baseline
-    (amplitude=0.0) is identical for every participation level (warp_mod at
-    amplitude 0 is a no-op), so it's computed once outside the swept grid,
-    same shortcut the pilot used.
+    (full, un-subsampled) pseudopopulation -- see module docstring.
+
+    Returns ALL `n_repeats` raw random-pool-draw rows per (participation,
+    amplitude) cell, tagged by a `repeat` column -- NOT pre-averaged.
+    Averaging over `repeat` is deliberately left to the caller (see
+    plot_fig4's explicit groupby-mean step) so the load -> average -> plot
+    data flow stays visible from the plotting code alone, rather than being
+    baked silently into this function's return value.
+
+    NFC lookup-table optimization: fourier_analysis's per-unit NFC value
+    (see allfourier/get_sgm/get_NFC in magpyneto2/statistics.py) depends
+    only on that unit's own (possibly warped) spike train, `freq`, `Q`, and
+    `T` -- NOT on which other units are simultaneously in the modulated
+    pool. So instead of re-running warp_mod+fourier_analysis once per grid
+    cell (up to len(PARTICIPATION_RESP) * n_repeats * len(AMPLITUDES_RESP)
+    times), we run it once per AMPLITUDES_RESP value -- warping EVERY unit
+    at that amplitude in one batched call -- to build `nfc_table[amplitude]`,
+    a length-n vector holding each unit's "if modulated at this amplitude"
+    NFC. Composing a specific grid cell's NFC vector is then just a cheap
+    array gather from this table (see _responder_cell), and only the
+    genuinely cell-dependent FDR step (corrected_pvalues/storey_qvalues --
+    Storey's FDR is a whole-vector order statistic, not cacheable) still
+    runs per cell. That FDR step is only cheap because `pvalue_upper`
+    below pins one shared null distribution across the sweep; see there.
+
+    `T` (fourier_analysis's own latest-minus-earliest-spike-time span) is a
+    population-wide quantity, so it's pinned once from the very first
+    (fully unmodulated) call and passed explicitly (T=T) to every other
+    table-building call -- otherwise fourier_analysis would implicitly
+    recompute T per call from whichever specific subset happens to be
+    warped, which the table's cross-amplitude composition can't tolerate
+    (a unit's table entry at one amplitude must sit on the same frequency
+    grid as its entry at every other amplitude, and as the baseline). In
+    practice this pinning changes nothing: warp_mod only shifts a spike
+    within its own stimulus period, so it essentially never moves the
+    population's overall earliest/latest spike enough to change T's
+    ceil()'d integer value.
+
+    Pool membership is drawn randomly per repeat via one
+    `np.random.default_rng(repeat)` Generator per repeat index (seeds
+    0..n_repeats-1), each reused/advanced across ascending `participation`
+    values within its own repeat (not re-seeded per participation, which
+    would otherwise correlate pools across participation levels within the
+    same repeat). This replaces the old deterministic evenly-rank-spaced
+    pool selection, which produced a banding/staircase artifact in panels
+    C/D; averaging over independently-drawn repeats (see plot_fig4) is what
+    washes that artifact out.
     """
-    (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, NFC0) = \
-        statistics.fourier_analysis(spks, freq, Q=FOURIER_Q)
-    sigma = statistics.get_sgm(fou_alt_c)
-    sens = spk_count / T / 2 / sigma
-    order = np.argsort(sens)  # ascending, same as the notebook
     n = len(spks)
 
-    pvals0 = statistics.corrected_pvalues(NFC0, FOURIER_Q)
+    # NFC lookup table -- see docstring above. This first, unmodulated call
+    # also pins T for every table entry built below.
+    #
+    # The table is where --workers earns its keep: one amplitude means
+    # warping every unit and then a full-population fourier_analysis (~28 s
+    # on the 1555-unit pigeon-HP pseudopopulation at FOURIER_Q=180), so the
+    # ~100 amplitudes run ~45 min single-process -- while the responder
+    # sweep that consumes the table now takes seconds. The amplitudes are
+    # mutually independent (each warps the same unmodulated `spks`, and its
+    # NFC vector depends on nothing but its own amplitude), so they fan out
+    # cleanly, each worker rendering its own progress bar.
+    (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, NFC0) = \
+        statistics.fourier_analysis(spks, freq, Q=FOURIER_Q)
+    # warp_mod at 0 is a no-op, so NFC0 above already covers that entry.
+    table_tasks = [(float(amplitude),) for amplitude in AMPLITUDES_RESP if amplitude != 0.0]
+    table_rows = _run_parallel(table_tasks, _nfc_table_cell, spks, freq, FOURIER_Q, workers,
+                               desc=f"NFC lookup table ({len(table_tasks)} amplitudes)",
+                               extra={"T": T})
+    nfc_table = {0.0: NFC0}
+    nfc_table.update(table_rows)
+    baseline_NFC = NFC0
+
+    # Shared null distribution for the whole sweep. corrected_pvalues would
+    # otherwise re-derive its support from each cell's own max NFC and
+    # rebuild the eps-corrected null from scratch every time -- a ~1.5 s
+    # convolution per cell, i.e. essentially 100% of this function's
+    # runtime, for a distribution that (eps being fixed by FOURIER_Q) is
+    # the same one every cell needs. Pinning `upper` to cover the largest
+    # NFC anywhere in the lookup table -- so no cell's units can be pushed
+    # off the end of the grid -- lets statistics.corrected_null_grid's memo
+    # hit on every call, and additionally makes every cell in the sweep
+    # comparable against one identical null rather than each against its
+    # own slightly-different grid.
+    table_NFC = np.concatenate([np.asarray(v, dtype=float).ravel()
+                                for v in nfc_table.values()])
+    table_NFC = table_NFC[np.isfinite(table_NFC)]
+    pvalue_upper = max(6.0, float(table_NFC.max()) * 1.05) if table_NFC.size else 6.0
+
+    pvals0 = statistics.corrected_pvalues(baseline_NFC, FOURIER_Q, upper=pvalue_upper)
     qvals0, pi00 = statistics.storey_qvalues(pvals0, lambda_=0.5)
     baseline_responders = int(np.sum(qvals0 < QVALUE_FDR))
 
     tasks = []
     baseline_rows = []
+    # One persistent Generator per repeat, seeded by its own repeat index and
+    # advanced across ascending participation levels (not re-seeded per
+    # participation) -- see docstring above.
+    rngs = [np.random.default_rng(repeat) for repeat in range(n_repeats)]
     for participation in PARTICIPATION_RESP:
         pool_size = int(participation * n)  # truncate, matching the notebook
-        if pool_size == 0:
-            pool = np.array([], dtype=int)
-        else:
-            pool = order[np.round(np.linspace(0, n - 1, pool_size)).astype(int)]
-        baseline_rows.append({
-            "amplitude": 0.0, "participation": participation,
-            "responders": baseline_responders, "pi0": pi00,
-        })
-        pool_tuple = tuple(pool.tolist())
-        for amplitude in AMPLITUDES_RESP:
-            if amplitude == 0.0:
-                # Already covered by baseline_rows above (warp_mod at
-                # amplitude 0 is a no-op regardless of which pool is
-                # selected) -- AMPLITUDES_RESP may or may not include a
-                # literal 0.0 entry itself, so guard against building a
-                # second, redundant row for the same (participation, 0.0)
-                # pair, which would make the pivot() below raise on a
-                # duplicate index.
-                continue
-            tasks.append((participation, pool_tuple, amplitude))
+        for repeat in range(n_repeats):
+            if pool_size == 0:
+                pool = np.array([], dtype=int)
+            else:
+                pool = rngs[repeat].choice(n, size=pool_size, replace=False)
+            # Baseline (amplitude=0.0) is bit-identical regardless of pool
+            # composition (warp_mod at amplitude 0 is a no-op) -- replicated
+            # flatly across repeats anyway so every (participation,
+            # amplitude) pair, baseline included, has exactly n_repeats rows,
+            # keeping the schema uniform for the downstream groupby-mean.
+            baseline_rows.append({
+                "amplitude": 0.0, "participation": participation,
+                "repeat": repeat,
+                "responders": baseline_responders, "pi0": pi00,
+            })
+            pool_tuple = tuple(pool.tolist())
+            for amplitude in AMPLITUDES_RESP:
+                if amplitude == 0.0:
+                    # Already covered by baseline_rows above -- AMPLITUDES_RESP
+                    # may or may not include a literal 0.0 entry itself, so
+                    # guard against building a second, redundant row for the
+                    # same (participation, 0.0, repeat), which would make the
+                    # groupby/pivot() below raise on a duplicate index.
+                    continue
+                tasks.append((participation, pool_tuple, amplitude, repeat))
 
-    rows = _run_parallel(tasks, _responder_cell, spks, freq, FOURIER_Q, workers,
-                          desc=f"responder sweep ({len(tasks)} cells)")
+    # The sweep itself is ~0.1 ms/cell now that every cell shares one null
+    # distribution (see _responder_cell), so at this grid resolution it
+    # finishes in seconds in-process -- less than a Pool costs to spawn on
+    # Windows, and every worker would need its own copy of the table on top
+    # of that. Fan it out only once the grid is big enough to pay for it.
+    sweep_workers = workers if len(tasks) >= _SWEEP_PARALLEL_MIN_CELLS else 1
+    rows = _run_parallel(tasks, _responder_cell, spks, freq, FOURIER_Q, sweep_workers,
+                          desc=f"responder sweep ({len(tasks)} cells, {n_repeats} repeats)",
+                          extra={"nfc_table": nfc_table, "baseline_NFC": baseline_NFC,
+                                 "pvalue_upper": pvalue_upper})
     return pd.DataFrame(baseline_rows + rows)
 
 
@@ -539,10 +775,12 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
         # modulation actually imposes. Both get the SAME (spks, window,
         # freq), so the curve summarizes exactly the ticks drawn under it.
         statistics.plot_phase_raster(raster_axes[mod_i], np.squeeze(warped), raster_window, FREQ,
-                                     color=RASTER_COLOR, markersize=2, linewidth=0.5)
+                                     color=RASTER_COLOR, markersize=2, linewidth=0.5,
+                                     pad_x=RASTER_PAD_X, pad_y=RASTER_PAD_Y)
         raster_axes[mod_i].set_title(f"A={A}", fontsize=FP.FS_TITLE)
         psth_axes.append(statistics.plot_smoothed_phase_psth(
-            raster_axes[mod_i], np.squeeze(warped), raster_window, FREQ, color=PSTH_COLOR))
+            raster_axes[mod_i], np.squeeze(warped), raster_window, FREQ, color=PSTH_COLOR,
+            n_bins=PSTH_N_BINS, smooth_bins=PSTH_SMOOTH_BINS, alpha=1.0))
         if mod_i != 0:
             raster_axes[mod_i].set_ylabel("")
             raster_axes[mod_i].set_yticks([])
@@ -560,7 +798,10 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
     # into the row's already-tight wspace.
     psth_max = max(ax.get_ylim()[1] for ax in psth_axes)
     for mod_i, psth_ax in enumerate(psth_axes):
-        psth_ax.set_ylim(0, psth_max * 1.05)  # headroom, as for the spectra above
+        # Headroom above (as for the spectra) plus a matching gap below, so a
+        # trough that reaches 0 Hz doesn't get drawn on top of the raster's
+        # bottom spine.
+        psth_ax.set_ylim(-psth_max * PSTH_PAD_Y, psth_max * 1.05)
         if mod_i != len(psth_axes) - 1:
             psth_ax.set_ylabel("")
             psth_ax.set_yticks([])
@@ -568,11 +809,25 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
         else:
             psth_ax.set_ylabel("PSTH (Hz)", color=PSTH_COLOR, fontsize=FP.FS_LEGEND, labelpad=1)
             psth_ax.tick_params(axis="y", labelsize=FP.FS_LEGEND, pad=1)
+            # The negative bottom limit is padding, not data -- drop any tick
+            # the locator puts below 0, which would read as a negative rate.
+            psth_ax.set_yticks([t for t in psth_ax.get_yticks() if 0 <= t <= psth_max * 1.05])
 
     # Panel C (q-value/FDR responder-count heatmap, ported from
     # fig4_pilot.py's plot_fig4_pilot), on this file's own full
     # pseudopopulation.
-    pivot = resp_df.pivot(index="participation", columns="amplitude", values="responders")
+    #
+    # Repeat averaging (explicit on purpose): compute_responder_df returns
+    # ALL N_REPEATS raw random-pool-draw rows per (participation, amplitude)
+    # cell (see its docstring), tagged by `repeat`, NOT pre-averaged.
+    # Averaging happens HERE, as its own step, so this load -> average ->
+    # plot pipeline stays visible from the plotting code alone, without
+    # digging into compute_responder_df. Only "responders" (the plotted
+    # value) is averaged; `pi0`/`repeat` are dropped by the groupby.
+    resp_df_mean = (
+        resp_df.groupby(["participation", "amplitude"])["responders"].mean().reset_index()
+    )
+    pivot = resp_df_mean.pivot(index="participation", columns="amplitude", values="responders")
     im = ax_heatmap.imshow(
         pivot.values, aspect="auto", origin="lower",
         extent=[pivot.columns.min(), pivot.columns.max(), pivot.index.min(), pivot.index.max()],
@@ -589,7 +844,12 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
     # the pseudopopulation subsampling fig4_pilot.py did unconditionally,
     # now shown here as an explicit comparison against panel C's full
     # population rather than a replacement for it.
-    pivot_top = resp_df_top.pivot(index="participation", columns="amplitude", values="responders")
+    #
+    # Same repeat-averaging as panel C above.
+    resp_df_top_mean = (
+        resp_df_top.groupby(["participation", "amplitude"])["responders"].mean().reset_index()
+    )
+    pivot_top = resp_df_top_mean.pivot(index="participation", columns="amplitude", values="responders")
     im_top = ax_heatmap_top.imshow(
         pivot_top.values, aspect="auto", origin="lower",
         extent=[pivot_top.columns.min(), pivot_top.columns.max(), pivot_top.index.min(), pivot_top.index.max()],
@@ -693,8 +953,10 @@ def main():
                         help="Explicit experiment names to pool (default: auto-discover "
                              "every experiment YAML with species=='Pigeon' and area=='HP')")
     parser.add_argument("--workers", type=int, default=1,
-                        help="Parallel workers for the panel B/C/D sweeps (each sweep's grid "
-                             "cells are independent -- try e.g. --workers 8)")
+                        help="Parallel workers for the panel B/C/D sweeps. Worth setting: it "
+                             "fans out the per-amplitude NFC lookup table, which dominates "
+                             "runtime (~45 min at --workers 1, ~2 min at --workers 20). Each "
+                             "worker holds its own copy of the pooled spike trains")
     parser.add_argument("--recompute", action="store_true",
                         help="Recompute simulation even if cached pickles exist")
     args = parser.parse_args([] if in_notebook else None)
