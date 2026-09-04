@@ -544,17 +544,21 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     # already deliberately secondary (grey, a visual aid rather than part of
     # the Fourier computation), so it takes the smaller legend font; the
     # spectrum keeps body-size labels and just loses its tick padding.
+    # Panels C and D SHARE one PSTH rate scale (the larger of the two
+    # panels' own autoscaled maxima, i.e. the visual panel's), the same way
+    # Fig4A's three rasters do. C and D are the same unit under two
+    # different stimuli, so the modulation depth the curves show is only
+    # comparable between them if the axis is: on independent scales the
+    # magnetic panel's noise wobble is stretched to the same visual
+    # amplitude as the visual panel's real response, which reads as though
+    # the null result were modulated just as strongly.
+    _psth_max = max(_ax.get_ylim()[1] for _ax in (mag_psth_ax, vis_psth_ax))
     for _psth_ax in (mag_psth_ax, vis_psth_ax):
         _psth_ax.set_ylabel("PSTH (Hz)", color="grey", fontsize=FP.FS_LEGEND, labelpad=1)
         _psth_ax.tick_params(axis="y", labelsize=FP.FS_LEGEND, pad=1)
         # Headroom above the curve plus a matching gap below (see PSTH_PAD_Y),
         # so a trough that reaches 0 Hz isn't drawn on top of the raster's
-        # bottom spine. Each row keeps its OWN rate scale, unlike Fig4A's
-        # three panels, which share one: those are a single unit at three
-        # modulation amplitudes, where the growth of the curve between them
-        # is the point, whereas these two rows are different stimuli whose
-        # absolute rates aren't meant to be read against each other.
-        _psth_max = _psth_ax.get_ylim()[1]
+        # bottom spine.
         _psth_ax.set_ylim(-_psth_max * PSTH_PAD_Y, _psth_max * 1.05)
         # The negative bottom limit is padding, not data -- drop any tick the
         # locator puts below 0, which would read as a negative firing rate.
