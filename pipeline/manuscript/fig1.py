@@ -138,8 +138,8 @@ COL_WSPACE = 0.07
 # coil pair (left, above panel B's magnetic trace) and the grating screen
 # (right, above its visual trace). They live in the figure output directory alongside the PDFs rather
 # than under data/ -- they're figure assets, not pipeline data.
-CARTOON_MAG_PATH = Path(FP.OUT_DIR) / "Pig mag - August 26, 2026 18.51.58.jpg"
-CARTOON_VIS_PATH = Path(FP.OUT_DIR) / "Pig screen - August 29, 2026 18.51.58.jpg"
+CARTOON_MAG_PATH = Path(FP.OUT_DIR) / "Pigeon back side magnet.jpg"
+CARTOON_VIS_PATH = Path(FP.OUT_DIR) / "Pigeon back side screen.jpg"
 
 # ── Experiment / exemplar unit ────────────────────────────────────────────────
 EXPERIMENT = "20230413_secondsite"
@@ -252,20 +252,7 @@ WAVEFORM_SEED = 0
 
 #%%
 
-def _band_mask(img):
-    """Mask of the cartoons' saturated blue coil band.
-
-    Keyed on blue dominating both other channels rather than on an absolute
-    blue level, so it ignores the drawings' black ink and grey pencil
-    shading (where the three channels track each other) without needing a
-    hand-tuned brightness cutoff.
-    """
-    r, g, b = (img[..., i].astype(np.int16) for i in range(3))
-    return (b > 90) & (b - r > 50) & (b - g > 50)
-
-
-def _load_cartoons(paths, pad_frac: float = 0.02, min_component_px: int = 100,
-                   bottom: str = "ink"):
+def _load_cartoons(paths, pad_frac: float = 0.02, min_component_px: int = 100):
     """Read the cartoon JPEGs and trim white margin with a SHARED crop box.
 
     The drawings share one canvas and are ~93% pixel-identical: the same
@@ -293,16 +280,6 @@ def _load_cartoons(paths, pad_frac: float = 0.02, min_component_px: int = 100,
     of intermediate size outside the drawing. Only the BOX is measured
     this way -- the full image is what gets cropped and drawn, so specks
     inside the box still render; only ones outside it are cut.
-
-    `bottom` picks where the crop ends. "ink" keeps the whole drawing.
-    "band" instead cuts flush at the bottom of the blue coil band, dropping
-    the wings and tail below it: the drawings are much taller than they are
-    wide, and in a wide, short figure row they're limited by the row's
-    HEIGHT, so shortening them is the only way to make them render larger
-    and use more of the row's width. The band spans the full width of the
-    bird, so cutting at its lowest row leaves a clean, deliberate-looking
-    horizontal edge; no bottom padding is added there, which would
-    reintroduce a sliver of tail below it.
     """
     imgs = []
     for path in paths:
@@ -336,15 +313,6 @@ def _load_cartoons(paths, pad_frac: float = 0.02, min_component_px: int = 100,
     r1 = min(rows[-1] + 1 + pad_r, ink.shape[0])
     c0 = max(cols[0] - pad_c, 0)
     c1 = min(cols[-1] + 1 + pad_c, ink.shape[1])
-    if bottom == "band":
-        band = np.zeros(ink.shape, dtype=bool)
-        for img in imgs:
-            band |= _band_mask(img)
-        band_rows = np.flatnonzero(band.any(axis=1))
-        if band_rows.size:
-            r1 = min(band_rows[-1] + 1, r1)  # flush cut, no bottom pad
-    elif bottom != "ink":
-        raise ValueError(f"bottom must be 'ink' or 'band', got {bottom!r}")
 
     return [img[r0:r1, c0:c1] for img in imgs]
 
@@ -360,7 +328,7 @@ def load_data(data_dir: str):
 
 
 def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: Path,
-                        out_name: str = "Fig1.pdf", cartoon_bottom: str = "ink"):
+                        out_name: str = "Fig1.pdf"):
     # Fig1_NPIX_data only reads unitrow.cluster_id (not .ch) -- no NAS-backed
     # cluster_info.tsv lookup needed here, just the cluster id itself.
     unitrow = pd.Series({"cluster_id": CLUSTER_ID})
@@ -496,8 +464,7 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     # inset's box down to the image, so a container-level title would float
     # a variable gap above whichever cartoon ended up shorter.
     for _ax, _img, _title in zip((cartoon_mag_ax, cartoon_vis_ax),
-                                 _load_cartoons((CARTOON_MAG_PATH, CARTOON_VIS_PATH),
-                                                bottom=cartoon_bottom),
+                                 _load_cartoons((CARTOON_MAG_PATH, CARTOON_VIS_PATH)),
                                  ("Magnetic stimulation", "Visual stimulation")):
         _ax.imshow(_img, interpolation="antialiased")
         _ax.axis("off")
@@ -818,10 +785,6 @@ def main():
     print("Loading NPIX data...")
     modulation_df, fourier_df, group_df, unit_df = load_data(args.data_dir)
     plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir)
-    # Same figure, cartoons cut off at the bottom of the coil band -- see
-    # _load_cartoons' `bottom` for why that makes them render wider.
-    plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir,
-                        out_name="Fig1_wide.pdf", cartoon_bottom="band")
 
 
 if __name__ == "__main__":
