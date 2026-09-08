@@ -6,14 +6,17 @@ then synthetically modulates the pooled units to show detection thresholds.
 Pooling this way (instead of a single recording) keeps Fig4's population
 consistent with the "Pigeon HP" population Fig2/Fig3 already report on.
 
-Because the pooled sessions were recorded for four different lengths, every
-unit is put on one common EQUAL_WINDOW_S (60 s) observation window before
-anything is computed -- units spanning less are dropped, longer ones are
-truncated to their first 60 s (see equalize_unit_windows). This applies to
-the whole file, not just one panel: the same `spks` list feeds panel A's
-example unit, panel B's scatter, compute_sensitivity's top-decile ranking
-and panels C/D's responder sweep, so equalizing anywhere but at the loader
-would leave those panels describing different populations.
+Each pigeon-HP site contains 6-10 separate magnetic recordings, which are
+CONCATENATED end-to-end into one non-overlapping timeline per site before a
+unit's spikes are pooled (see concat_mag_recs, and EQUAL_WINDOW_S for why
+this is not optional). Every unit is then truncated to the first
+EQUAL_WINDOW_S (350 s) of its site's timeline (see
+truncate_pseudopop_to_window), so the four sites -- whose full timelines run
+352.5-784.8 s -- contribute equal-length observations. This applies to the
+whole file, not just one panel: the same `spks` list feeds panel A's example
+unit, panel B's scatter, compute_sensitivity's top-decile ranking and panels
+C/D's responder sweep, so doing either step anywhere but at the loader would
+leave those panels describing different populations.
 Panel C ports fig4_pilot.py's Storey q-value/FDR responder-count heatmap
 onto this file's full pseudopopulation. Panel D repeats that exact
 analysis restricted to the top decile (>=90th percentile) by a synthetic-
@@ -61,7 +64,7 @@ per-worker -- in a terminal or a notebook cell alike.
 
 At the current grid resolution --workers is worth setting for exactly one
 step: compute_responder_df's per-amplitude NFC lookup table, which is
-~45 min single-process and ~2 min at --workers 20. Panels C/D's responder
+~50 min single-process and ~2.5 min at --workers 24. Panels C/D's responder
 sweep itself, once the dominant cost, is now seconds -- every cell shares
 one pinned null distribution instead of rebuilding it (see
 compute_responder_df's `pvalue_upper`) -- so it deliberately stays
@@ -112,21 +115,46 @@ import format_parameters as FP
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _EXPERIMENTS_DIR = _REPO_ROOT / "experiments"
 
-# Every pooled unit is observed over the SAME window: units whose own
-# first-to-last-spike span is shorter than this are dropped outright, and
-# every surviving unit is truncated to its first EQUAL_WINDOW_S seconds (see
-# equalize_unit_windows). Without this the pooled units carry the four source
-# sessions' four different recording durations (medians ~62 s, ~64 s, ~96 s,
-# ~236 s), and since a longer observation shrinks the null NFC while leaving
-# a real modulation's NFC roughly fixed, panel B's scatter split into visible
-# per-duration bands -- an artifact of how long each unit happened to be
-# recorded, not of anything about the unit. 60 s is the largest round window
-# the two shortest sessions can supply; it costs 16% of the units (249/1555,
-# all of them below the 60 s span) and leaves 300 stimulus cycles at FREQ=5 Hz
-# per unit.
-EQUAL_WINDOW_S = 60.0
+# Every pooled unit is observed over the SAME window: the first
+# EQUAL_WINDOW_S seconds of its experiment's own CONCATENATED timeline (see
+# concat_mag_recs and truncate_pseudopop_to_window).
+#
+# Why a concatenated timeline at all: each pigeon-HP site contributes 6-10
+# separate magnetic recordings, and nwb_io.build_modulation_frame hands back
+# RECORDING-LOCAL spike times (`all_sts - beginning_time`, see the
+# local_offset comment there) because that is what fit_fourier_sig wants --
+# it groups by ("rec", "freq"), so a group is always one rec and local times
+# are exactly right. Pooling a unit's recs, as this file does, is the one
+# thing that convention cannot survive: every rec's magnetic epoch starts
+# ~30-60 s into that rec, so a naive groupby("id") OVERLAYS all 6-10 recs on
+# one ~30-90 s axis instead of laying them end to end. That inflated every
+# firing rate by however many recs the unit appeared in (6-13x, varying by
+# site) and left fourier_analysis's T at ~60 s when 350-785 s had really been
+# observed. concat_mag_recs shifts each rec onto a single non-overlapping
+# timeline instead.
+#
+# 350 s is the largest round window every site can supply -- the four sites'
+# concatenated durations are 544.8, 465.8, 784.8 and 352.5 s. Because a unit
+# is recorded for its site's whole timeline whether or not it fires in every
+# rec, nothing needs dropping for spanning too little: the old
+# first-to-last-spike span test (and the "duration banding" it was written to
+# fix, which was itself an artifact of the overlay) is gone, and only a
+# min-spike floor remains.
+EQUAL_WINDOW_S = 350.0
 MIN_SPIKES = 6  # same floor load_unit_spks_for_experiment applies at load time
-_WINDOW_TAG = f"{EQUAL_WINDOW_S:g}s"
+# Two tag components beyond the window length, because two changes have each
+# altered what a given nominal window MEANS:
+#   "concat"  -- every cache predating it was computed on the OVERLAID
+#                timeline, where the same nominal window was a completely
+#                different observation of every unit.
+#   "allspk"  -- min_spikes=0 on the build_modulation_frame call (see
+#                load_unit_spks_for_experiment): restores the ~4% of
+#                in-window spikes the per-rec 50-spike threshold discarded,
+#                and admits units that cleared it in no single rec, so the
+#                pooled population itself is larger.
+# Neither an old "..._60s.pkl" nor an old "..._concat350s.pkl" may be
+# silently reloaded as if it matched the current definition.
+_WINDOW_TAG = f"concat{EQUAL_WINDOW_S:g}s_allspk"
 
 # _pigeon_hp_pseudopop suffix: deliberately distinct from the old
 # single-recording cache filenames (modulation_strength_vs_excess_count.pkl /
@@ -278,17 +306,113 @@ def discover_pigeon_hp_experiments(experiments_dir: Path):
     return names
 
 
+def concat_mag_recs(nwbfile, mag_substr):
+    """Lay one experiment's magnetic recordings end-to-end onto a single
+    non-overlapping timeline.
+
+    Returns (rec_map, total_duration) where rec_map maps a rec name to
+    (local_start, duration, offset): subtract `local_start` from that rec's
+    recording-local spike times to re-zero them on its own stimulus epoch,
+    then add `offset` to place it after every preceding rec. See
+    EQUAL_WINDOW_S for why this is necessary at all.
+
+    Both quantities come from the NWB `stimulus_epochs` table rather than
+    from the spikes:
+
+      duration    = stop_time - start_time. This is the same T
+                    fit_fourier_sig derives for the rec from the period
+                    column ((1/freq) * max(period)) -- checked on all 32
+                    pigeon-HP mag recs, where the two agree to <= 0.0036 s
+                    -- so the concatenated timeline is tiled by exactly the
+                    windows the real per-rec analysis uses. Taking it from
+                    the epoch table instead of the periods keeps it
+                    independent of which units happened to fire.
+      local_start = start_time - local_offset_seconds, i.e. the epoch's
+                    start expressed in the same recording-local frame as
+                    `spk` (write_epochs_table stores start/stop in the
+                    aggregated whole-catalog domain, and
+                    build_modulation_frame subtracts local_offset_seconds
+                    from the spike times only).
+
+    Recs are ordered by `start_time`, i.e. the order they sit in the
+    concatenated catalog Kilosort actually sorted. That is deliberately NOT
+    the same as sorting by the wall-clock timestamp in the rec NAME --
+    20230413_firstsite's catalog runs 15-08, then 15-29 down to 15-11 -- but
+    correctness doesn't depend on the choice (any consistent order yields a
+    valid non-overlapping timeline, and warp_mod imposes its synthetic
+    modulation coherently on whatever timeline it is given), and catalog
+    order needs no filename parsing.
+    """
+    epochs = nwbfile.intervals["stimulus_epochs"].to_dataframe()
+    epochs = epochs.loc[[mag_substr in rec for rec in epochs["rec"]]]
+    if epochs.empty:
+        raise ValueError(
+            f"No stimulus_epochs rows matching mag_rec_substring={mag_substr!r}"
+        )
+    # One epoch per mag rec holds for every pigeon-HP experiment. Guarded
+    # rather than assumed: with two windows for one rec, a single
+    # (local_start, offset) pair per rec would silently misplace one of them.
+    multi = epochs["rec"].value_counts()
+    if (multi > 1).any():
+        raise ValueError(
+            f"Expected one stimulus epoch per mag rec, got "
+            f"{multi[multi > 1].to_dict()} -- concat_mag_recs needs extending "
+            f"to place each window separately."
+        )
+
+    epochs = epochs.sort_values("start_time")
+    durations = (epochs["stop_time"] - epochs["start_time"]).values
+    local_starts = (epochs["start_time"] - epochs["local_offset_seconds"]).values
+    # Exclusive cumulative sum: rec 0 lands at 0, rec i after every rec
+    # before it. NOT i * duration[i-1] -- these recs run 47.8-139.0 s within
+    # a single site, so a uniform stride would both overlap and leave gaps.
+    offsets = np.concatenate([[0.0], np.cumsum(durations)[:-1]])
+    rec_map = {rec: (float(ls), float(d), float(o))
+               for rec, ls, d, o in zip(epochs["rec"], local_starts, durations, offsets)}
+    return rec_map, float(durations.sum())
+
+
 def load_unit_spks_for_experiment(data_dir: str, experiment: str):
     """Load one pigeon-HP experiment's "mag"-contingency spike trains, one
-    pooled spike array per real unit (pooled across that experiment's own
-    mag trial recs -- they share a single Kilosort sort, same as
-    fit_fourier_sig's own per-unit grouping).
+    spike array per real unit, with that experiment's magnetic recordings
+    CONCATENATED end-to-end onto a single non-overlapping timeline (see
+    concat_mag_recs).
 
-    Returns (unit_spks, Q_frac) where unit_spks maps
-    f"{experiment}:{cluster_id}" -> spike-time array. The namespaced key
-    only exists to keep this experiment's units distinct when pooled with
-    other experiments' units downstream -- cluster_id alone is not globally
-    unique (see fig2.py/fig3.py's species/date/id dedup key).
+    Returns (unit_spks, Q_frac, total_duration) where unit_spks maps
+    f"{experiment}:{cluster_id}" -> spike-time array on that timeline. The
+    namespaced key only exists to keep this experiment's units distinct when
+    pooled with other experiments' units downstream -- cluster_id alone is
+    not globally unique (see fig2.py/fig3.py's species/date/id dedup key).
+
+    Pooling a unit's recs is meaningful because they share a single Kilosort
+    sort. It is NOT what fit_fourier_sig does, though -- that groups by
+    ("rec", "freq") and never mixes recs, which is why the concatenation
+    above has to be done explicitly here rather than inherited from the real
+    analysis path.
+
+    `min_spikes=0` on the build_modulation_frame call, against its default of
+    50: that default is a faithful port of legacy process_raw_data_NPIX's
+    `if len(st) < 50: continue`, applied PER (unit, rec). It is the right
+    convention for the real per-rec analysis -- a 50-spike Fourier estimate
+    from one rec is not worth having -- but it is wrong for a pooled,
+    concatenated timeline, where a unit's spikes from every rec are counted
+    together against one duration. Under the default, a unit is simply absent
+    from any rec it fired under 50 times in, so those real spikes vanish
+    while the rec's seconds still count toward its firing rate. Measured on
+    the four pigeon-HP sites: 2612 of 6200 (unit, rec) pairs were dropped in
+    20230414_firstsite alone (every one holding 0-49 real spikes, verified
+    against Units.spike_times, max 49 -- versus a minimum of 50 in every
+    retained pair), costing 109,563 of 2,891,431 in-window spikes (3.8%)
+    across all sites, with 1020 of 1555 units losing some. The bias is
+    strongly rate-dependent, so it lands hardest exactly where it matters
+    most for a detectability simulation: units firing under 0.5 Hz kept a
+    median of just 48% of their spikes.
+
+    Note that this admits units the default would have excluded from every
+    rec (fewer than 50 spikes in each), so the pooled population is somewhat
+    larger than the real analysis's. That is the intended trade: this file
+    simulates detectability as a function of firing rate, so it must see each
+    unit's actual rate rather than a per-rec-thresholded view of it.
     """
     # Reads the pipeline's own {experiment}.nwb (Phase 7 cutover -- no
     # paradigm writes the legacy {experiment}_processing.pickle anymore),
@@ -296,14 +420,22 @@ def load_unit_spks_for_experiment(data_dir: str, experiment: str):
     cfg = load_experiment(_EXPERIMENTS_DIR / f"{experiment}.yml")
     nwb_path = Path(data_dir) / f"{experiment}.nwb"
     io_r, nwbfile = nwb_io.read_nwbfile(str(nwb_path))
-    modulation_df = nwb_io.build_modulation_frame(nwbfile, good_only=cfg.good)
+    # min_spikes=0, NOT the default 50 -- see this function's docstring. For
+    # phase_method="crossings" the filter is `len(st) < min_spikes`, so 0
+    # disables it outright (a unit with no spikes in a window contributes an
+    # empty frame, which concats away harmlessly).
+    modulation_df = nwb_io.build_modulation_frame(nwbfile, good_only=cfg.good,
+                                                  min_spikes=0)
+    # Read from the same open file -- the epoch table this uses is the one
+    # whose local_offset_seconds build_modulation_frame just applied.
+    mag_substr = cfg.analysis.mag_rec_substring
+    rec_map, total_T = concat_mag_recs(nwbfile, mag_substr)
     io_r.close()
 
     # Same plain substring test analysis_stages/multistim.py uses to build
     # its mag_mask -- "mag" contingency is the real magnetic-trial recs,
     # excluding auxiliary_stimuli (visual/WN/oddball) recs, which are always
     # "positive control".
-    mag_substr = cfg.analysis.mag_rec_substring
     mag_df = modulation_df.loc[[mag_substr in rec for rec in modulation_df.rec]]
     if mag_df.empty:
         available = modulation_df.rec.unique().tolist()
@@ -311,12 +443,39 @@ def load_unit_spks_for_experiment(data_dir: str, experiment: str):
             f"No recs matching mag_rec_substring={mag_substr!r} in "
             f"{nwb_path.name}. Available recs: {available}"
         )
+    missing = set(mag_df.rec.unique()) - set(rec_map)
+    if missing:
+        raise ValueError(
+            f"{nwb_path.name}: recs present in modulation_df with no stimulus "
+            f"epoch to place them on the concatenated timeline: {sorted(missing)}"
+        )
 
-    unit_spks = {
-        f"{experiment}:{uid}": g.spk.values
-        for uid, g in mag_df.groupby("id") if len(g) > 5
-    }
-    print(f"  {experiment}: {len(unit_spks)} mag units with >5 spikes")
+    unit_spks = {}
+    for uid, g in mag_df.groupby("id"):
+        parts = []
+        for rec, g_rec in g.groupby("rec"):
+            local_start, _dur, offset = rec_map[rec]
+            parts.append(np.asarray(g_rec.spk.values, dtype=float) - local_start + offset)
+        # Sorted because the pooled frame's row order is dict/table iteration
+        # order across recs, not time -- fit_fourier_sig sorts its own
+        # per-unit arrays for the same reason (np.sort(id_subdf.spk.values)).
+        spkt = np.sort(np.concatenate(parts))
+        if len(spkt) > 5:
+            unit_spks[f"{experiment}:{uid}"] = spkt
+
+    # Cheap check that the tiling really is non-overlapping: every spike must
+    # land inside [0, total_T). A violation means a spike outside its own
+    # epoch window, which is exactly what the offsets assume away.
+    for key, spkt in unit_spks.items():
+        if spkt[0] < -1e-6 or spkt[-1] >= total_T + 1e-6:
+            raise ValueError(
+                f"{key}: concatenated spike times span [{spkt[0]:.3f}, "
+                f"{spkt[-1]:.3f}] s, outside the [0, {total_T:.3f}) s timeline "
+                f"-- a spike falls outside its own rec's stimulus epoch."
+            )
+
+    print(f"  {experiment}: {len(unit_spks)} mag units with >5 spikes, "
+          f"{len(rec_map)} mag recs concatenated -> {total_T:.1f} s timeline")
 
     Q_frac = cfg.analysis.mag_Q_frac if cfg.analysis.mag_Q_frac > 0 else cfg.analysis.Q_frac
     if Q_frac <= 0:
@@ -326,43 +485,44 @@ def load_unit_spks_for_experiment(data_dir: str, experiment: str):
             f"this experiment's own Q_frac, same as the real per-experiment "
             f"analysis."
         )
-    return unit_spks, Q_frac
+    return unit_spks, Q_frac, total_T
 
 
-def equalize_unit_windows(unit_spks, window_s=EQUAL_WINDOW_S, min_spikes=MIN_SPIKES):
-    """Put every unit on a common observation window: drop any unit whose own
-    first-to-last-spike span is shorter than `window_s`, and truncate each
-    survivor to its first `window_s` seconds (measured from its own first
-    spike). Returns a new dict; the input is not modified.
+def truncate_pseudopop_to_window(unit_spks, window_s=EQUAL_WINDOW_S,
+                                 min_spikes=MIN_SPIKES):
+    """Put every unit on a common observation window: keep only the first
+    `window_s` seconds of its experiment's concatenated timeline. Returns a
+    new dict; the input is not modified.
 
-    This is the fix for panel B's duration banding -- see EQUAL_WINDOW_S.
-    Both halves matter and neither alone is enough: truncating without
-    dropping would leave the short units contributing sub-window spans (the
-    very thing being equalized), and dropping without truncating would leave
-    the survivors spread over 60-239 s.
+    Anchored at t=0 of that timeline (the first mag rec's epoch start), NOT
+    at each unit's own first spike. On a real timeline the electrode was
+    recording for the whole window regardless of when a given unit happened
+    to fire, so t=0 is the honest observation start and every kept unit
+    shares exactly `window_s` seconds of it -- which is also what makes
+    fourier_analysis's single population-wide T correct for all of them.
 
-    A unit long enough to survive the span test can still fall below
-    `min_spikes` once truncated (a sparse unit firing mostly late in its
-    recording), so the same floor load_unit_spks_for_experiment applies at
-    load time is re-applied here rather than assumed to still hold.
+    This replaces the old equalize_unit_windows, which measured each unit's
+    first-to-last-spike SPAN and dropped anything under the window. That test
+    only made sense on the overlaid timeline, where there was no real
+    duration to appeal to; it dropped 249 of 1555 units purely for firing
+    sparsely near the edges of a ~60 s overlay (see the fig4B_fano_by_rec
+    diagnostic). Nothing is dropped for duration now -- only the same
+    min_spikes floor load_unit_spks_for_experiment applies at load time,
+    re-applied because truncation can push a sparse unit below it.
     """
-    kept, short, sparse = {}, 0, 0
+    kept, sparse = {}, 0
     for key, spkt in unit_spks.items():
-        if spkt.max() - spkt.min() < window_s:
-            short += 1
-            continue
-        trunc = spkt[spkt - spkt.min() < window_s]
+        trunc = spkt[spkt < window_s]
         if len(trunc) < min_spikes:
             sparse += 1
             continue
         kept[key] = trunc
-    print(f"  equalized to a common {window_s:g} s window: {len(kept)} units kept, "
-          f"{short} dropped for spanning <{window_s:g} s, "
+    print(f"  truncated to a common {window_s:g} s window: {len(kept)} units kept, "
           f"{sparse} dropped for having <{min_spikes} spikes left after truncation")
     if not kept:
         raise ValueError(
-            f"No units survive the {window_s:g} s common window -- every pooled unit "
-            f"spans less than that. Lower EQUAL_WINDOW_S."
+            f"No units survive the {window_s:g} s common window. "
+            f"Lower EQUAL_WINDOW_S."
         )
     return kept
 
@@ -370,18 +530,37 @@ def equalize_unit_windows(unit_spks, window_s=EQUAL_WINDOW_S, min_spikes=MIN_SPI
 def load_pseudopopulation_spks(data_dir: str, experiments):
     """Pool load_unit_spks_for_experiment() across every given experiment
     into one pigeon-HP pseudopopulation, put every unit on the same
-    EQUAL_WINDOW_S observation window (see equalize_unit_windows), then sort
-    by spike count ascending (plot_fig4 picks its example unit via
+    EQUAL_WINDOW_S observation window (see truncate_pseudopop_to_window),
+    then sort by spike count ascending (plot_fig4 picks its example unit via
     spks[len(spks) // 2], i.e. the median-by-spike-count unit -- same
     convention the old single-recording load_spks used).
+
+    Each experiment's units arrive on that experiment's OWN concatenated
+    timeline, all starting at t=0, so truncating the merged dict is
+    equivalent to truncating each experiment separately -- there is no
+    cross-experiment timeline and none is implied.
     """
     all_units = {}
     q_fracs = {}
+    total_Ts = {}
     for experiment in experiments:
-        unit_spks, Q_frac = load_unit_spks_for_experiment(data_dir, experiment)
+        unit_spks, Q_frac, total_T = load_unit_spks_for_experiment(data_dir, experiment)
         all_units.update(unit_spks)
         q_fracs[experiment] = Q_frac
-    all_units = equalize_unit_windows(all_units)
+        total_Ts[experiment] = total_T
+
+    # Checked before truncating rather than after: an experiment whose whole
+    # concatenated timeline is shorter than the window would silently
+    # contribute units observed for less than every other experiment's,
+    # which is the exact defect the common window exists to prevent.
+    too_short = {e: T for e, T in total_Ts.items() if T < EQUAL_WINDOW_S}
+    if too_short:
+        raise ValueError(
+            f"EQUAL_WINDOW_S={EQUAL_WINDOW_S:g} s exceeds the total concatenated "
+            f"mag duration of {too_short} -- lower it to at most "
+            f"{min(total_Ts.values()):.1f} s (the shortest pooled experiment)."
+        )
+    all_units = truncate_pseudopop_to_window(all_units)
 
     unique_q_fracs = set(q_fracs.values())
     if len(unique_q_fracs) > 1:
@@ -394,7 +573,10 @@ def load_pseudopopulation_spks(data_dir: str, experiments):
 
     keys_sorted = sorted(all_units, key=lambda k: len(all_units[k]))
     spks = [all_units[k] for k in keys_sorted]
-    print(f"  {len(spks)} pigeon-HP pseudopopulation units pooled from {len(experiments)} experiments")
+    print(f"  {len(spks)} pigeon-HP pseudopopulation units pooled from "
+          f"{len(experiments)} experiments "
+          f"(concatenated timelines: "
+          f"{', '.join(f'{e}={T:.0f}s' for e, T in total_Ts.items())})")
     return spks, Q_frac
 
 
@@ -546,18 +728,22 @@ def _fr_cell(task):
 
 def unit_firing_rates(spks, window_s=EQUAL_WINDOW_S):
     """Each unit's spike count over the common observation window every
-    pooled unit now shares (see equalize_unit_windows).
+    pooled unit shares (see truncate_pseudopop_to_window).
 
-    This used to divide by each unit's OWN first-to-last-spike span, back
-    when units carried four different recording durations and a per-unit
-    span was the tightest defensible T available. Under a common window that
-    denominator is no longer just tighter, it's inconsistent: a unit that
-    falls silent partway through its 60 s window has a span shorter than the
-    window, but its NFC is still computed over the full window
-    (fourier_analysis derives one population-wide T), so a span-based FR
-    would plot it against a denominator the y axis doesn't use. The effect
-    is small but not negligible -- 23% of units span <99% of the window and
-    the most extreme spans only 39 s, a 1.54x inflation.
+    `window_s` is a real duration now. Before the recs were concatenated
+    (see EQUAL_WINDOW_S) this same division was badly wrong: a unit's pooled
+    array held all 6-10 of its recs OVERLAID on one ~60 s axis, so dividing
+    by 60 s counted every rec's spikes against a single rec's worth of time
+    and inflated every rate by roughly the number of recs the unit appeared
+    in -- 6-13x, and by a different factor per site, so not even a constant
+    that could be divided out afterwards. One unit came out at 556 Hz.
+
+    Dividing by the window rather than by each unit's own first-to-last-spike
+    span is deliberate and, on a concatenated timeline, unambiguous: the
+    electrode was recording for the whole window whether or not a given unit
+    fired across all of it, and fourier_analysis derives one
+    population-wide T, so a span-based denominator would plot a unit against
+    a duration the y axis doesn't use.
     """
     return np.array([len(spkt) / window_s for spkt in spks])
 
@@ -691,10 +877,11 @@ def compute_responder_df(spks, FOURIER_Q, workers=1, freq=FREQ, n_repeats=N_REPE
     # also pins T for every table entry built below.
     #
     # The table is where --workers earns its keep: one amplitude means
-    # warping every unit and then a full-population fourier_analysis (~28 s
-    # on the 1555-unit pigeon-HP pseudopopulation at FOURIER_Q=180), so the
-    # ~100 amplitudes run ~45 min single-process -- while the responder
-    # sweep that consumes the table now takes seconds. The amplitudes are
+    # warping every unit and then a full-population fourier_analysis (~29 s
+    # on the 1384-unit pigeon-HP pseudopopulation at FOURIER_Q=262), so the
+    # ~100 amplitudes run ~50 min single-process and ~2.5 min at
+    # --workers 24 -- while the responder sweep that consumes the table
+    # takes seconds. The amplitudes are
     # mutually independent (each warps the same unmodulated `spks`, and its
     # NFC vector depends on nothing but its own amplitude), so they fan out
     # cleanly, each worker rendering its own progress bar.
@@ -966,6 +1153,11 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
                         colors="white", linestyles="dashed")
     ax_heatmap.set_xlabel("5 Hz modulation amplitude (A)")
     ax_heatmap.set_ylabel("Fraction of population modulated")
+    # Titles name each panel's population, since C and D are the SAME
+    # analysis and differ only in which units it runs over. D's percentage
+    # is derived from SENSITIVITY_PERCENTILE rather than written out, so the
+    # title can't drift away from the threshold actually applied.
+    ax_heatmap.set_title("All pigeon HP units", fontsize=FP.FS_TITLE)
 
     # Panel D: the SAME analysis as panel C, restricted to the top-decile
     # (>=90th percentile) most-sensitive units (see compute_sensitivity) --
@@ -987,6 +1179,9 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
     ax_heatmap_top.contour(pivot_top.columns, pivot_top.index, pivot_top.values, levels=[contour_level_top],
                            colors="white", linestyles="dashed")
     ax_heatmap_top.set_xlabel("5 Hz modulation amplitude (A)")
+    ax_heatmap_top.set_title(
+        f"{100 - SENSITIVITY_PERCENTILE:.0f}% most sensitive pigeon HP units",
+        fontsize=FP.FS_TITLE)
     # No y label: D's y axis is the same quantity as C's, on the same scale,
     # immediately to its left -- C's label reads for both. Dropping it also
     # clears the collision it had with C's own colorbar label.
@@ -1090,7 +1285,7 @@ def main():
     parser.add_argument("--workers", type=int, default=1,
                         help="Parallel workers for the panel B/C/D sweeps. Worth setting: it "
                              "fans out the per-amplitude NFC lookup table, which dominates "
-                             "runtime (~45 min at --workers 1, ~2 min at --workers 20). Each "
+                             "runtime (~50 min at --workers 1, ~2.5 min at --workers 24). Each "
                              "worker holds its own copy of the pooled spike trains")
     parser.add_argument("--recompute", action="store_true",
                         help="Recompute simulation even if cached pickles exist")
