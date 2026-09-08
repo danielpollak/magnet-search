@@ -94,6 +94,7 @@ if not in_notebook:
     matplotlib.use("Agg")
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -219,6 +220,31 @@ FREQ        = 5
 # zorder the later artist wins, so no zorder argument is needed.
 SPECTRUM_DOT_COLOR = "0.45"
 SIGMA_COLOR        = "black"
+# --rec-boundaries only: the one deliberately non-achromatic element in panel
+# A, and only when that flag is passed. It marks where each of the exemplar's
+# site's mag recordings starts, which is an annotation about how the pooled
+# timeline was built, not part of the simulation -- so it should not be
+# mistakable for one of the panel's own greys.
+REC_BOUNDARY_COLOR = "#d62728"
+# --rec-boundaries appends this many extra panel-A-only pages, one per
+# randomly drawn pooled unit (see panel_A_page). Randomly rather than
+# hand-picked, and seeded so the same ten units come back on a re-run: the
+# pages are there to judge whether horizontal banding in panel A's raster
+# lines up with the rec boundaries, and a set chosen by looking for banding
+# could not answer that.
+# Panel A's exemplar unit, as a '<experiment>:<unit id>' pseudopopulation
+# key (see load_pseudopopulation_spks). Hand-picked from the --rec-boundaries
+# diagnostic's randomly-drawn pages: at 1056 spikes / 3.02 Hz over the 350 s
+# window it is an ordinary mid-rate unit (above the population's own mean
+# count, but nowhere near the high-rate tail), its A=0 raster reads as a flat
+# baseline, and it shows none of the horizontal banding some higher-rate
+# units do -- so the panel illustrates warp_mod's modulation rather than the
+# exemplar's own rate drift. Set to None to go back to picking the unit
+# nearest the mean spike count automatically (see example_unit_index).
+EXAMPLE_UNIT_KEY = "20230413_firstsite:1224"
+
+RANDOM_PANEL_A_UNITS = 10
+RANDOM_PANEL_A_SEED = 0
 RASTER_COLOR       = "0.45"
 PSTH_COLOR         = "black"
 
@@ -244,6 +270,14 @@ RASTER_PHASE_TICKLABELS = ["0", r"$\pi$", r"$2\pi$"]
 RASTER_PAD_X = 0.03
 RASTER_PAD_Y = 0.03
 PSTH_PAD_Y   = 0.06
+# Same treatment for the spectra's magnitude axis, and for the same reason:
+# the off-frequency |c_n| cloud sits low on the shared scale (it is what the
+# stem is large RELATIVE to), so with the axis snapped to exactly 0 its
+# lowest points are drawn half-under the bottom spine and read as part of
+# the axis line rather than as data. Kept smaller than PSTH_PAD_Y -- a PSTH
+# trough genuinely reaches 0 and needs clearing, whereas the scatter only
+# approaches it. Fig1's spectra use the same value, see fig1.py.
+SPECTRUM_PAD_Y = 0.03
 
 # Panel B mod-condition hues. Dark2 rather than seaborn's Set1 default, whose
 # first two entries are a red and a blue close enough to the manuscript's own
@@ -496,6 +530,22 @@ def load_unit_spks_for_experiment(data_dir: str, experiment: str):
     return unit_spks, Q_frac, total_T
 
 
+def mag_rec_offsets(data_dir: str, experiment: str):
+    """This experiment's rec start times on its own concatenated timeline,
+    ascending, plus the total duration.
+
+    Only used by --rec-boundaries (a diagnostic overlay on panel A, see
+    plot_fig4) -- delegates to concat_mag_recs so the marks are guaranteed to
+    be the same tiling the spike times were shifted onto, rather than a
+    second, independently-derived copy of it.
+    """
+    cfg = load_experiment(_EXPERIMENTS_DIR / f"{experiment}.yml")
+    io_r, nwbfile = nwb_io.read_nwbfile(str(Path(data_dir) / f"{experiment}.nwb"))
+    rec_map, total_T = concat_mag_recs(nwbfile, cfg.analysis.mag_rec_substring)
+    io_r.close()
+    return sorted(offset for _ls, _dur, offset in rec_map.values()), total_T
+
+
 def truncate_pseudopop_to_window(unit_spks, window_s=EQUAL_WINDOW_S,
                                  min_spikes=MIN_SPIKES):
     """Put every unit on a common observation window: keep only the first
@@ -581,11 +631,15 @@ def load_pseudopopulation_spks(data_dir: str, experiments):
 
     keys_sorted = sorted(all_units, key=lambda k: len(all_units[k]))
     spks = [all_units[k] for k in keys_sorted]
+    # keys_sorted is returned alongside `spks` (index-for-index) only so a
+    # caller can tell which EXPERIMENT a given pooled unit came from -- see
+    # --rec-boundaries in main(), which needs the exemplar unit's own site to
+    # look up that site's rec offsets. Nothing about the simulation uses it.
     print(f"  {len(spks)} pigeon-HP pseudopopulation units pooled from "
           f"{len(experiments)} experiments "
           f"(concatenated timelines: "
           f"{', '.join(f'{e}={T:.0f}s' for e, T in total_Ts.items())})")
-    return spks, Q_frac
+    return spks, Q_frac, keys_sorted
 
 
 def fourier_Q_from_frac(spks, freq, Q_frac, context=""):
@@ -756,22 +810,35 @@ def unit_firing_rates(spks, window_s=EQUAL_WINDOW_S):
     return np.array([len(spkt) / window_s for spkt in spks])
 
 
-def example_unit_index(spks):
-    """Index of panel A's exemplar unit: the one whose spike count is closest
-    to the population MEAN count.
+def example_unit_index(spks, keys=None):
+    """Index of panel A's exemplar unit -- EXAMPLE_UNIT_KEY if it is in the
+    pooled population, otherwise the unit whose spike count is closest to the
+    population MEAN count.
 
-    Was `len(spks) // 2` -- the MEDIAN by spike count, since `spks` is sorted
-    ascending. Spike-count distributions here are strongly right-skewed, so
-    the median sits well below the mean, and once min_spikes=0 admitted ~930
-    very-low-rate units (see load_unit_spks_for_experiment) the median unit
-    became sparse enough that panel A's A=0 raster read as noise rather than
-    as an unmodulated baseline. The mean is pulled up by the high-rate tail,
-    which lands the exemplar on a unit whose modulation is legible at all
-    three amplitudes.
+    `keys` is load_pseudopopulation_spks' key list, index-for-index with
+    `spks`; without it (or with a `keys` that doesn't contain
+    EXAMPLE_UNIT_KEY, e.g. a --experiments subset that excludes its site) the
+    spike-count fallback is used and a warning is printed, so a pinned
+    exemplar can never silently become a different unit.
 
+    History of the fallback rule, kept because it is still what runs whenever
+    the pin doesn't apply: it was `len(spks) // 2` -- the MEDIAN by spike
+    count, since `spks` is sorted ascending. Spike-count distributions here
+    are strongly right-skewed, so the median sits well below the mean, and
+    once min_spikes=0 admitted ~930 very-low-rate units (see
+    load_unit_spks_for_experiment) the median unit became sparse enough that
+    panel A's A=0 raster read as noise rather than as an unmodulated
+    baseline. The mean is pulled up by the high-rate tail, which lands the
+    exemplar on a unit whose modulation is legible at all three amplitudes.
     Ties break toward the lower index (np.argmin's own convention), which
     only matters when two units bracket the mean at equal distance.
     """
+    if EXAMPLE_UNIT_KEY is not None:
+        if keys is not None and EXAMPLE_UNIT_KEY in keys:
+            return list(keys).index(EXAMPLE_UNIT_KEY)
+        print(f"  WARNING: EXAMPLE_UNIT_KEY={EXAMPLE_UNIT_KEY!r} is not in this "
+              f"pooled population -- falling back to the nearest-mean-spike-count "
+              f"unit for panel A")
     counts = np.array([len(spkt) for spkt in spks])
     return int(np.argmin(np.abs(counts - counts.mean())))
 
@@ -991,8 +1058,178 @@ def compute_responder_df(spks, FOURIER_Q, workers=1, freq=FREQ, n_repeats=N_REPE
     return pd.DataFrame(baseline_rows + rows)
 
 
-def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks, FOURIER_Q, out_dir: Path):
-    example_spk = spks[example_unit_index(spks)]
+def draw_panel_A(spectra_axes, raster_axes, example_spk, FOURIER_Q,
+                 rec_boundaries_s=None):
+    """Draw panel A -- one exemplar unit's phase raster + PSTH + spectrum at
+    each of three modulation amplitudes -- onto three already-created
+    raster axes and three spectrum axes. Returns the PSTH twin axes it
+    created (the caller needs them to exclude them from despining).
+
+    Split out of plot_fig4 so the panel-A-only diagnostic pages
+    (--rec-boundaries, see panel_A_page) are drawn by the SAME code as the
+    real figure rather than a second copy of it -- the pages exist to be
+    compared against panel A, which a divergent copy would quietly
+    undermine.
+    """
+    # Phase-raster window, shared by all three mod conditions so their cycle
+    # counts (and hence y-limits) match. Snapped OUT to whole stimulus
+    # periods around the example unit's own span: the floor keeps phase
+    # anchored to t=0, which is where warp_mod's phase-0 modulation is
+    # anchored too (so the modulation trough lands at the phase it should),
+    # while still dropping the ~150 empty leading cycles a literal (0, max)
+    # window would raster. warp_mod only moves spikes WITHIN their own
+    # period, so this window is identical for every A.
+    period = 1 / FREQ
+    raster_window = (np.floor(example_spk.min() / period) * period,
+                     np.ceil(example_spk.max() / period) * period)
+
+    spectra_max = 0
+    psth_axes = []
+    for mod_i, A in enumerate([0, 0.5, 1]):
+        warped = statistics.warp_mod(example_spk, A, 1 / FREQ, 0)
+        (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, NFC) = \
+            statistics.fourier_analysis([warped], freq=FREQ, Q=FOURIER_Q)
+
+        # Same modulus-consistent spectrum panel Fig1 uses (see
+        # statistics.plot_spectrum): off-frequency |c_n| scatter, a sgm_c
+        # reference line, and a stem+marker at the stimulus frequency for
+        # |c_s|. Replaces an older real-component-only scatter, which plotted
+        # a quantity that isn't what NFC actually compares against.
+        # Deliberately achromatic: this figure is a simulation, and the
+        # manuscript's blue/orange are reserved for magnetic vs. visual
+        # stimulation elsewhere -- coloring a simulated spectrum with either
+        # would read as a stimulus contingency it doesn't have.
+        statistics.plot_spectrum(spectra_axes[mod_i], fou_alt.flatten(), ff_alt, FREQ, fou0,
+                                 legend=False, dot_color=SPECTRUM_DOT_COLOR,
+                                 stem_color="black", sigma_color=SIGMA_COLOR)
+        spectra_axes[mod_i].set_xlabel("Hz")
+        spectra_max = max(spectra_max, spectra_axes[mod_i].get_ylim()[1])
+        if mod_i == 0:
+            spectra_axes[mod_i].set_ylabel("Magnitude")
+        else:
+            spectra_axes[mod_i].set_yticks([])
+
+        # Phase raster + smoothed-PSTH overlay, the same pair of helpers
+        # Fig1's panels C/D use -- replaces a plain `warped % period`
+        # histogram, which threw away the cycle-by-cycle structure the
+        # modulation actually imposes. Both get the SAME (spks, window,
+        # freq), so the curve summarizes exactly the ticks drawn under it.
+        statistics.plot_phase_raster(raster_axes[mod_i], np.squeeze(warped), raster_window, FREQ,
+                                     color=RASTER_COLOR, markersize=2, linewidth=0.5,
+                                     pad_x=RASTER_PAD_X, pad_y=RASTER_PAD_Y)
+        raster_axes[mod_i].set_title(f"A={A}", fontsize=FP.FS_TITLE)
+        psth_axes.append(statistics.plot_smoothed_phase_psth(
+            raster_axes[mod_i], np.squeeze(warped), raster_window, FREQ, color=PSTH_COLOR,
+            n_bins=PSTH_N_BINS, smooth_bins=PSTH_SMOOTH_BINS, alpha=1.0))
+        # After the PSTH overlay, not before: plot_smoothed_phase_psth
+        # re-applies statistics._PHASE_TICKS to the same axes.
+        raster_axes[mod_i].set_xticks(RASTER_PHASE_TICKS)
+        raster_axes[mod_i].set_xticklabels(RASTER_PHASE_TICKLABELS)
+        # Diagnostic overlay (opt-in, --rec-boundaries): where each of the
+        # plotted unit's site's magnetic recordings begins on the
+        # concatenated timeline, converted to this raster's own cycle
+        # coordinate. phase_fold anchors cycle 0 at raster_window[0], so a
+        # boundary at time b sits at cycle (b - raster_window[0]) * FREQ. Red
+        # on purpose -- the panel is otherwise strictly achromatic (see the
+        # palette comment above), so a colored line reads unmistakably as an
+        # annotation rather than as data.
+        #
+        # Behind everything else (zorder below the raster ticks' and the
+        # PSTH's default 2): the question these marks are here to answer is
+        # whether a band in the RASTER lines up with one of them, and a line
+        # drawn over the ticks hides the very ticks being judged.
+        for boundary_s in (rec_boundaries_s or []):
+            cycle = (boundary_s - raster_window[0]) * FREQ
+            raster_axes[mod_i].axhline(cycle, color=REC_BOUNDARY_COLOR,
+                                       linewidth=0.7, alpha=0.9, zorder=0.5)
+        if mod_i != 0:
+            raster_axes[mod_i].set_ylabel("")
+            raster_axes[mod_i].set_yticks([])
+
+    # Shared magnitude scale across the three mod conditions -- required for
+    # the yticks-stripped panels 2/3 to be readable off panel 1's axis, and
+    # it's the growth of |c_s| relative to a roughly fixed |c_n| cloud that
+    # the row is there to show.
+    for ax in spectra_axes:
+        ax.set_ylim(-spectra_max * SPECTRUM_PAD_Y, spectra_max * 1.05)
+        # The negative bottom limit is padding, not data -- drop any tick the
+        # locator puts below 0, which would read as a negative magnitude.
+        # (|c_n| is a modulus; it cannot be negative.)
+        ax.set_yticks([t for t in ax.get_yticks() if 0 <= t <= spectra_max * 1.05])
+
+    # Same treatment for the PSTH twin axes, mirrored: one shared rate scale,
+    # but labelled on the RIGHTMOST panel (where a twinx' axis naturally
+    # lives) rather than the leftmost, so the raster's "Cycle" axis and the
+    # PSTH's rate axis bracket the row instead of stacking three twin axes
+    # into the row's already-tight wspace.
+    psth_max = max(ax.get_ylim()[1] for ax in psth_axes)
+    for mod_i, psth_ax in enumerate(psth_axes):
+        # Headroom above (as for the spectra) plus a matching gap below, so a
+        # trough that reaches 0 Hz doesn't get drawn on top of the raster's
+        # bottom spine.
+        psth_ax.set_ylim(-psth_max * PSTH_PAD_Y, psth_max * 1.05)
+        if mod_i != len(psth_axes) - 1:
+            psth_ax.set_ylabel("")
+            psth_ax.set_yticks([])
+            psth_ax.spines["right"].set_visible(False)
+        else:
+            psth_ax.set_ylabel("PSTH (Hz)", color=PSTH_COLOR, fontsize=FP.FS_LEGEND, labelpad=1)
+            psth_ax.tick_params(axis="y", labelsize=FP.FS_LEGEND, pad=1)
+            # The negative bottom limit is padding, not data -- drop any tick
+            # the locator puts below 0, which would read as a negative rate.
+            psth_ax.set_yticks([t for t in psth_ax.get_yticks() if 0 <= t <= psth_max * 1.05])
+
+    # Endpoint ticks plus one at FREQ itself, so each spectrum states the
+    # frequency being driven rather than leaving it to be read off the
+    # stem's position. The "Hz" label is deliberately NOT nestled back up
+    # between the ticks the way it was before the FREQ tick existed -- a
+    # nestled label sits at the axis center, which is exactly where the
+    # 5 Hz tick label now lands (the window is symmetric about FREQ).
+    for _ax in spectra_axes:
+        statistics.boundary_ticks(_ax, y=False)
+        statistics.stimulus_frequency_tick(_ax, FREQ)
+
+    return psth_axes
+
+
+def panel_A_page(spk, FOURIER_Q, rec_boundaries_s=None, title=None):
+    """A standalone figure holding nothing but panel A, for one unit.
+
+    Used only by --rec-boundaries, which appends a page per randomly drawn
+    unit (see RANDOM_PANEL_A_UNITS) so the rec-boundary marks can be read
+    against more than the single exemplar unit panel A itself shows -- a
+    band that lines up with a boundary in one unit could be that unit's own
+    firing, but the same band across independently drawn units would point
+    at the concatenation.
+
+    Sized as panel A's own share of FIGSIZE_FIG4 (its half-width band) so
+    each page's sub-panels come out at roughly the aspect ratio they have
+    in the real figure, and laid out with the same nested-gridspec
+    proportions.
+    """
+    w, h = FP.FIGSIZE_FIG4
+    fig = plt.figure(figsize=(w * 0.6, h * 0.5))
+    gs_A = gridspec.GridSpec(2, 3, left=0.1, right=0.9, bottom=0.12, top=0.86,
+                             hspace=0.4, wspace=0.3)
+    raster_axes  = [fig.add_subplot(gs_A[0, c]) for c in range(3)]
+    spectra_axes = [fig.add_subplot(gs_A[1, c]) for c in range(3)]
+
+    psth_axes = draw_panel_A(spectra_axes, raster_axes, spk, FOURIER_Q,
+                             rec_boundaries_s=rec_boundaries_s)
+    if title:
+        fig.suptitle(title, fontsize=FP.FS_TITLE, y=0.97)
+    for _ax in fig.axes:
+        if _ax in psth_axes:
+            continue
+        _ax.spines["top"].set_visible(False)
+        _ax.spines["right"].set_visible(False)
+    return fig
+
+
+def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks, FOURIER_Q,
+              out_dir: Path, rec_boundaries_s=None, out_name="Fig4.pdf", pdf=None,
+              keys=None):
+    example_spk = spks[example_unit_index(spks, keys=keys)]
     n_top = int(np.sum(top_decile_mask))
 
     font = {"family": FP.FONT_FAMILY, "size": FP.FS_BODY_XL}
@@ -1064,91 +1301,8 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
     spectra_axes = [ax_A1, ax_A3, ax_A5]
     raster_axes  = [ax_A2, ax_A4, ax_A6]
 
-    # Phase-raster window, shared by all three mod conditions so their cycle
-    # counts (and hence y-limits) match. Snapped OUT to whole stimulus
-    # periods around the example unit's own span: the floor keeps phase
-    # anchored to t=0, which is where warp_mod's phase-0 modulation is
-    # anchored too (so the modulation trough lands at the phase it should),
-    # while still dropping the ~150 empty leading cycles a literal (0, max)
-    # window would raster. warp_mod only moves spikes WITHIN their own
-    # period, so this window is identical for every A.
-    period = 1 / FREQ
-    raster_window = (np.floor(example_spk.min() / period) * period,
-                     np.ceil(example_spk.max() / period) * period)
-
-    spectra_max = 0
-    psth_axes = []
-    for mod_i, A in enumerate([0, 0.5, 1]):
-        warped = statistics.warp_mod(example_spk, A, 1 / FREQ, 0)
-        (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, NFC) = \
-            statistics.fourier_analysis([warped], freq=FREQ, Q=FOURIER_Q)
-
-        # Same modulus-consistent spectrum panel Fig1 uses (see
-        # statistics.plot_spectrum): off-frequency |c_n| scatter, a sgm_c
-        # reference line, and a stem+marker at the stimulus frequency for
-        # |c_s|. Replaces an older real-component-only scatter, which plotted
-        # a quantity that isn't what NFC actually compares against.
-        # Deliberately achromatic: this figure is a simulation, and the
-        # manuscript's blue/orange are reserved for magnetic vs. visual
-        # stimulation elsewhere -- coloring a simulated spectrum with either
-        # would read as a stimulus contingency it doesn't have.
-        statistics.plot_spectrum(spectra_axes[mod_i], fou_alt.flatten(), ff_alt, FREQ, fou0,
-                                 legend=False, dot_color=SPECTRUM_DOT_COLOR,
-                                 stem_color="black", sigma_color=SIGMA_COLOR)
-        spectra_axes[mod_i].set_xlabel("Hz")
-        spectra_max = max(spectra_max, spectra_axes[mod_i].get_ylim()[1])
-        if mod_i == 0:
-            spectra_axes[mod_i].set_ylabel("Magnitude")
-        else:
-            spectra_axes[mod_i].set_yticks([])
-
-        # Phase raster + smoothed-PSTH overlay, the same pair of helpers
-        # Fig1's panels C/D use -- replaces a plain `warped % period`
-        # histogram, which threw away the cycle-by-cycle structure the
-        # modulation actually imposes. Both get the SAME (spks, window,
-        # freq), so the curve summarizes exactly the ticks drawn under it.
-        statistics.plot_phase_raster(raster_axes[mod_i], np.squeeze(warped), raster_window, FREQ,
-                                     color=RASTER_COLOR, markersize=2, linewidth=0.5,
-                                     pad_x=RASTER_PAD_X, pad_y=RASTER_PAD_Y)
-        raster_axes[mod_i].set_title(f"A={A}", fontsize=FP.FS_TITLE)
-        psth_axes.append(statistics.plot_smoothed_phase_psth(
-            raster_axes[mod_i], np.squeeze(warped), raster_window, FREQ, color=PSTH_COLOR,
-            n_bins=PSTH_N_BINS, smooth_bins=PSTH_SMOOTH_BINS, alpha=1.0))
-        # After the PSTH overlay, not before: plot_smoothed_phase_psth
-        # re-applies statistics._PHASE_TICKS to the same axes.
-        raster_axes[mod_i].set_xticks(RASTER_PHASE_TICKS)
-        raster_axes[mod_i].set_xticklabels(RASTER_PHASE_TICKLABELS)
-        if mod_i != 0:
-            raster_axes[mod_i].set_ylabel("")
-            raster_axes[mod_i].set_yticks([])
-
-    # Shared magnitude scale across the three mod conditions -- required for
-    # the yticks-stripped panels 2/3 to be readable off panel 1's axis, and
-    # it's the growth of |c_s| relative to a roughly fixed |c_n| cloud that
-    # the row is there to show.
-    [ax.set_ylim((0, spectra_max * 1.05)) for ax in spectra_axes]
-
-    # Same treatment for the PSTH twin axes, mirrored: one shared rate scale,
-    # but labelled on the RIGHTMOST panel (where a twinx' axis naturally
-    # lives) rather than the leftmost, so the raster's "Cycle" axis and the
-    # PSTH's rate axis bracket the row instead of stacking three twin axes
-    # into the row's already-tight wspace.
-    psth_max = max(ax.get_ylim()[1] for ax in psth_axes)
-    for mod_i, psth_ax in enumerate(psth_axes):
-        # Headroom above (as for the spectra) plus a matching gap below, so a
-        # trough that reaches 0 Hz doesn't get drawn on top of the raster's
-        # bottom spine.
-        psth_ax.set_ylim(-psth_max * PSTH_PAD_Y, psth_max * 1.05)
-        if mod_i != len(psth_axes) - 1:
-            psth_ax.set_ylabel("")
-            psth_ax.set_yticks([])
-            psth_ax.spines["right"].set_visible(False)
-        else:
-            psth_ax.set_ylabel("PSTH (Hz)", color=PSTH_COLOR, fontsize=FP.FS_LEGEND, labelpad=1)
-            psth_ax.tick_params(axis="y", labelsize=FP.FS_LEGEND, pad=1)
-            # The negative bottom limit is padding, not data -- drop any tick
-            # the locator puts below 0, which would read as a negative rate.
-            psth_ax.set_yticks([t for t in psth_ax.get_yticks() if 0 <= t <= psth_max * 1.05])
+    psth_axes = draw_panel_A(spectra_axes, raster_axes, example_spk, FOURIER_Q,
+                             rec_boundaries_s=rec_boundaries_s)
 
     # Panel C (q-value/FDR responder-count heatmap, ported from
     # fig4_pilot.py's plot_fig4_pilot), on this file's own full
@@ -1267,15 +1421,6 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
     panel_letter(ax_heatmap, "C")
     panel_letter(ax_heatmap_top, "D")
 
-    # Endpoint ticks plus one at FREQ itself, so each spectrum states the
-    # frequency being driven rather than leaving it to be read off the
-    # stem's position. The "Hz" label is deliberately NOT nestled back up
-    # between the ticks the way it was before the FREQ tick existed -- a
-    # nestled label sits at the axis center, which is exactly where the
-    # 5 Hz tick label now lands (the window is symmetric about FREQ).
-    for _ax in spectra_axes:
-        statistics.boundary_ticks(_ax, y=False)
-        statistics.stimulus_frequency_tick(_ax, FREQ)
     # The raster row's "Phase (rad)" is deliberately NOT nestled. A nestled
     # label is placed at a fixed axes FRACTION below the axis, which pinned
     # it much closer to its tick labels than the spectra row's "Hz" sits to
@@ -1296,9 +1441,15 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
         _ax.spines["top"].set_visible(False)
         _ax.spines["right"].set_visible(False)
 
-    out_path = out_dir / "Fig4.pdf"
-    fig.savefig(out_path, bbox_inches="tight", dpi=FP.DPI)
-    print(f"Saved {out_path}")
+    if pdf is not None:
+        # bbox_inches="tight" is deliberately NOT passed when writing into a
+        # multi-page PDF: it crops each page to its own content, so pages
+        # would come out at differing sizes.
+        pdf.savefig(fig, dpi=FP.DPI)
+    else:
+        out_path = out_dir / out_name
+        fig.savefig(out_path, bbox_inches="tight", dpi=FP.DPI)
+        print(f"Saved {out_path}")
     if not in_notebook:
         plt.close(fig)
 
@@ -1317,6 +1468,19 @@ def main():
                              "worker holds its own copy of the pooled spike trains")
     parser.add_argument("--recompute", action="store_true",
                         help="Recompute simulation even if cached pickles exist")
+    parser.add_argument("--rec-boundaries", action="store_true",
+                        help="DIAGNOSTIC: mark on panel A's rasters where each of the "
+                             "plotted unit's own site's magnetic recordings begins on "
+                             "the concatenated timeline (see concat_mag_recs). Writes a "
+                             f"multi-page Fig4_rec_boundaries.pdf -- the whole figure, "
+                             f"then {RANDOM_PANEL_A_UNITS} panel-A-only pages for randomly "
+                             "drawn units -- so the real Fig4.pdf is untouched")
+    parser.add_argument("--panel-a-unit", default=None,
+                        help="DIAGNOSTIC: draw a single-page panel A for ONE pooled unit, "
+                             "named by its pseudopopulation key ('<experiment>:<unit id>', "
+                             "as printed by --rec-boundaries), with that unit's own site's "
+                             "rec-start marks. Writes Fig4A_<experiment>_<id>.pdf. Implies "
+                             "--rec-boundaries' marks but not its 11-page output")
     args = parser.parse_args([] if in_notebook else None)
 
     out_dir = Path(args.out_dir)
@@ -1325,7 +1489,7 @@ def main():
 
     experiments = args.experiments or discover_pigeon_hp_experiments(_EXPERIMENTS_DIR)
     print(f"Pooling pigeon-HP pseudopopulation from: {experiments}")
-    spks, Q_frac = load_pseudopopulation_spks(args.data_dir, experiments)
+    spks, Q_frac, keys = load_pseudopopulation_spks(args.data_dir, experiments)
 
     FOURIER_Q = fourier_Q_from_frac(spks, FREQ, Q_frac, context=f"[fig4 sim @ {FREQ}Hz] ")
     print(f"  Q_frac={Q_frac} (shared mag_Q_frac across pooled experiments) -> FOURIER_Q={FOURIER_Q} bins at {FREQ} Hz")
@@ -1370,7 +1534,106 @@ def main():
         resp_df_top.to_pickle(RESP_DF_TOP_DECILE_CACHE)
         print(f"Cached -> {RESP_DF_TOP_DECILE_CACHE}")
 
-    plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks, FOURIER_Q, out_dir)
+    # --rec-boundaries: the marks belong to whichever SITE the exemplar unit
+    # came from (panel A shows one unit, and each site has its own rec
+    # tiling), so this resolves that site from the exemplar's own key rather
+    # than assuming one.
+    if not args.rec_boundaries and not args.panel_a_unit:
+        plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
+                  FOURIER_Q, out_dir, keys=keys)
+        return
+
+    # --rec-boundaries: the marks belong to whichever SITE the unit being
+    # drawn came from (panel A shows one unit, and each site has its own rec
+    # tiling), so every page resolves that site from its own unit's key
+    # rather than assuming one. Offsets are looked up once per site, not once
+    # per page -- each lookup reopens that site's NWB file.
+    offsets_by_experiment = {}
+
+    def boundaries_for(unit_key):
+        experiment = unit_key.split(":")[0]
+        if experiment not in offsets_by_experiment:
+            offsets_by_experiment[experiment] = mag_rec_offsets(args.data_dir, experiment)
+        offsets, total_T = offsets_by_experiment[experiment]
+        return experiment, offsets, total_T
+
+    if args.panel_a_unit:
+        if args.panel_a_unit not in keys:
+            raise SystemExit(
+                f"--panel-a-unit {args.panel_a_unit!r} is not a pooled unit. Keys look "
+                f"like {keys[0]!r}; run with --rec-boundaries to list ten of them."
+            )
+        unit_i = keys.index(args.panel_a_unit)
+        experiment, rec_boundaries_s, _T = boundaries_for(args.panel_a_unit)
+        spk = spks[unit_i]
+        fr = len(spk) / EQUAL_WINDOW_S
+        safe = args.panel_a_unit.replace(":", "_")
+        out_path = out_dir / f"Fig4A_{safe}.pdf"
+        fig = panel_A_page(
+            spk, FOURIER_Q, rec_boundaries_s=rec_boundaries_s,
+            title=f"{args.panel_a_unit}  --  {len(spk)} spikes over "
+                  f"{EQUAL_WINDOW_S:g} s ({fr:.2f} Hz), "
+                  f"{len(rec_boundaries_s)} recs")
+        # bbox_inches="tight" here but NOT on the multi-page pdf.savefig calls
+        # below: this is a standalone one-page file, so there is no other page
+        # for it to stay size-consistent with, and the long unit-key title
+        # otherwise runs off the panel-A-sized canvas.
+        fig.savefig(out_path, bbox_inches="tight", dpi=FP.DPI)
+        if not in_notebook:
+            plt.close(fig)
+        print(f"Saved {out_path} -- {len(spk)} spikes ({fr:.2f} Hz), rec starts at "
+              f"t = {', '.join(f'{o:.1f}' for o in rec_boundaries_s)} s")
+        return
+
+    out_path = out_dir / "Fig4_rec_boundaries.pdf"
+    example_i = example_unit_index(spks, keys=keys)
+    # Page 1: the real figure, exemplar unit and all, with the marks added --
+    # so the diagnostic pages that follow can be read against the panel A
+    # actually published. Pages 2+: one panel A per randomly drawn unit.
+    rng = np.random.default_rng(RANDOM_PANEL_A_SEED)
+    counts = np.array([len(s) for s in spks])
+    # Drawn from the units whose spike count is at least the exemplar's own,
+    # not from the whole pseudopopulation. Uniform over all 2438 units, 6 of
+    # every 10 draws land on a unit with under ~110 spikes over the 350 s
+    # window (the population is dominated by very-low-rate units since
+    # min_spikes=0 stopped dropping them, see
+    # load_unit_spks_for_experiment), and a raster of ~10 ticks spread over
+    # ~1750 cycles cannot show banding either way -- such pages would answer
+    # nothing. Keyed to the exemplar's OWN count rather than a hardcoded
+    # number, so every page is at least as legible as the panel A it is being
+    # compared against however example_unit_index resolves.
+    pool = np.where(counts >= counts[example_i])[0]
+    n_random = min(RANDOM_PANEL_A_UNITS, len(pool))
+    random_is = rng.choice(pool, size=n_random, replace=False)
+    print(f"  drawing {n_random} random units for the extra panel-A pages from the "
+          f"{len(pool)} / {len(spks)} units with >={counts[example_i]} spikes "
+          f"(the exemplar's own count)")
+
+    with PdfPages(out_path) as pdf:
+        experiment, rec_boundaries_s, exemplar_T = boundaries_for(keys[example_i])
+        print(f"  panel A exemplar is from {experiment} "
+              f"({exemplar_T:.1f} s timeline); marking {len(rec_boundaries_s)} rec "
+              f"starts at t = {', '.join(f'{o:.1f}' for o in rec_boundaries_s)} s")
+        plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
+                  FOURIER_Q, out_dir, rec_boundaries_s=rec_boundaries_s, pdf=pdf,
+                  keys=keys)
+
+        for page_i, unit_i in enumerate(random_is, start=2):
+            experiment, rec_boundaries_s, _T = boundaries_for(keys[unit_i])
+            spk = spks[unit_i]
+            fr = len(spk) / EQUAL_WINDOW_S
+            print(f"  page {page_i}: {keys[unit_i]} -- {len(spk)} spikes "
+                  f"({fr:.2f} Hz), {len(rec_boundaries_s)} rec starts")
+            fig = panel_A_page(
+                spk, FOURIER_Q, rec_boundaries_s=rec_boundaries_s,
+                title=f"{keys[unit_i]}  --  {len(spk)} spikes over "
+                      f"{EQUAL_WINDOW_S:g} s ({fr:.2f} Hz), "
+                      f"{len(rec_boundaries_s)} recs")
+            pdf.savefig(fig, dpi=FP.DPI)
+            if not in_notebook:
+                plt.close(fig)
+
+    print(f"Saved {out_path} ({1 + n_random} pages)")
 
 
 if __name__ == "__main__":
