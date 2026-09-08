@@ -205,6 +205,9 @@ RASTER_LW = 0.5
 RASTER_PAD_X = 0.03
 RASTER_PAD_Y = 0.03
 PSTH_PAD_Y   = 0.06
+# Same idea on the spectra's magnitude axis (panels E/F), same value as
+# fig4.py's SPECTRUM_PAD_Y -- see the comment there.
+SPECTRUM_PAD_Y = 0.03
 
 # PSTH smoothing for panels C/D's overlays -- finer bins than
 # plot_smoothed_phase_psth's own 36 default, with a proportionally wider
@@ -606,10 +609,17 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     # Shared y-axis (Magnitude) between the two spectra -- makes their
     # scales directly comparable, even though it squashes E's much smaller
     # scatter/stem (mag's |c_s| is far smaller than vis's) down near the
-    # bottom of the shared range.
-    spectra_ylim = (0, max(mag_spectra_ax.get_ylim()[1], vis_spectra_ax.get_ylim()[1]))
-    mag_spectra_ax.set_ylim(spectra_ylim)
-    vis_spectra_ax.set_ylim(spectra_ylim)
+    # bottom of the shared range. That squashing is exactly why the limit
+    # goes just BELOW zero (see SPECTRUM_PAD_Y): E's whole |c_n| cloud lives
+    # in the bottom sliver of the shared range, and against an axis snapped
+    # to 0 its lowest points are drawn half-under the bottom spine.
+    spectra_top = max(mag_spectra_ax.get_ylim()[1], vis_spectra_ax.get_ylim()[1])
+    for _ax in (mag_spectra_ax, vis_spectra_ax):
+        _ax.set_ylim(-spectra_top * SPECTRUM_PAD_Y, spectra_top)
+        # The negative bottom limit is padding, not data -- drop any tick the
+        # locator puts below 0, which would read as a negative magnitude.
+        # (|c_n| is a modulus; it cannot be negative.)
+        _ax.set_yticks([t for t in _ax.get_yticks() if 0 <= t <= spectra_top])
 
     statistics.draw_hist(fourier_df.loc[fourier_df.rec == VIS_CONTINGENCY, "NFC"],
                          vis_dist_ax, xlim=12, inset=True, bar_color=FP.COLOR_VIS,
