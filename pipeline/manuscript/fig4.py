@@ -209,8 +209,16 @@ FREQ        = 5
 # in the raster that shows the modulation as a shape rather than as tick
 # density, so it reads as a summary of the grey ticks rather than as
 # something subordinate to them.
+#
+# SIGMA_COLOR is black rather than the mid-grey it used to be: sgm_c is the
+# literal denominator of the NFC the whole panel is about, so it belongs
+# with the stem on the "primary" side of that scheme, and at 0.6 grey it was
+# too close to SPECTRUM_DOT_COLOR's 0.45 to separate from the cloud it has
+# to be read against. It still sits BEHIND the |c_n| dots: plot_spectrum
+# draws its axhline before the scatter, and at matplotlib's equal default
+# zorder the later artist wins, so no zorder argument is needed.
 SPECTRUM_DOT_COLOR = "0.45"
-SIGMA_COLOR        = "0.6"
+SIGMA_COLOR        = "black"
 RASTER_COLOR       = "0.45"
 PSTH_COLOR         = "black"
 
