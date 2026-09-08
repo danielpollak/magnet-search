@@ -539,9 +539,9 @@ def load_pseudopopulation_spks(data_dir: str, experiments):
     """Pool load_unit_spks_for_experiment() across every given experiment
     into one pigeon-HP pseudopopulation, put every unit on the same
     EQUAL_WINDOW_S observation window (see truncate_pseudopop_to_window),
-    then sort by spike count ascending (plot_fig4 picks its example unit via
-    spks[len(spks) // 2], i.e. the median-by-spike-count unit -- same
-    convention the old single-recording load_spks used).
+    then sort by spike count ascending. The sort is what makes `spks` a
+    rank-ordered list for compute_responder_df's pooling; panel A's exemplar
+    no longer depends on it (see example_unit_index).
 
     Each experiment's units arrive on that experiment's OWN concatenated
     timeline, all starting at t=0, so truncating the merged dict is
@@ -754,6 +754,26 @@ def unit_firing_rates(spks, window_s=EQUAL_WINDOW_S):
     a duration the y axis doesn't use.
     """
     return np.array([len(spkt) / window_s for spkt in spks])
+
+
+def example_unit_index(spks):
+    """Index of panel A's exemplar unit: the one whose spike count is closest
+    to the population MEAN count.
+
+    Was `len(spks) // 2` -- the MEDIAN by spike count, since `spks` is sorted
+    ascending. Spike-count distributions here are strongly right-skewed, so
+    the median sits well below the mean, and once min_spikes=0 admitted ~930
+    very-low-rate units (see load_unit_spks_for_experiment) the median unit
+    became sparse enough that panel A's A=0 raster read as noise rather than
+    as an unmodulated baseline. The mean is pulled up by the high-rate tail,
+    which lands the exemplar on a unit whose modulation is legible at all
+    three amplitudes.
+
+    Ties break toward the lower index (np.argmin's own convention), which
+    only matters when two units bracket the mean at equal distance.
+    """
+    counts = np.array([len(spkt) for spkt in spks])
+    return int(np.argmin(np.abs(counts - counts.mean())))
 
 
 def compute_fr_df(spks, FOURIER_Q, workers=1):
@@ -972,7 +992,7 @@ def compute_responder_df(spks, FOURIER_Q, workers=1, freq=FREQ, n_repeats=N_REPE
 
 
 def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks, FOURIER_Q, out_dir: Path):
-    example_spk = spks[len(spks) // 2]
+    example_spk = spks[example_unit_index(spks)]
     n_top = int(np.sum(top_decile_mask))
 
     font = {"family": FP.FONT_FAMILY, "size": FP.FS_BODY_XL}
