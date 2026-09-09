@@ -52,7 +52,13 @@ version exists because q-values pile up hard against q=1 -- exactly where the
 scatter overplots itself into a solid block -- so the dots alone can't say
 whether a cluster is symmetric or how much of a panel sits in its densest
 corner. Both carry the same annotations: per-bucket neuron totals under each
-x label, and the pairwise-complete count in the middle of each panel.
+x label, and each panel's pairwise-complete count plus its two pi0 estimates
+in that panel's title.
+
+Which recording ends up in which bucket is controlled by `--bucket-order`; the
+default randomizes it, so that a bucket is a random one of each neuron's own
+recordings rather than a stand-in for one particular recording. See
+BUCKET_ORDER_HELP -- this matters a great deal for how a panel should be read.
 
 Requires:
   data/manuscript/all_fourier_df.parquet  (run python pipeline/aggregate.py first)
@@ -61,6 +67,7 @@ Usage:
     python pipeline/manuscript/fig3_supp2.py
     python pipeline/manuscript/fig3_supp2.py --mode density
     python pipeline/manuscript/fig3_supp2.py --qval-scope bucket
+    python pipeline/manuscript/fig3_supp2.py --bucket-order recording
     python pipeline/manuscript/fig3_supp2.py --out-dir figs/paper
 """
 import argparse
@@ -100,6 +107,35 @@ MIN_WAVES = 2
 
 QVAL_SCOPES = ("intersection", "bucket")
 
+BUCKET_ORDERS = ("random", "recording")
+RANDOM_SEED = 0
+
+BUCKET_ORDER_HELP = """\
+How a neuron's rows are assigned to buckets.
+
+"random" (default): the rows of each population are permuted before
+`_split_into_waves` counts them off, which gives every neuron a uniformly
+random ordering of its own recordings. Bucket k is then "a random one of this
+neuron's recordings", and the same recording lands in different buckets for
+different neurons.
+
+"recording": the original behaviour -- count off in parquet row order, so a
+neuron's bucket index is the position of that recording within its own session.
+This makes bucket index a proxy for recording identity, which is what the
+figure's asymmetry was tracking rather than anything about neurons. On Pigeon's
+positive-control page the recordings sort alphabetically by orientation suffix,
+so bucket 2 was "the 180 degree grating", bucket 3 "225 degrees", and so on out
+to bucket 17 = "WN_SameCh"; a panel then compared two specific and often quite
+different stimuli (one panel pits a 3 Hz grating against a white-noise block,
+a ~5x difference in spike count and hence in detection power) instead of two
+interchangeable repeats. Under "random" the two axes of a panel are
+statistically exchangeable, so a symmetric cloud is the correct null
+expectation and a departure from symmetry means something.
+
+Bucket SIZES are identical either way -- a neuron with k rows occupies buckets
+0..k-1 whatever order they are in -- so only each bucket's recording
+composition changes, not the per-bucket or per-panel n."""
+
 QVAL_SCOPE_HELP = """\
 Which set of neurons each axis' Storey correction runs over.
 
@@ -127,9 +163,13 @@ panel, so only within-panel comparisons are meaningful -- which is the only
 comparison these panels are actually making."""
 
 
-def build_wave_pivot(all_fourier_df, pval_col="p_value", population="neg"):
+def build_wave_pivot(all_fourier_df, pval_col="p_value", population="neg",
+                     bucket_order="random", seed=RANDOM_SEED):
     """Raw p-values pivoted into one row per neuron (`WAVE_GROUPS` key) and one
     column per occurrence-wave (a "bucket").
+
+    `bucket_order` selects how rows are counted off into buckets; see
+    BUCKET_ORDER_HELP. `seed` only matters for `bucket_order="random"`.
 
     Deliberately stops short of the Storey correction: which neurons a q-value
     should be corrected over depends on the panel it is drawn in, not on the
@@ -153,6 +193,11 @@ def build_wave_pivot(all_fourier_df, pval_col="p_value", population="neg"):
     """
     all_neg_res, all_pos_control, _ = statistics.get_poscontrols_negresults(all_fourier_df)
     source_df = all_neg_res if population == "neg" else all_pos_control
+    if bucket_order == "random":
+        # One global permutation is enough: restricted to any single neuron's
+        # rows it is a uniformly random ordering of exactly those rows, which
+        # is what `_split_into_waves`'s per-neuron cumcount then counts off.
+        source_df = source_df.sample(frac=1.0, random_state=seed)
     waves = _split_into_waves(source_df, wave_groups=WAVE_GROUPS)
 
     wave_df_l = [w.loc[w[pval_col].notna()] for w in waves]
@@ -222,7 +267,12 @@ def _valid_cols(species_df):
 LABEL_FONTSIZE = FP.FS_BODY * 2.5  # bucket axis labels -- 2-3x body size, for readability
 TICK_FONTSIZE = FP.FS_BODY * 2     # "0.0"/"1.0" tick labels
 COUNT_FONTSIZE = LABEL_FONTSIZE * 0.7   # per-bucket neuron counts, under each "bucket N"
-PANEL_N_FONTSIZE = LABEL_FONTSIZE * 0.6  # per-panel neuron count, in the middle of each axes
+PANEL_TITLE_FONTSIZE = LABEL_FONTSIZE * 0.6  # per-panel "n=... pi0 .../...%" title
+PANEL_TITLE_PAD_PT = 4.0
+# Vertical space one panel title occupies above its axes. Reserved in the top
+# margin, and added to the offset of any bucket label drawn along the TOP of
+# the grid so the label clears the title underneath it.
+TITLE_BLOCK_PT = PANEL_TITLE_FONTSIZE * 1.32 + PANEL_TITLE_PAD_PT
 
 # Distance (in points) from an axes' bottom/left edge out past its tick labels.
 # The bucket labels are drawn as figure-level text rather than with
@@ -236,18 +286,19 @@ LINE_SPACING = 1.32
 
 # Temporary diagnostic (2026-09-02): the number of neurons actually plotted in
 # each panel -- i.e. present in BOTH of that panel's buckets, which is very
-# much smaller than either bucket's own total -- printed small and grey in the
-# middle of the axes. Together with the per-bucket totals under each x label,
-# this is what makes "why does this panel have so many more outliers / such an
-# asymmetric cluster than that one" answerable by eye instead of by guesswork.
+# much smaller than either bucket's own total. Together with the per-bucket
+# totals under each x label, this is what makes "why does this panel have so
+# many more outliers / such an asymmetric cluster than that one" answerable by
+# eye instead of by guesswork.
 SHOW_PANEL_N = True
 
-# Each axis' estimated pi0, printed under the panel n. Worth showing because
-# pi0 is a hard ceiling on that axis' q-values (q_max = pi0 * p_max), so a
-# panel whose two pi0 values differ is one whose two axes stop at different
-# heights -- the single most common reason a cluster looks lopsided about the
-# diagonal. Under QVAL_SCOPE "intersection" these vary panel to panel, which is
-# exactly the information the old bucket-wide correction hid.
+# Each axis' estimated pi0, as a percentage. Worth showing because pi0 is a
+# hard ceiling on that axis' q-values (q_max = pi0 * p_max), so a panel whose
+# two pi0 values differ is one whose two axes stop at different heights -- the
+# single most common reason a cluster looks lopsided about the diagonal. Under
+# QVAL_SCOPE "intersection" these vary panel to panel, which is exactly the
+# information the old bucket-wide correction hid. Ordered x/y, matching the
+# axes.
 SHOW_PANEL_PI0 = True
 
 # A column's "bucket N" label normally sits under that column's bottom-most
@@ -407,13 +458,18 @@ def _plot_triangle_grid(plot_df_neg, plot_df_pos, cols_neg, cols_pos, title, mod
     right_in = 0.15 + ((TOP_LABEL_PAD_PT + LABEL_FONTSIZE * LINE_SPACING) / 72 if right_labelled else 0.0)
     label_block_in = (TICK_PAD_PT + (LABEL_FONTSIZE + 2 * COUNT_FONTSIZE) * LINE_SPACING) / 72 + 0.15
     top_label_in = (TOP_LABEL_PAD_PT + (LABEL_FONTSIZE + 2 * COUNT_FONTSIZE) * LINE_SPACING) / 72
-    top_in = 1.1 + (top_label_in if top_labelled else 0.0)
+    top_in = 1.1 + TITLE_BLOCK_PT / 72 + (top_label_in if top_labelled else 0.0)
     cbar_block_in = 1.35 if mode == "density" else 0.0
     bottom_in = label_block_in + cbar_block_in
     figw = cell_size * n_cols + left_in + right_in
     figh = cell_size * n_rows + top_in + bottom_in
     fig = plt.figure(figsize=(figw, figh))
-    gs = fig.add_gridspec(n_rows, n_cols, wspace=0.18, hspace=0.18,
+    # wspace and hspace are deliberately kept EQUAL -- they are fractions of
+    # the average axes width/height, so unequal values would make the cells
+    # non-square and break the read-straight-off-the-gridspec label placement
+    # described above. Both were widened from 0.18 to leave room for the
+    # per-panel titles (TITLE_BLOCK_PT) in the inter-row gap.
+    gs = fig.add_gridspec(n_rows, n_cols, wspace=0.28, hspace=0.28,
                           left=left_in / figw, right=1 - right_in / figw,
                           bottom=bottom_in / figh, top=1 - top_in / figh)
 
@@ -452,13 +508,13 @@ def _plot_triangle_grid(plot_df_neg, plot_df_pos, cols_neg, cols_pos, title, mod
                        labelbottom=(bottom_row_for_col[col] == row),
                        labelleft=(left_col_for_row[row] == col))
         if SHOW_PANEL_N:
-            label = f"{len(both)}"
+            # NB: not `title` -- that is this function's own parameter, holding
+            # the page's suptitle.
+            panel_title = f"n={len(both)}"
             if SHOW_PANEL_PI0 and len(both):
-                label += f"\npi0 {pi0x:.2f}/{pi0y:.2f}"
-            ax.text(0.5, 0.5, label, transform=ax.transAxes,
-                    ha="center", va="center", fontsize=PANEL_N_FONTSIZE,
-                    color="0.35", zorder=5, linespacing=1.25,
-                    bbox=dict(boxstyle="square,pad=0.15", fc="white", ec="none", alpha=0.65))
+                panel_title += f"   $\\pi_0$ {pi0x * 100:.0f}/{pi0y * 100:.0f}%"
+            ax.set_title(panel_title, fontsize=PANEL_TITLE_FONTSIZE, color="0.35",
+                         pad=PANEL_TITLE_PAD_PT)
 
     # -- Bucket labels + per-bucket neuron counts -----------------------------
     # Drawn as figure text rather than ax.set_xlabel/set_ylabel: a label pulled
@@ -476,7 +532,8 @@ def _plot_triangle_grid(plot_df_neg, plot_df_pos, cols_neg, cols_pos, title, mod
         if col in top_labelled:
             cell = gs[row_ix[top_row_for_col[col]], col_ix[col]].get_position(fig)
             # Reading downward towards the panels: name, then counts.
-            y, va, sign, stack, offset = cell.y1, "bottom", 1, count_lines[::-1] + [name_line], TOP_LABEL_PAD_PT
+            y, va, sign, stack, offset = (cell.y1, "bottom", 1, count_lines[::-1] + [name_line],
+                                          TOP_LABEL_PAD_PT + TITLE_BLOCK_PT)
         else:
             cell = gs[row_ix[x_label_row], col_ix[col]].get_position(fig)
             y, va, sign, stack, offset = cell.y0, "top", -1, [name_line] + count_lines, TICK_PAD_PT
@@ -536,20 +593,23 @@ def _plot_triangle_grid(plot_df_neg, plot_df_pos, cols_neg, cols_pos, title, mod
 
 
 def plot_fig3_supp2(all_fourier_df, out_dir: Path, out_name="Fig3_supp2.pdf",
-                    mode="scatter", pivots=None, qval_scope="intersection"):
+                    mode="scatter", pivots=None, qval_scope="intersection",
+                    bucket_order="random", seed=RANDOM_SEED):
     """One page per species (plus a "capped" second page, see below), written
     to `out_dir / out_name`. `mode` and `qval_scope` are passed straight
     through to `_plot_triangle_grid`. `pivots` optionally supplies an
     already-built `(neg_pivot_df, pos_pivot_df)` pair -- these are raw
-    p-values and so are independent of both `mode` and `qval_scope`, which is
-    what lets the scatter and density versions share one build.
+    p-values and so are independent of `mode` and `qval_scope` (though NOT of
+    `bucket_order`/`seed`, which decide the pivots' columns), which is what
+    lets the scatter and density versions share one build.
     """
     font = {"family": FP.FONT_FAMILY, "size": FP.FS_BODY}
     matplotlib.rc("font", **font)
 
     if pivots is None:
-        pivots = (build_wave_pivot(all_fourier_df, population="neg"),
-                  build_wave_pivot(all_fourier_df, population="pos"))
+        pivots = tuple(build_wave_pivot(all_fourier_df, population=p,
+                                        bucket_order=bucket_order, seed=seed)
+                       for p in ("neg", "pos"))
     neg_pivot_df, pos_pivot_df = pivots
 
     species_list = sorted(set(neg_pivot_df.index.get_level_values("species")) |
@@ -575,7 +635,7 @@ def plot_fig3_supp2(all_fourier_df, out_dir: Path, out_name="Fig3_supp2.pdf",
                 neg_species_df, pos_species_df, cols_neg, cols_pos,
                 f"{species}: comparing q-values across buckets\n"
                 f"magnetic n={len(neg_species_df)}, visual n={len(pos_species_df)}"
-                f"  (q-values corrected per {qval_scope})",
+                f"  (q-values corrected per {qval_scope}; buckets ordered at {bucket_order})",
                 mode=mode, qval_scope=qval_scope)
             if fig is None:
                 print(f"  Skipping {species}: no plottable bucket pairs after all filters")
@@ -603,7 +663,7 @@ def plot_fig3_supp2(all_fourier_df, out_dir: Path, out_name="Fig3_supp2.pdf",
                 neg_species_df, pos_species_df, cols_neg_capped, cols_pos_capped,
                 f"{species}: comparing q-values across buckets (capped to {capped_n} buckets)\n"
                 f"magnetic n={len(neg_species_df)}, visual n={len(pos_species_df)}"
-                f"  (q-values corrected per {qval_scope})",
+                f"  (q-values corrected per {qval_scope}; buckets ordered at {bucket_order})",
                 mode=mode, qval_scope=qval_scope)
             if fig_capped is None:
                 print(f"  Skipping {species} capped page: no plottable bucket pairs at {capped_n} buckets")
@@ -628,6 +688,10 @@ def main():
                         help="Which version(s) to render (default: both)")
     parser.add_argument("--qval-scope", choices=QVAL_SCOPES, default="intersection",
                         help=QVAL_SCOPE_HELP)
+    parser.add_argument("--bucket-order", choices=BUCKET_ORDERS, default="random",
+                        help=BUCKET_ORDER_HELP)
+    parser.add_argument("--seed", type=int, default=RANDOM_SEED,
+                        help=f"Permutation seed for --bucket-order random (default: {RANDOM_SEED})")
     args = parser.parse_args([] if in_notebook else None)
 
     out_dir = Path(args.out_dir)
@@ -636,14 +700,17 @@ def main():
     print(f"Loading {args.parquet} ...")
     all_fourier_df = pd.read_parquet(args.parquet)
 
-    pivots = (build_wave_pivot(all_fourier_df, population="neg"),
-              build_wave_pivot(all_fourier_df, population="pos"))
+    pivots = tuple(build_wave_pivot(all_fourier_df, population=p,
+                                    bucket_order=args.bucket_order, seed=args.seed)
+                   for p in ("neg", "pos"))
     modes = ["scatter", "density"] if args.mode == "both" else [args.mode]
     for mode in modes:
         out_name = "Fig3_supp2.pdf" if mode == "scatter" else "Fig3_supp2_density.pdf"
-        print(f"Rendering {mode} version (q-values corrected per {args.qval_scope}) ...")
+        print(f"Rendering {mode} version (q-values corrected per {args.qval_scope}, "
+              f"buckets ordered at {args.bucket_order}) ...")
         plot_fig3_supp2(all_fourier_df, out_dir, out_name=out_name, mode=mode, pivots=pivots,
-                        qval_scope=args.qval_scope)
+                        qval_scope=args.qval_scope, bucket_order=args.bucket_order,
+                        seed=args.seed)
 
 
 if __name__ == "__main__":
