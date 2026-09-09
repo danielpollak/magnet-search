@@ -12,8 +12,9 @@ unit's spikes are pooled (see concat_mag_recs, and EQUAL_WINDOW_S for why
 this is not optional). Every unit is then truncated to the first
 EQUAL_WINDOW_S (350 s) of its site's timeline (see
 truncate_pseudopop_to_window), so the four sites -- whose full timelines run
-352.5-784.8 s -- contribute equal-length observations. This applies to the
-whole file, not just one panel: the same `spks` list feeds panel A's example
+352.5-784.8 s -- contribute equal-length observations, and must hold at
+least MIN_SPIKES (50) spikes over that shared window to be pooled at all.
+This applies to the whole file, not just one panel: the same `spks` list feeds panel A's example
 unit, panel B's scatter, compute_sensitivity's top-decile ranking and panels
 C/D's responder sweep, so doing either step anywhere but at the loader would
 leave those panels describing different populations.
@@ -142,7 +143,19 @@ _EXPERIMENTS_DIR = _REPO_ROOT / "experiments"
 # fix, which was itself an artifact of the overlay) is gone, and only a
 # min-spike floor remains.
 EQUAL_WINDOW_S = 350.0
-MIN_SPIKES = 6  # same floor load_unit_spks_for_experiment applies at load time
+# 50 spikes over the WHOLE concatenated, window-truncated spike train -- not
+# the legacy per-(unit, rec) 50-spike threshold, which is still disabled at
+# the build_modulation_frame call (see load_unit_spks_for_experiment). The two
+# are different rules: the per-rec one discards real spikes from recs a unit
+# fired sparsely in while still charging it those recs' seconds, whereas this
+# one only asks that the pooled train be worth a Fourier estimate at all.
+# Below it a unit is not a measurement: at 6-49 spikes over 350 s its NFC sits
+# at the Rayleigh null median (~1.18) at every modulation amplitude the
+# simulation applies, so it contributes an undetectable-by-construction floor
+# to panel B and nothing but denominator to panels C/D. It also made panel B's
+# left edge visibly QUANTIZED -- the smallest achievable rates are 6/350,
+# 7/350, ... Hz, so sub-0.02 Hz units were all literally 6-spike trains.
+MIN_SPIKES = 50  # same floor load_unit_spks_for_experiment applies at load time
 # Two tag components beyond the window length, because two changes have each
 # altered what a given nominal window MEANS:
 #   "concat"  -- every cache predating it was computed on the OVERLAID
@@ -153,9 +166,28 @@ MIN_SPIKES = 6  # same floor load_unit_spks_for_experiment applies at load time
 #                in-window spikes the per-rec 50-spike threshold discarded,
 #                and admits units that cleared it in no single rec, so the
 #                pooled population itself is larger.
-# Neither an old "..._60s.pkl" nor an old "..._concat350s.pkl" may be
-# silently reloaded as if it matched the current definition.
-_WINDOW_TAG = f"concat{EQUAL_WINDOW_S:g}s_allspk"
+#   "min50"   -- MIN_SPIKES raised 6 -> 50, applied to the pooled, truncated
+#                train (see MIN_SPIKES): a strictly smaller population again,
+#                and every panel's denominator with it.
+# None of an old "..._60s.pkl", "..._concat350s.pkl" or
+# "..._concat350s_allspk.pkl" may be silently reloaded as if it matched the
+# current definition.
+_WINDOW_TAG = f"concat{EQUAL_WINDOW_S:g}s_allspk_min{MIN_SPIKES:d}"
+
+# Panel B's three synthetic modulation amplitudes. A [0, 0.1, 0.2] variant
+# was tried -- with MIN_SPIKES at 50 it put both non-zero conditions astride
+# the null line (15.6% and 38.8% of units above it, against 60.5%/95.4%
+# here) -- and rejected on looks; the panel reads better with the separation
+# these give. Deliberately NOT the same triple as panel A's rasters
+# ([0, 0.5, 1], see panel_A_axes): panel A needs modulation visible by eye
+# in a single unit's raster, panel B needs a population spread -- different
+# jobs, and coupling them would compromise one of the two.
+# Defined here, well above the panel B code that consumes it, only because
+# the cache-path block below derives _AMP_TAG from it.
+AMPLITUDES_FIG4B = [0.0, 0.3, 0.6]
+
+# Panel B y-axis cap -- see the set_ylim call in plot_fig4 for why.
+NFC_YLIM_TOP = 40
 
 # _pigeon_hp_pseudopop suffix: deliberately distinct from the old
 # single-recording cache filenames (modulation_strength_vs_excess_count.pkl /
@@ -171,12 +203,19 @@ _WINDOW_TAG = f"concat{EQUAL_WINDOW_S:g}s_allspk"
 # v3_{_WINDOW_TAG} (current) divides instead by the one common observation
 # window every unit now shares, see unit_firing_rates -- so any older
 # _pigeon_hp_pseudopop.pkl / "_v2".pkl / unstamped "_v3".pkl left on disk is
-# stale and must not be silently reloaded. Every cache path below
+# stale and must not be silently reloaded. It carries an _A amplitude
+# component too, derived from AMPLITUDES_FIG4B rather than bumped by hand:
+# the `mod` column holds those amplitudes and plot_fig4 looks its legend up
+# by them, so reloading a frame computed at a different triple would draw an
+# empty legend over the wrong points -- the same failure
+# fig4B_nfc_vs_Sa.py's own cache-key hash exists to prevent. Deriving it
+# means editing AMPLITUDES_FIG4B is sufficient on its own. Every cache path below
 # is additionally stamped with _WINDOW_TAG, so changing EQUAL_WINDOW_S (which
 # changes both which units are pooled and how much of each one is kept, hence
 # every NFC in every panel) can never silently reload a pickle computed for a
 # different window.
-FR_DF_CACHE   = _REPO_ROOT / "data" / "manuscript" / f"modulation_strength_vs_FR_pigeon_hp_pseudopop_v3_{_WINDOW_TAG}.pkl"
+_AMP_TAG = "A" + "-".join(f"{a:g}" for a in AMPLITUDES_FIG4B)
+FR_DF_CACHE   = _REPO_ROOT / "data" / "manuscript" / f"modulation_strength_vs_FR_pigeon_hp_pseudopop_v3_{_WINDOW_TAG}_{_AMP_TAG}.pkl"
 # "_lineargrid" suffix: AMPLITUDES_RESP/PARTICIPATION_RESP went through a
 # log-spaced detour (several different ranges) before settling back on a
 # plain linear arange -- any older qvalue_responder_df*.pkl (any "_log*"
@@ -283,6 +322,9 @@ SPECTRUM_PAD_Y = 0.03
 # first two entries are a red and a blue close enough to the manuscript's own
 # stimulus colors to be misread as them.
 PALETTE_FIG4B = "Dark2"
+
+# AMPLITUDES_FIG4B, which these hues color, is defined further up -- the
+# cache-path block needs it to build _AMP_TAG.
 
 # Panel B (ported from fig4_pilot.py) sweep grids -- matches Markus Meister's
 # MM_Analysis_3.ipynb notebook's own grids. Named "_RESP" (for the
@@ -450,11 +492,16 @@ def load_unit_spks_for_experiment(data_dir: str, experiment: str):
     most for a detectability simulation: units firing under 0.5 Hz kept a
     median of just 48% of their spikes.
 
-    Note that this admits units the default would have excluded from every
-    rec (fewer than 50 spikes in each), so the pooled population is somewhat
-    larger than the real analysis's. That is the intended trade: this file
-    simulates detectability as a function of firing rate, so it must see each
-    unit's actual rate rather than a per-rec-thresholded view of it.
+    The 50 is not abandoned, only moved: MIN_SPIKES re-imposes it once, on
+    the pooled train, both here and again after truncation (see
+    truncate_pseudopop_to_window). So a unit that fired 20 times in each of
+    eight recs is now kept -- 160 real spikes, which the per-rec rule would
+    have thrown away entirely -- while a unit with 30 spikes across its whole
+    timeline is not, exactly as under the per-rec rule. That is the intended
+    trade: this file simulates detectability as a function of firing rate, so
+    it must see each unit's actual rate rather than a per-rec-thresholded
+    view of it, but a train too sparse to support a Fourier estimate at all
+    is not a data point about detectability.
     """
     # Reads the pipeline's own {experiment}.nwb (Phase 7 cutover -- no
     # paradigm writes the legacy {experiment}_processing.pickle anymore),
@@ -502,7 +549,11 @@ def load_unit_spks_for_experiment(data_dir: str, experiment: str):
         # order across recs, not time -- fit_fourier_sig sorts its own
         # per-unit arrays for the same reason (np.sort(id_subdf.spk.values)).
         spkt = np.sort(np.concatenate(parts))
-        if len(spkt) > 5:
+        # Applied here as well as after truncation only as an early-out: a
+        # unit under MIN_SPIKES on its full timeline is necessarily under it
+        # on the [0, EQUAL_WINDOW_S) prefix too, so this drops nothing
+        # truncate_pseudopop_to_window would have kept.
+        if len(spkt) >= MIN_SPIKES:
             unit_spks[f"{experiment}:{uid}"] = spkt
 
     # Cheap check that the tiling really is non-overlapping: every spike must
@@ -516,7 +567,7 @@ def load_unit_spks_for_experiment(data_dir: str, experiment: str):
                 f"-- a spike falls outside its own rec's stimulus epoch."
             )
 
-    print(f"  {experiment}: {len(unit_spks)} mag units with >5 spikes, "
+    print(f"  {experiment}: {len(unit_spks)} mag units with >={MIN_SPIKES} spikes, "
           f"{len(rec_map)} mag recs concatenated -> {total_T:.1f} s timeline")
 
     Q_frac = cfg.analysis.mag_Q_frac if cfg.analysis.mag_Q_frac > 0 else cfg.analysis.Q_frac
@@ -565,8 +616,10 @@ def truncate_pseudopop_to_window(unit_spks, window_s=EQUAL_WINDOW_S,
     duration to appeal to; it dropped 249 of 1555 units purely for firing
     sparsely near the edges of a ~60 s overlay (see the fig4B_fano_by_rec
     diagnostic). Nothing is dropped for duration now -- only the same
-    min_spikes floor load_unit_spks_for_experiment applies at load time,
-    re-applied because truncation can push a sparse unit below it.
+    MIN_SPIKES floor load_unit_spks_for_experiment applies at load time,
+    re-applied here because truncation is what makes it binding: the sites'
+    full timelines run 352.5-784.8 s, so a unit can clear 50 spikes overall
+    and still fall short over the shared first 350 s.
     """
     kept, sparse = {}, 0
     for key, spkt in unit_spks.items():
@@ -825,10 +878,11 @@ def example_unit_index(spks, keys=None):
     the pin doesn't apply: it was `len(spks) // 2` -- the MEDIAN by spike
     count, since `spks` is sorted ascending. Spike-count distributions here
     are strongly right-skewed, so the median sits well below the mean, and
-    once min_spikes=0 admitted ~930 very-low-rate units (see
+    when min_spikes=0 admitted ~930 very-low-rate units (see
     load_unit_spks_for_experiment) the median unit became sparse enough that
     panel A's A=0 raster read as noise rather than as an unmodulated
-    baseline. The mean is pulled up by the high-rate tail, which lands the
+    baseline. MIN_SPIKES=50 has since removed most of those again, but the
+    mean rule is kept -- it is the one that survives either population. The mean is pulled up by the high-rate tail, which lands the
     exemplar on a unit whose modulation is legible at all three amplitudes.
     Ties break toward the lower index (np.argmin's own convention), which
     only matters when two units bracket the mean at equal distance.
@@ -847,7 +901,7 @@ def compute_fr_df(spks, FOURIER_Q, workers=1):
     """Panel B's data: each unit's NFC at each modulation amplitude, against
     its firing rate over the common window (see unit_firing_rates).
     """
-    tasks = [(A,) for A in [0, 0.3, 0.6]]
+    tasks = [(A,) for A in AMPLITUDES_FIG4B]
     results = _run_parallel(tasks, _fr_cell, spks, FREQ, FOURIER_Q, workers,
                              desc=f"FR vs NFC ({len(tasks)} cells)")
     rows = []
@@ -1381,7 +1435,7 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
                     s=5, linewidth=0.6, edgecolor="black", alpha=FP.ALPHA_SCATTER,
                     ax=ax_scatter, legend=False)
     handles, labels = ax_scatter.get_legend_handles_labels()
-    mod_vals = [0, 0.3, 0.6]
+    mod_vals = AMPLITUDES_FIG4B
     pairs = [(h, l) for h, l in zip(handles, labels)
              if any(abs(float(l) - v) < 1e-9 for v in mod_vals)]
     pairs = pairs[::-1]  # high-to-low top-to-bottom, instead of seaborn's ascending hue order
@@ -1396,6 +1450,15 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
     ax_scatter.set_ylabel("NFC")
     ax_scatter.set_xscale("log")
     ax_scatter.set_xlabel("Firing rate (Hz)")
+    # Clip the top of the y axis rather than let the A=0.6 tail set it: 17 of
+    # 6069 plotted points exceed 40 (14 at A=0.6, 3 at A=0.3, none at A=0),
+    # and autoscaling to their max (79.6) spent half the axis on them while
+    # compressing the null line and the A=0/0.3 clouds -- the part of the
+    # panel that carries the detectability claim -- into the bottom sliver.
+    # Only the axis view is limited; nothing is dropped from the frame, and
+    # no summary drawn here (the null line, the top-decile outlines) is
+    # computed from the visible range.
+    ax_scatter.set_ylim(top=NFC_YLIM_TOP)
 
     # Panel letters: placed in FIGURE coordinates, offset by the same fixed
     # pad from each panel's own top-left corner, so all four sit on a
@@ -1593,13 +1656,11 @@ def main():
     rng = np.random.default_rng(RANDOM_PANEL_A_SEED)
     counts = np.array([len(s) for s in spks])
     # Drawn from the units whose spike count is at least the exemplar's own,
-    # not from the whole pseudopopulation. Uniform over all 2438 units, 6 of
-    # every 10 draws land on a unit with under ~110 spikes over the 350 s
-    # window (the population is dominated by very-low-rate units since
-    # min_spikes=0 stopped dropping them, see
-    # load_unit_spks_for_experiment), and a raster of ~10 ticks spread over
-    # ~1750 cycles cannot show banding either way -- such pages would answer
-    # nothing. Keyed to the exemplar's OWN count rather than a hardcoded
+    # not from the whole pseudopopulation. Uniform over every pooled unit,
+    # most draws land on a unit far too sparse to read: even with MIN_SPIKES
+    # at 50 the count distribution stays strongly right-skewed, and a raster
+    # of ~50 ticks spread over ~1750 cycles cannot show banding either way --
+    # such pages would answer nothing. Keyed to the exemplar's OWN count rather than a hardcoded
     # number, so every page is at least as legible as the panel A it is being
     # compared against however example_unit_index resolves.
     pool = np.where(counts >= counts[example_i])[0]
