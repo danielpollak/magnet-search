@@ -20,20 +20,19 @@ duration, independent y scales -- all data kept) and OUT_NAME_EQUAL (the
 by-recording-time page recomputed with every unit truncated to one common
 window -- data thrown away, bands gone).
 
-Both companions are now near-degenerate by construction: fig4 itself
-equalizes the pseudopopulation to a common EQUAL_WINDOW_S window at load
-time (that investigation's conclusion, adopted into the figure), so every
-unit reaching this script already has essentially the same T (59.7-59.9 s
-median in every source session, against 62/64/96/236 s before). OUT_NAME_SPLIT
-therefore collapses to a single duration axis -- every unit now falls in
-SPLIT_EDGES' first bin. OUT_NAME_EQUAL still does something, just something
-narrower than it was written for: its default window is the shortest span
-left in the already-equalized pool (~39 s -- a unit can clear the 60 s span
-test and still fall silent partway through its own window), so it now asks
-whether truncating a further third off every unit changes anything, rather
-than whether equalizing four different session lengths does. Both are kept
-as the record of the comparison that motivated the change -- set
-fig4.EQUAL_WINDOW_S to 0 to see the original spread of durations.
+HISTORICAL NOTE (2026-09-07): the banding this file was written to explain
+was an artifact, and not the one it concluded. fig4 pooled each site's 6-10
+magnetic recordings by cluster id while nwb_io.build_modulation_frame hands
+back RECORDING-LOCAL spike times, so the recs were OVERLAID on one ~30-90 s
+axis rather than concatenated. The "four different recording durations"
+(62/64/96/236 s) this file's panels chase were therefore not durations at
+all, just the union of each site's recs' local epoch windows. fig4 now
+concatenates the recs onto a real non-overlapping timeline
+(fig4.concat_mag_recs) and truncates every unit to a common window anchored
+at t=0 of it (fig4.truncate_pseudopop_to_window), which removes the banding
+at its source. The panels below still run, and are kept as the record of the
+investigation, but read their "recording time" axis as "extent of the
+overlaid recs" for any output generated before that date.
 
 The main PDF has three pages, the same four panels each time: page 1 in a flat
 hue, page 2 colored by total recording time, page 3 colored by Fano factor
@@ -100,23 +99,34 @@ OUT_NAME = "fig4B_diagnostics.pdf"
 OUT_NAME_EQUAL = "fig4B_diagnostics_time_equal.pdf"   # truncate every unit to one window
 OUT_NAME_SPLIT = "fig4B_diagnostics_split.pdf"        # keep all data, separate panel B by duration
 
-# Per-unit recording-duration bin edges for OUT_NAME_SPLIT's three stacked
-# panel-B axes (shortest on top, longest on the bottom). Chosen at the two
-# empty stretches of the pooled per-unit T histogram -- units cluster at
-# ~60-65 s (both 20230413_firstsite and 20230415), ~92-100 s
-# (20230413_secondsite), ~130-140 s and ~236 s (both 20230414_firstsite,
-# whose units span different numbers of that session's mag recs) -- so no
-# bin edge cuts through a cluster. The middle bin holds the ~96 s and
-# ~135 s clusters together; the color ramp still separates them within
-# that axis.
-SPLIT_EDGES = (72.0, 150.0)
+# Per-unit active-span bin edges for OUT_NAME_SPLIT's three stacked panel-B
+# axes (shortest on top, longest on the bottom).
+#
+# Re-chosen 2026-09-07 for the concatenated timeline. The old (72, 150)
+# edges were placed at empty stretches of a per-unit T histogram that no
+# longer exists -- those "clusters" at ~60-65/~92-100/~130-140/~236 s were
+# the union of each site's OVERLAID rec windows, not durations (see the
+# module docstring's historical note). On the real timeline every unit is
+# observed for the full fig4.EQUAL_WINDOW_S, so T here is now just how much
+# of that window a unit was ACTIVE across, and it is heavily
+# left-skewed: 10th pct 261 s, 25th 323 s, median 344 s, and 37% of units
+# span >99% of the window. (72, 150) therefore binned 15/73/2350 -- one
+# axis holding 96% of the population. These edges sit near the 10th and
+# 50th percentiles instead, so the three axes are populated enough to
+# compare.
+SPLIT_EDGES = (260.0, 340.0)
 
-# The one modulation condition plotted here. fig4's panel B draws A in
-# (0, 0.3, 0.6) with seaborn's Dark2 hue order, so index 2 of that palette
-# is the color those points already carry in Fig4B -- reused so a panel
-# here is visually the same population, same color, just a different x.
-MOD_LEVEL = 0.6
-MOD_ALL = [0, 0.3, 0.6]
+# The one modulation condition plotted here: fig4 panel B's strongest.
+# Derived from fig4.AMPLITUDES_FIG4B rather than restated, so lowering
+# panel B's amplitudes (as [0, 0.3, 0.6] -> [0, 0.1, 0.2] did) carries here
+# automatically -- otherwise this script silently plots a condition
+# fig4.FR_DF_CACHE no longer contains, which its own mod-filter below would
+# only catch after a full reload. Taking the max, not palette index 2,
+# keeps "the strongest condition" true if the list ever changes length;
+# MOD_ALL.index below still resolves the matching seaborn Dark2 hue, so a
+# panel here is visually the same population, same color, just a different x.
+MOD_ALL = list(fig4.AMPLITUDES_FIG4B)
+MOD_LEVEL = max(MOD_ALL)
 
 # (column, axis label, log-x?) -- panel order is the order requested:
 # time, spike count, Fano factor, then the original firing-rate version.
@@ -135,22 +145,26 @@ def mod_color():
 def load_keyed_pseudopopulation(data_dir: str, experiments):
     """fig4.load_pseudopopulation_spks, but keeping each unit's
     "{experiment}:{cluster_id}" key. Same pooling order, same
-    EQUAL_WINDOW_S common-window equalization and same
-    spike-count-ascending sort, so the returned list index equals the `id`
-    column fig4.compute_fr_df writes (np.arange(len(spks)) over exactly
-    this list).
+    EQUAL_WINDOW_S common-window truncation and same spike-count-ascending
+    sort, so the returned list index equals the `id` column
+    fig4.compute_fr_df writes (np.arange(len(spks)) over exactly this list).
     """
     all_units = {}
     q_fracs = {}
     for experiment in experiments:
-        unit_spks, Q_frac = fig4.load_unit_spks_for_experiment(data_dir, experiment)
+        # Third return value (that experiment's total concatenated mag
+        # duration) is checked against EQUAL_WINDOW_S by
+        # fig4.load_pseudopopulation_spks; this script inherits the same
+        # window, so re-checking here would only duplicate that guard.
+        unit_spks, Q_frac, _total_T = fig4.load_unit_spks_for_experiment(
+            data_dir, experiment)
         all_units.update(unit_spks)
         q_fracs[experiment] = Q_frac
-    # Same common-window equalization fig4.load_pseudopopulation_spks applies
+    # Same common-window truncation fig4.load_pseudopopulation_spks applies
     # -- not optional here: this script joins fig4's own FR cache onto these
     # units by position, so pooling a different unit set than fig4 did would
     # trip the cache-staleness guard in main() (or, worse, silently misalign).
-    all_units = fig4.equalize_unit_windows(all_units)
+    all_units = fig4.truncate_pseudopop_to_window(all_units)
     unique_q_fracs = set(q_fracs.values())
     if len(unique_q_fracs) > 1:
         raise ValueError(f"mag_Q_frac/Q_frac differs across pooled experiments: {q_fracs}")
@@ -404,7 +418,7 @@ def plot_split_page(df, top_df, nfc_99):
     return fig
 
 
-def truncate_to_common_window(keys, spks, T_common, min_spikes=6):
+def truncate_to_common_window(keys, spks, T_common, min_spikes=fig4.MIN_SPIKES):
     """Keep only each unit's first `T_common` seconds, measured from its own
     first spike, so every unit is analyzed over an equal-length window.
     Units left with fewer than `min_spikes` spikes are dropped (same floor
@@ -432,11 +446,24 @@ def build_time_equalized_df(keys, spks, Q_frac, bin_s, workers, window=None,
     cell, cached under its own window-stamped filename.
     """
     spans = np.array([s.max() - s.min() for s in spks])
-    T_common = float(window) if window else float(spans.min())
+    # Default is half fig4's own common window, NOT spans.min() as it was
+    # before the concatenation. On the overlaid timeline spans.min() was
+    # ~39 s and stood for "the longest window every unit can supply"; on the
+    # real timeline a unit's span is only how long it was ACTIVE, so
+    # spans.min() is now 0.0 s (a unit whose handful of spikes land close
+    # together) and truncating there would empty the population. Half the
+    # window keeps this page asking a well-posed question -- does halving
+    # every unit's observation change the picture -- rather than a broken
+    # one.
+    T_common = float(window) if window else float(fig4.EQUAL_WINDOW_S) / 2
     keys_t, spks_t, dropped = truncate_to_common_window(keys, spks, T_common)
-    source = "--equal-window" if window else "shortest unit span in the pool"
+    source = "--equal-window" if window else "half fig4.EQUAL_WINDOW_S"
+    if spans.min() == 0.0:
+        print(f"  (shortest unit span in the pool is {spans.min():.1f} s -- "
+              f"not usable as a window, see build_time_equalized_df)")
     print(f"\nTime-equalized population: window = {T_common:.1f} s ({source})")
-    print(f"  {len(spks_t)} units kept, {dropped} dropped for having <6 spikes "
+    print(f"  {len(spks_t)} units kept, {dropped} dropped for having "
+          f"<{fig4.MIN_SPIKES} spikes "
           f"left after truncation")
 
     FOURIER_Q = fig4.fourier_Q_from_frac(spks_t, fig4.FREQ, Q_frac,
@@ -532,8 +559,8 @@ def main():
                         help="Recompute the A=0.6 NFCs instead of reading fig4's FR cache")
     parser.add_argument("--equal-window", type=float, default=None,
                         help=f"Common window in seconds for {OUT_NAME_EQUAL} "
-                             f"(default: the shortest unit span in the pool, i.e. the "
-                             f"longest window every unit can supply)")
+                             f"(default: half fig4.EQUAL_WINDOW_S -- see "
+                             f"build_time_equalized_df)")
     args = parser.parse_args([] if in_notebook else None)
 
     out_dir = Path(args.out_dir)
