@@ -12,7 +12,8 @@ there is no evidence for that."
 
 For each species, every neuron's q-value (Storey-corrected, computed
 *within that species* -- unlike fig3.py's per-wave q-values, which pool
-across all species in a wave) is tabulated across its occurrence-waves
+across all species in a wave, and see QVAL_SCOPE_HELP for which neurons each
+correction runs over) is tabulated across its occurrence-waves
 ("buckets": 1st recording, 2nd, 3rd, ...) into a wide table (one row per
 neuron, one column per bucket), then plotted as a hand-rolled grid of
 scatterplots (see `_plot_triangle_grid`): each panel scatters one bucket's
@@ -59,6 +60,7 @@ Requires:
 Usage:
     python pipeline/manuscript/fig3_supp2.py
     python pipeline/manuscript/fig3_supp2.py --mode density
+    python pipeline/manuscript/fig3_supp2.py --qval-scope bucket
     python pipeline/manuscript/fig3_supp2.py --out-dir figs/paper
 """
 import argparse
@@ -96,20 +98,51 @@ WAVE_GROUPS = ["species", "ID", "date", "id"]
 MIN_NEURONS_PER_WAVE = 20
 MIN_WAVES = 2
 
+QVAL_SCOPES = ("intersection", "bucket")
+
+QVAL_SCOPE_HELP = """\
+Which set of neurons each axis' Storey correction runs over.
+
+"intersection" (default): exactly the neurons drawn in that panel, i.e. the
+pairwise-complete set present in BOTH of its buckets. Each axis is corrected
+separately over that set.
+
+"bucket": the original behaviour -- correct once over every neuron in the
+bucket, then subset to the panel. This makes a neuron's q-value a property of
+its column alone (identical everywhere it appears in the grid), which reads
+nicely across a row, but compares apples to oranges: the correction population
+is not the plotted population. A Storey q-value is a rescaling of a p-value by
+that population's own pi0 (and pi0 is a hard ceiling on q, since
+q_max = pi0 * p_max), so two axes calibrated on two different populations are
+not on a common scale, and neither is calibrated on the points you can see.
+On Pigeon's positive-control page the gap is large: bucket 0's pi0 is 0.845
+over all 3005 of its neurons but 0.965 over the 1167 it shares with bucket 6,
+because bucket 0's signal sits disproportionately in the oddball-session units
+that drop out of that pairing. Under "bucket" that panel looks symmetric
+(46.9% of points above the diagonal) purely because two opposite biases cancel;
+under "intersection" its real asymmetry (11.1%) is visible.
+
+The cost of "intersection" is that a neuron's q-value now varies from panel to
+panel, so only within-panel comparisons are meaningful -- which is the only
+comparison these panels are actually making."""
+
 
 def build_wave_pivot(all_fourier_df, pval_col="p_value", population="neg"):
-    """Per-species, per-occurrence-wave Storey q-values, pivoted into one row
-    per neuron (`WAVE_GROUPS` key) and one column per occurrence-wave (a
-    "bucket").
+    """Raw p-values pivoted into one row per neuron (`WAVE_GROUPS` key) and one
+    column per occurrence-wave (a "bucket").
 
-    Unlike `fig3.split_into_occurrence_waves` (which computes q-values by
-    pooling every species together within a wave, appropriate for the main
-    Fig3 panels' population-level uniformity check), this pools p-values
-    *within species* only -- the question here is neuron-level reproducibility
-    across recordings of the same individual, so mixing species into one
-    Storey correction would let one species' p-value distribution distort
-    another's q-values for no reason connected to the actual comparison being
-    made.
+    Deliberately stops short of the Storey correction: which neurons a q-value
+    should be corrected over depends on the panel it is drawn in, not on the
+    bucket alone, so the correction happens per-panel in `_panel_qvals` (see
+    QVAL_SCOPE_HELP). What is pooled is still never more than one species at a
+    time -- unlike `fig3.split_into_occurrence_waves`, which pools every
+    species together within a wave (appropriate for the main Fig3 panels'
+    population-level uniformity check). The question here is neuron-level
+    reproducibility across recordings of the same individual, so mixing species
+    into one Storey correction would let one species' p-value distribution
+    distort another's q-values for no reason connected to the actual comparison
+    being made; the per-species split is enforced by the callers, which slice
+    this pivot by species (`_species_subset`) before correcting.
 
     `population`: "neg" for the negative-result (magnetic) population, "pos"
     for the positive-control (visual/audio/oddball/...) population -- see
@@ -122,20 +155,50 @@ def build_wave_pivot(all_fourier_df, pval_col="p_value", population="neg"):
     source_df = all_neg_res if population == "neg" else all_pos_control
     waves = _split_into_waves(source_df, wave_groups=WAVE_GROUPS)
 
-    wave_df_l = []
-    for wave_df in waves:
-        for _, species_df in wave_df.groupby("species"):
-            species_df = species_df.loc[species_df[pval_col].notna()].copy()
-            if len(species_df) == 0:
-                continue
-            qval, _ = statistics.storey_qvalues(species_df[pval_col].values, lambda_=0.5)
-            species_df["qval"] = qval
-            wave_df_l.append(species_df)
-
+    wave_df_l = [w.loc[w[pval_col].notna()] for w in waves]
+    wave_df_l = [w for w in wave_df_l if len(w)]
     if not wave_df_l:
         return pd.DataFrame(index=pd.MultiIndex.from_arrays([[]] * len(WAVE_GROUPS), names=WAVE_GROUPS))
     all_wave_df = pd.concat(wave_df_l, ignore_index=True)
-    return all_wave_df.pivot(index=WAVE_GROUPS, columns="occurrence", values="qval")
+    return all_wave_df.pivot(index=WAVE_GROUPS, columns="occurrence", values=pval_col)
+
+
+def _storey(vals):
+    """`statistics.storey_qvalues` on `vals`, tolerating an empty input (it
+    indexes `order[-1]` unconditionally and so would raise). Returns
+    `(qvals, pi0)`."""
+    vals = np.asarray(vals, dtype=float)
+    if vals.size == 0:
+        return vals, np.nan
+    return statistics.storey_qvalues(vals, lambda_=0.5)
+
+
+def _bucket_qvals(species_p_df, col, cache):
+    """`(qvals_series, pi0)` for every neuron in bucket `col`, corrected over
+    the whole bucket. Cached in `cache`, since each bucket appears in many
+    panels and the correction is identical in all of them."""
+    if col not in cache:
+        p = species_p_df[col].dropna()
+        q, pi0 = _storey(p.values)
+        cache[col] = (pd.Series(q, index=p.index), pi0)
+    return cache[col]
+
+
+def _panel_qvals(species_p_df, col, row, scope, cache):
+    """`(qvals_df, pi0_x, pi0_y)` for panel (`col` on x, `row` on y).
+
+    `qvals_df` is indexed by the pairwise-complete neurons -- the only ones
+    that can be plotted at all -- with one column per axis. `scope` selects
+    which population each axis' Storey correction runs over; see
+    QVAL_SCOPE_HELP.
+    """
+    both = species_p_df[[col, row]].dropna()
+    if scope == "intersection":
+        (qx, pi0x), (qy, pi0y) = _storey(both[col].values), _storey(both[row].values)
+        return pd.DataFrame({col: qx, row: qy}, index=both.index), pi0x, pi0y
+    qx, pi0x = _bucket_qvals(species_p_df, col, cache)
+    qy, pi0y = _bucket_qvals(species_p_df, row, cache)
+    return pd.DataFrame({col: qx.loc[both.index], row: qy.loc[both.index]}), pi0x, pi0y
 
 
 def _species_subset(pivot_df, species):
@@ -178,6 +241,14 @@ LINE_SPACING = 1.32
 # this is what makes "why does this panel have so many more outliers / such an
 # asymmetric cluster than that one" answerable by eye instead of by guesswork.
 SHOW_PANEL_N = True
+
+# Each axis' estimated pi0, printed under the panel n. Worth showing because
+# pi0 is a hard ceiling on that axis' q-values (q_max = pi0 * p_max), so a
+# panel whose two pi0 values differ is one whose two axes stop at different
+# heights -- the single most common reason a cluster looks lopsided about the
+# diagonal. Under QVAL_SCOPE "intersection" these vary panel to panel, which is
+# exactly the information the old bucket-wide correction hid.
+SHOW_PANEL_PI0 = True
 
 # A column's "bucket N" label normally sits under that column's bottom-most
 # occupied cell. Because the two populations don't reach the same edge of the
@@ -233,13 +304,18 @@ def _offset_trans(fig, dx_pt, dy_pt):
     return fig.transFigure + ScaledTranslation(dx_pt / 72, dy_pt / 72, fig.dpi_scale_trans)
 
 
-def _plot_triangle_grid(plot_df_neg, plot_df_pos, cols_neg, cols_pos, title, mode="scatter"):
+def _plot_triangle_grid(plot_df_neg, plot_df_pos, cols_neg, cols_pos, title, mode="scatter",
+                        qval_scope="intersection"):
     """Full NxN grid of bucket-vs-bucket q-value panels: the strictly lower
     triangle (row > col) shows the negative-result (magnetic) population, the
     strictly upper triangle (row < col) shows the positive-control
     (visual/audio/...) population, and the diagonal is left blank --
     deliberately NOT `sns.pairplot`, for the same "no wasted blank diagonal
     stripe" reason as the original single-triangle version of this plot.
+
+    `plot_df_neg`/`plot_df_pos` hold raw p-values (see `build_wave_pivot`);
+    each panel's q-values are computed here, from the population `qval_scope`
+    selects -- see QVAL_SCOPE_HELP.
 
     `mode` is "scatter" (one dot per neuron) or "density" (a per-panel 2D
     histogram, see the DENSITY_* constants) -- the same grid, same cells, same
@@ -346,13 +422,16 @@ def _plot_triangle_grid(plot_df_neg, plot_df_pos, cols_neg, cols_pos, title, mod
     norm = LogNorm(vmin=DENSITY_VMIN, vmax=1.0)
     cmaps = {pop: _density_cmap(name) for pop, name in DENSITY_CMAPS.items()}
 
+    q_cache = {"neg": {}, "pos": {}}
     for row, col in cells:
         pop = "neg" if row > col else "pos"
         df = plot_df_neg if pop == "neg" else plot_df_pos
         ax = fig.add_subplot(gs[row_ix[row], col_ix[col]])
         # Only neurons present in BOTH buckets can be plotted at all; this
-        # pairwise-complete count is what SHOW_PANEL_N reports.
-        both = df[[col, row]].dropna()
+        # pairwise-complete count is what SHOW_PANEL_N reports, and under
+        # QVAL_SCOPE "intersection" it is also the population each axis'
+        # Storey correction is calibrated on.
+        both, pi0x, pi0y = _panel_qvals(df, col, row, qval_scope, q_cache[pop])
         if mode == "density":
             counts, _, _ = np.histogram2d(both[col].clip(0, 1), both[row].clip(0, 1),
                                           bins=[edges, edges])
@@ -373,9 +452,12 @@ def _plot_triangle_grid(plot_df_neg, plot_df_pos, cols_neg, cols_pos, title, mod
                        labelbottom=(bottom_row_for_col[col] == row),
                        labelleft=(left_col_for_row[row] == col))
         if SHOW_PANEL_N:
-            ax.text(0.5, 0.5, f"{len(both)}", transform=ax.transAxes,
+            label = f"{len(both)}"
+            if SHOW_PANEL_PI0 and len(both):
+                label += f"\npi0 {pi0x:.2f}/{pi0y:.2f}"
+            ax.text(0.5, 0.5, label, transform=ax.transAxes,
                     ha="center", va="center", fontsize=PANEL_N_FONTSIZE,
-                    color="0.35", zorder=5,
+                    color="0.35", zorder=5, linespacing=1.25,
                     bbox=dict(boxstyle="square,pad=0.15", fc="white", ec="none", alpha=0.65))
 
     # -- Bucket labels + per-bucket neuron counts -----------------------------
@@ -454,12 +536,13 @@ def _plot_triangle_grid(plot_df_neg, plot_df_pos, cols_neg, cols_pos, title, mod
 
 
 def plot_fig3_supp2(all_fourier_df, out_dir: Path, out_name="Fig3_supp2.pdf",
-                    mode="scatter", pivots=None):
+                    mode="scatter", pivots=None, qval_scope="intersection"):
     """One page per species (plus a "capped" second page, see below), written
-    to `out_dir / out_name`. `mode` is passed straight through to
-    `_plot_triangle_grid`. `pivots` optionally supplies an already-built
-    `(neg_pivot_df, pos_pivot_df)` pair -- rendering the scatter and density
-    versions would otherwise repeat every Storey correction.
+    to `out_dir / out_name`. `mode` and `qval_scope` are passed straight
+    through to `_plot_triangle_grid`. `pivots` optionally supplies an
+    already-built `(neg_pivot_df, pos_pivot_df)` pair -- these are raw
+    p-values and so are independent of both `mode` and `qval_scope`, which is
+    what lets the scatter and density versions share one build.
     """
     font = {"family": FP.FONT_FAMILY, "size": FP.FS_BODY}
     matplotlib.rc("font", **font)
@@ -491,8 +574,9 @@ def plot_fig3_supp2(all_fourier_df, out_dir: Path, out_name="Fig3_supp2.pdf",
             fig = _plot_triangle_grid(
                 neg_species_df, pos_species_df, cols_neg, cols_pos,
                 f"{species}: comparing q-values across buckets\n"
-                f"magnetic n={len(neg_species_df)}, visual n={len(pos_species_df)}",
-                mode=mode)
+                f"magnetic n={len(neg_species_df)}, visual n={len(pos_species_df)}"
+                f"  (q-values corrected per {qval_scope})",
+                mode=mode, qval_scope=qval_scope)
             if fig is None:
                 print(f"  Skipping {species}: no plottable bucket pairs after all filters")
                 continue
@@ -518,8 +602,9 @@ def plot_fig3_supp2(all_fourier_df, out_dir: Path, out_name="Fig3_supp2.pdf",
             fig_capped = _plot_triangle_grid(
                 neg_species_df, pos_species_df, cols_neg_capped, cols_pos_capped,
                 f"{species}: comparing q-values across buckets (capped to {capped_n} buckets)\n"
-                f"magnetic n={len(neg_species_df)}, visual n={len(pos_species_df)}",
-                mode=mode)
+                f"magnetic n={len(neg_species_df)}, visual n={len(pos_species_df)}"
+                f"  (q-values corrected per {qval_scope})",
+                mode=mode, qval_scope=qval_scope)
             if fig_capped is None:
                 print(f"  Skipping {species} capped page: no plottable bucket pairs at {capped_n} buckets")
                 continue
@@ -534,12 +619,15 @@ def plot_fig3_supp2(all_fourier_df, out_dir: Path, out_name="Fig3_supp2.pdf",
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate Fig 3 supplement 2 (q-value reproducibility across recordings, by species)")
+        description="Generate Fig 3 supplement 2 (q-value reproducibility across recordings, by species)",
+        formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument("--out-dir", default=FP.OUT_DIR, help="Output directory for PDFs")
     parser.add_argument("--parquet", default=FP.PARQUET_PATH,
                         help=f"Path to all_fourier_df.parquet (default: {FP.PARQUET_PATH})")
     parser.add_argument("--mode", choices=["scatter", "density", "both"], default="both",
                         help="Which version(s) to render (default: both)")
+    parser.add_argument("--qval-scope", choices=QVAL_SCOPES, default="intersection",
+                        help=QVAL_SCOPE_HELP)
     args = parser.parse_args([] if in_notebook else None)
 
     out_dir = Path(args.out_dir)
@@ -553,8 +641,9 @@ def main():
     modes = ["scatter", "density"] if args.mode == "both" else [args.mode]
     for mode in modes:
         out_name = "Fig3_supp2.pdf" if mode == "scatter" else "Fig3_supp2_density.pdf"
-        print(f"Rendering {mode} version ...")
-        plot_fig3_supp2(all_fourier_df, out_dir, out_name=out_name, mode=mode, pivots=pivots)
+        print(f"Rendering {mode} version (q-values corrected per {args.qval_scope}) ...")
+        plot_fig3_supp2(all_fourier_df, out_dir, out_name=out_name, mode=mode, pivots=pivots,
+                        qval_scope=args.qval_scope)
 
 
 if __name__ == "__main__":
