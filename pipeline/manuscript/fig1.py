@@ -580,15 +580,17 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     statistics.boundary_ticks(mag_spectra_ax, y=False)
     statistics.stimulus_frequency_tick(mag_spectra_ax, MAG_FREQ)
 
-    # eps-corrected null (show_uncorrected=False): the p-values feeding this
-    # panel's own ECDF inset are computed against the corrected null inside
-    # fit_fourier_sig, so overlaying the uncorrected one here would contradict
-    # them. Q is constant within a rec, so one eps covers the whole panel.
+    # Corrected null as the primary curve, with the naive one behind it as a
+    # light dashed reference: the p-values feeding this panel's own ECDF inset
+    # are computed against the CORRECTED null inside fit_fourier_sig, so that
+    # is the one the histogram should be read against; the naive curve is kept
+    # visible to show how little the correction moves at this Q.
+    # Q is constant within a rec, so one eps covers the whole panel.
     mag_rows = fourier_df.loc[fourier_df.rec == MAG_CONTINGENCY]
     statistics.draw_hist(mag_rows["NFC"], mag_dist_ax, xlim=9,
                          inset=True, bar_color=FP.COLOR_MAG, legend_fontsize=FP.FS_LEGEND,
                          eps=statistics.eps_from_Q(mag_rows["Q"].iloc[0]),
-                         show_uncorrected=False)
+                         null_style="corrected-primary")
     # Triangle sits just above the x-axis, pointing down at it (blended
     # transform: x in data coords, y in axes-fraction) -- marks the
     # exemplar's NFC position along the x-axis (2026-09-02: was an arrow
@@ -628,14 +630,14 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
         # (|c_n| is a modulus; it cannot be negative.)
         _ax.set_yticks([t for t in _ax.get_yticks() if 0 <= t <= spectra_top])
 
-    # Corrected null, same reasoning as the magnetic panel above -- but this
-    # rec's own eps (Q=52 here vs. 27 there, so a visibly different threshold).
+    # Same treatment as the magnetic panel above, on this rec's own eps
+    # (Q=52 here vs. 27 there, so a slightly different corrected threshold).
     vis_rows = fourier_df.loc[fourier_df.rec == VIS_CONTINGENCY]
     statistics.draw_hist(vis_rows["NFC"],
                          vis_dist_ax, xlim=12, inset=True, bar_color=FP.COLOR_VIS,
                          legend_fontsize=FP.FS_LEGEND,
                          eps=statistics.eps_from_Q(vis_rows["Q"].iloc[0]),
-                         show_uncorrected=False)
+                         null_style="corrected-primary")
     # exemplar_NFC_vis (~7.79) sits out in this population's right tail --
     # consistent with this being a deliberately strong (tightly phase-
     # concentrated), not just barely-significant, exemplar (see module
