@@ -1264,21 +1264,28 @@ def _pct99(eps):
 
 
 def draw_hist(NFC, ax, xlim=12.5, title=False, inset=True, invert=False, eps=None,
-              bar_color=None, legend_fontsize=8, show_uncorrected=True):
+              bar_color=None, legend_fontsize=8, null_style="compare"):
     """
     eps: (float, optional) If given, bring in the eps-corrected null
         distribution (see get_epsilon/normalized_Fourier_PDF_corrected).
-        Exactly what is drawn then depends on `show_uncorrected`.
-    show_uncorrected: (bool) Only meaningful when `eps` is given. True (the
-        default) draws BOTH nulls for comparison -- uncorrected solid black,
-        corrected orange dashed, each with its own 99% line, plus a legend --
-        which is what the analysis diagnostic PDFs want. False draws ONLY the
-        corrected null, as the solid black curve with a single grey 99% line
-        and no legend: visually identical to an uncorrected panel, but showing
-        the null that the p-values of the very same units were computed
-        against (see fit_fourier_sig, which always corrects). Manuscript
-        panels pass False, since plotting an uncorrected null over corrected
-        p-values is just an inconsistency, not a comparison worth making.
+        Exactly what is drawn then depends on `null_style`.
+    null_style: (str) Only meaningful when `eps` is given.
+
+        "compare" (default) -- both nulls as equals for diagnosis: uncorrected
+            solid black, corrected orange dashed, EACH with its own 99% line,
+            4-entry legend. This is what the analysis diagnostic PDFs want
+            (pipeline/diagnostics/analysis.py, diagnostics/engert.py), where
+            the whole point is to see how much the correction moved things.
+
+        "corrected-primary" -- for manuscript panels. The CORRECTED null takes
+            the primary slot (solid black), since it is the null the p-values
+            of these very units were computed against (see fit_fourier_sig,
+            which always corrects); the naive null trails behind it as a light
+            grey dashed reference. Only ONE 99% line is drawn, at the
+            corrected value: the two thresholds sit within ~1.6% of each other
+            (3.035 vs 3.084 at Q=27), so drawing both would render as a single
+            thick line or a faint doubling that reads as a printing artifact
+            rather than as information. 2-entry legend.
     bar_color: (optional) explicit color for the histogram bars -- e.g. a
         mag/positive-control color when this histogram belongs to one of those
         two populations. Defaults to None (matplotlib's own default color).
@@ -1293,12 +1300,13 @@ def draw_hist(NFC, ax, xlim=12.5, title=False, inset=True, invert=False, eps=Non
     YY_corrected = normalized_Fourier_PDF_corrected(XX, XX, YY, eps) if eps else None
     vals, bins = np.histogram(NFC, bins=np.arange(0, 12, 0.2), density=True)
 
-    # When only the corrected null is wanted, it takes over the primary
+    # In "corrected-primary" the corrected null takes over the primary
     # (solid black + grey threshold) slot instead of being an extra overlay.
-    corrected_only = YY_corrected is not None and not show_uncorrected
-    primary_Y = YY_corrected if corrected_only else YY
-    primary_99 = _pct99(eps) if corrected_only else _pct99(None)
-    null_label = "null" if corrected_only else "uncorrected null"
+    has_corrected = YY_corrected is not None
+    corrected_primary = has_corrected and null_style == "corrected-primary"
+    primary_Y = YY_corrected if corrected_primary else YY
+    primary_99 = _pct99(eps) if corrected_primary else _pct99(None)
+    null_label = "corrected null" if corrected_primary else "uncorrected null"
 
     # Orientation-agnostic drawing: `invert` only swaps which axis carries NFC.
     if not invert:
@@ -1314,10 +1322,20 @@ def draw_hist(NFC, ax, xlim=12.5, title=False, inset=True, invert=False, eps=Non
     # vs. Patch/bar=1), which is why they'd otherwise render on top of and obscure
     # the bars -- set explicit zorders so the bars are drawn in front instead.
     plot_null(XX, primary_Y, label=null_label, color="k", linewidth=1)
+    # In "corrected-primary" the threshold is deliberately kept OUT of the
+    # legend: there is only one of them, so the legend would just be
+    # restating the obvious and crowding a manuscript panel. "compare" needs
+    # it, since there the two thresholds have to be told apart.
     plot_threshold(primary_99, color="grey", alpha=0.5, zorder=1,
-                   label="99%" if corrected_only else "uncorrected 99%")
+                   label="_nolegend_" if corrected_primary else "uncorrected 99%")
 
-    if YY_corrected is not None and show_uncorrected:
+    if corrected_primary:
+        # Naive null as a light dashed reference only -- and deliberately no
+        # second 99% line (see null_style in the docstring for why).
+        plot_null(XX, YY, label="naive null", color="grey", linewidth=0.8,
+                  linestyle="--", alpha=0.7, zorder=1)
+        ax.legend(fontsize=legend_fontsize)
+    elif has_corrected:
         plot_null(XX, YY_corrected, label="corrected null", color="tab:orange",
                   linewidth=1, linestyle="--")
         plot_threshold(_pct99(eps), color="tab:orange", alpha=0.5, zorder=1,
