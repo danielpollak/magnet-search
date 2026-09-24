@@ -25,6 +25,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from ecdfbounds import bootstrap_ecdf_band
+
 from magpyneto2 import statistics
 
 import format_parameters as FP
@@ -55,6 +57,40 @@ def _fix_excess_legend(ax, ncol=3, loc=None):
     if loc is not None:
         legend_kw["loc"] = loc
     ax.legend(list(deduped.values()), list(deduped.keys()), **legend_kw)
+
+
+def _plot_pvalue_ecdf_deviation(ax, pvals, color):
+    """Deviation of a pooled p-value ECDF from uniform, with a bootstrap band.
+
+    Mirrors the ECDF insets in Fig1 E/F (see fig1.py), and replaces what used
+    to be a pooled NFC histogram with a null-PDF overlay.
+
+    Plotting p-values rather than NFC is what makes pooling across experiments
+    legitimate. `fit_fourier_sig` already maps each unit's NFC through its OWN
+    eps-corrected null, so every `p_value` is Uniform(0,1) under the null
+    regardless of that recording's Q -- and Q runs from 8 to 370 across this
+    pool (65 distinct values, eps 0.018-0.125), so there is no single NFC null
+    curve that would be correct for all of it. The old overlay implicitly
+    assumed one.
+    """
+    pvals = np.asarray(pvals, dtype=float)
+    pvals = pvals[np.isfinite(pvals)]
+
+    # bootstrap_ecdf_band returns the sorted data as its x, which is exactly
+    # where the empirical ECDF steps; the uniform CDF at x is x itself, so the
+    # deviation is (ECDF - x).
+    x, lower, upper = bootstrap_ecdf_band(pvals, alpha=0.05)
+    ecdf = np.arange(1, len(pvals) + 1) / len(pvals)
+
+    ax.plot(x, ecdf - x, color=color, linewidth=FP.LW_TRACE)
+    ax.fill_between(x, lower - x, upper - x, color=color, alpha=FP.ALPHA_CONFIDENCE)
+    ax.axhline(0, color=FP.COLOR_NULL, linestyle="--", linewidth=FP.LW_REFERENCE, alpha=0.6)
+
+    ax.set_xlabel("p-value")
+    ax.set_ylabel("ECDF - uniform")
+    ax.set_xlim((0, 1))
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
 
 
 def flag_sessions_with_excess_suspects(df, freq_harmonic=1):
@@ -119,7 +155,13 @@ def plot_fig2(all_fourier_df, out_dir: Path):
     ax_A = fig.add_subplot(gs[0, :])
     ax_B = fig.add_subplot(gs[1, :])
     ax_C = fig.add_subplot(gs[2, :2])
-    ax_D = fig.add_subplot(gs[2, 2:])
+    # Shared y with C: the two deviation curves are the same statistic on the
+    # same scale, and the whole comparison is how far each departs from zero.
+    # On independent axes C's few-thousandths wiggle would be magnified to
+    # look like D's, which is exactly the wrong impression -- shared, C reads
+    # as the flat line it is against D's excursion.
+    ax_D = fig.add_subplot(gs[2, 2:], sharey=ax_C)
+    ax_D.tick_params(labelleft=False)
 
     # One palette shared by A and B, defined over the union of both panels'
     # frequencies, so 2 Hz and 3 Hz (which occur in both) get the same colour in
@@ -144,15 +186,12 @@ def plot_fig2(all_fourier_df, out_dir: Path):
     num_exp_B = all_pos_control.groupby(["species", "area", "rec"]).ngroups
     print(f"Subfig B (visual & auditory): {num_exp_B} experiments")
 
-    vals_neg_res, bins_neg_res = statistics.draw_hist(
-        all_fourier_df_unique_neg_res.NFC, ax_C, inset=False, bar_color=FP.COLOR_MAG,
-        legend_fontsize=FP.FS_LEGEND)
-    vals_pos_con, bins_pos_con = statistics.draw_hist(
-        all_unique_pos_control.NFC, ax_D, inset=False, bar_color=FP.COLOR_VIS,
-        legend_fontsize=FP.FS_LEGEND)
-
-    axins_C = statistics.inset_hist(ax_C, vals_neg_res, bins_neg_res, bar_color=FP.COLOR_MAG)
-    axins_D = statistics.inset_hist(ax_D, vals_pos_con, bins_pos_con, bar_color=FP.COLOR_VIS)
+    _plot_pvalue_ecdf_deviation(
+        ax_C, all_fourier_df_unique_neg_res["p_value"].values, FP.COLOR_MAG)
+    _plot_pvalue_ecdf_deviation(
+        ax_D, all_unique_pos_control["p_value"].values, FP.COLOR_VIS)
+    # D shares C's y-axis, so it carries neither the tick labels nor the label.
+    ax_D.set_ylabel("")
 
     ax_A.set_title("Magnetic stimulation", fontsize=FP.FS_TITLE)
     ax_B.set_title("Visual & auditory stimulation", fontsize=FP.FS_TITLE)
@@ -167,10 +206,11 @@ def plot_fig2(all_fourier_df, out_dir: Path):
     ax_C.annotate("C", xy=(-0.10, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
     ax_D.annotate("D", xy=(-0.10, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
 
-    statistics.boundarize_and_nestle(ax_C, x_offset=-0.07, y_offset=-0.03, xprec=1, yprec=1)
-    statistics.boundarize_and_nestle(ax_D, x_offset=-0.07, y_offset=-0.03, xprec=1, yprec=1)
-    statistics.boundary_ticks(axins_C, yprec=2, x=False)
-    statistics.boundary_ticks(axins_D, yprec=2, x=False)
+    # yprec=3: the deviation axis spans a few thousandths for the magnetic
+    # panel, so 1 decimal (the old NFC-histogram precision) collapsed both
+    # bounds to "0.0".
+    statistics.boundarize_and_nestle(ax_C, x_offset=-0.07, y_offset=-0.03, xprec=1, yprec=3)
+    statistics.boundarize_and_nestle(ax_D, x_offset=-0.07, y_offset=-0.03, xprec=1, yprec=3)
 
     out_path = out_dir / "Fig2.pdf"
     fig.savefig(out_path, bbox_inches="tight", dpi=FP.DPI)
