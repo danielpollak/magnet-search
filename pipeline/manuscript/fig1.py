@@ -580,17 +580,18 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     statistics.boundary_ticks(mag_spectra_ax, y=False)
     statistics.stimulus_frequency_tick(mag_spectra_ax, MAG_FREQ)
 
-    # Corrected null as the primary curve, with the naive one behind it as a
-    # light dashed reference: the p-values feeding this panel's own ECDF inset
+    # Corrected null only: the p-values feeding this panel's own ECDF inset
     # are computed against the CORRECTED null inside fit_fourier_sig, so that
-    # is the one the histogram should be read against; the naive curve is kept
-    # visible to show how little the correction moves at this Q.
-    # Q is constant within a rec, so one eps covers the whole panel.
+    # is the one the histogram must be read against. The naive null is not
+    # drawn alongside it -- at this Q the two curves are indistinguishable by
+    # eye, so showing both added a doubled line and a two-entry legend without
+    # adding information. Q is constant within a rec, so one eps covers the
+    # whole panel.
     mag_rows = fourier_df.loc[fourier_df.rec == MAG_CONTINGENCY]
     statistics.draw_hist(mag_rows["NFC"], mag_dist_ax, xlim=9,
                          inset=True, bar_color=FP.COLOR_MAG, legend_fontsize=FP.FS_LEGEND,
                          eps=statistics.eps_from_Q(mag_rows["Q"].iloc[0]),
-                         null_style="corrected-primary")
+                         null_style="corrected")
     # Triangle sits just above the x-axis, pointing down at it (blended
     # transform: x in data coords, y in axes-fraction) -- marks the
     # exemplar's NFC position along the x-axis (2026-09-02: was an arrow
@@ -637,7 +638,7 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
                          vis_dist_ax, xlim=12, inset=True, bar_color=FP.COLOR_VIS,
                          legend_fontsize=FP.FS_LEGEND,
                          eps=statistics.eps_from_Q(vis_rows["Q"].iloc[0]),
-                         null_style="corrected-primary")
+                         null_style="corrected")
     # exemplar_NFC_vis (~7.79) sits out in this population's right tail --
     # consistent with this being a deliberately strong (tightly phase-
     # concentrated), not just barely-significant, exemplar (see module
