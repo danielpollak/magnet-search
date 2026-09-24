@@ -25,8 +25,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from ecdfbounds import bootstrap_ecdf_band
-
 from magpyneto2 import statistics
 
 import format_parameters as FP
@@ -59,7 +57,7 @@ def _fix_excess_legend(ax, ncol=3, loc=None):
     ax.legend(list(deduped.values()), list(deduped.keys()), **legend_kw)
 
 
-def _plot_pvalue_ecdf_deviation(ax, pvals, color):
+def _plot_pvalue_ecdf_deviation(ax, df, color):
     """Deviation of a pooled p-value ECDF from uniform, with a bootstrap band.
 
     Mirrors the ECDF insets in Fig1 E/F (see fig1.py), and replaces what used
@@ -72,18 +70,17 @@ def _plot_pvalue_ecdf_deviation(ax, pvals, color):
     pool (65 distinct values, eps 0.018-0.125), so there is no single NFC null
     curve that would be correct for all of it. The old overlay implicitly
     assumed one.
+
+    `df` is the PRE-dedup frame: every observation of every neuron. Neurons are
+    still counted once per draw, but which of their observations they contribute
+    is resampled rather than fixed at whichever row happened to come first --
+    see statistics.bootstrap_occurrence_ecdf_band.
     """
-    pvals = np.asarray(pvals, dtype=float)
-    pvals = pvals[np.isfinite(pvals)]
+    x, lower, upper, center = statistics.bootstrap_occurrence_ecdf_band(
+        df, value_col="p_value", alpha=0.05, seed=0)
 
-    # bootstrap_ecdf_band returns the sorted data as its x, which is exactly
-    # where the empirical ECDF steps; the uniform CDF at x is x itself, so the
-    # deviation is (ECDF - x).
-    x, lower, upper = bootstrap_ecdf_band(pvals, alpha=0.05)
-    ecdf = np.arange(1, len(pvals) + 1) / len(pvals)
-
-    ax.plot(x, ecdf - x, color=color, linewidth=FP.LW_TRACE)
-    ax.fill_between(x, lower - x, upper - x, color=color, alpha=FP.ALPHA_CONFIDENCE)
+    ax.plot(x, center, color=color, linewidth=FP.LW_TRACE)
+    ax.fill_between(x, lower, upper, color=color, alpha=FP.ALPHA_CONFIDENCE)
     ax.axhline(0, color=FP.COLOR_NULL, linestyle="--", linewidth=FP.LW_REFERENCE, alpha=0.6)
 
     ax.set_xlabel("p-value")
@@ -183,10 +180,11 @@ def plot_fig2(all_fourier_df, out_dir: Path):
     num_exp_B = all_pos_control.groupby(["species", "area", "rec"]).ngroups
     print(f"Subfig B (visual & auditory): {num_exp_B} experiments")
 
-    _plot_pvalue_ecdf_deviation(
-        ax_C, all_fourier_df_unique_neg_res["p_value"].values, FP.COLOR_MAG)
-    _plot_pvalue_ecdf_deviation(
-        ax_D, all_unique_pos_control["p_value"].values, FP.COLOR_VIS)
+    # Pre-dedup frames: the bootstrap handles double-counting itself, so all
+    # 69,987 observations are used rather than only each neuron's first row.
+    # The deduped frames are still what the panel titles count (unique neurons).
+    _plot_pvalue_ecdf_deviation(ax_C, all_neg_res, FP.COLOR_MAG)
+    _plot_pvalue_ecdf_deviation(ax_D, all_pos_control, FP.COLOR_VIS)
     # D shares C's y-axis, so it carries neither the tick labels nor the label.
     ax_D.set_ylabel("")
 
