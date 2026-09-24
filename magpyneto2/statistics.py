@@ -577,6 +577,71 @@ def fourier_analysis(spks, freq, Q=100, sr=30_000, T=None, log=False):
     return (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, NFC)
 
 
+# The columns that jointly identify one physical neuron. `ID` (the subject) is
+# load-bearing, not redundant with `date`: zebrafish 20221001/20221002 each have
+# a fish1 AND a fish2, and suite2p `id` numbering restarts per fish, so without
+# `ID` two different animals' neurons collide whenever their ids coincide (see
+# .claude/CLAUDE.md's 2026-08-25 counting-fix entry). Shared with
+# fig3._split_into_waves' `wave_groups`.
+UNIQUE_NEURON_KEY = ("species", "ID", "date", "id")
+
+
+def bootstrap_occurrence_ecdf_band(df, value_col="p_value", group_cols=UNIQUE_NEURON_KEY,
+                                   n_boot=1000, alpha=0.05, x_grid=None, seed=None):
+    """Band for an ECDF-minus-uniform curve, over WHICH observation each neuron contributes.
+
+    A neuron recorded in several experiments contributes several rows. Taking
+    one per neuron avoids counting it twice, but `drop_duplicates(keep="first")`
+    picks by table order, which is arbitrary -- and throws the rest away.
+
+    This keeps the neuron set FIXED and resamples only that choice: each draw
+    takes one row uniformly at random from each neuron's own observations. A
+    neuron seen once always contributes the same value, so the band widens only
+    where the arbitrary pick actually mattered. It is therefore a sensitivity
+    band for the keep-first choice, NOT a sampling confidence interval for the
+    neuron population -- neurons are never resampled with replacement.
+
+    `value_col` must be a quantity that is Uniform(0,1) under the null for
+    every row independently (i.e. a p-value), since the deviation is measured
+    against the uniform CDF. Pooled NFC is not such a quantity when the rows
+    span different Q.
+
+    Returns (x_grid, lower, upper, center): the evaluation grid, the pointwise
+    alpha/2 and 1-alpha/2 percentiles over draws, and the pointwise median.
+    """
+    if x_grid is None:
+        x_grid = np.linspace(0.0, 1.0, 201)
+    x_grid = np.asarray(x_grid, dtype=float)
+
+    vals = pd.to_numeric(df[value_col], errors="coerce").to_numpy(dtype=float)
+    finite = np.isfinite(vals)
+    df, vals = df.loc[finite], vals[finite]
+    if len(vals) == 0:
+        raise ValueError(f"no finite values in {value_col!r} to bootstrap")
+
+    # Flat, offset-indexed layout instead of a padded (n_neurons x max_obs)
+    # matrix: group g's observations occupy vals_sorted[starts[g]:starts[g]+counts[g]],
+    # so a draw is one vectorised gather with no padding to mask around.
+    codes = df.groupby(list(group_cols), sort=False, dropna=False).ngroup().to_numpy()
+    order = np.argsort(codes, kind="stable")
+    vals_sorted = vals[order]
+    counts = np.bincount(codes[order], minlength=codes.max() + 1)
+    starts = np.concatenate([[0], np.cumsum(counts)[:-1]])
+    n_neurons = len(counts)
+
+    rng = np.random.default_rng(seed)
+    deviations = np.empty((n_boot, len(x_grid)), dtype=float)
+    for i in range(n_boot):
+        # rng.random() is in [0, 1), so the offset stays within [0, counts).
+        picked = np.sort(vals_sorted[starts + (rng.random(n_neurons) * counts).astype(np.intp)])
+        ecdf = np.searchsorted(picked, x_grid, side="right") / n_neurons
+        deviations[i] = ecdf - x_grid
+
+    lower, upper = np.percentile(deviations, [100 * alpha / 2, 100 * (1 - alpha / 2)], axis=0)
+    center = np.median(deviations, axis=0)
+    return x_grid, lower, upper, center
+
+
 def suspect_count_significance(NFC, crossing_percentile:float, bound_percentile:float=0.95, eps:float=0.0):
     """
     Puts a one-tailed upper bound on excess counts
