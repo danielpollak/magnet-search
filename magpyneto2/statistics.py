@@ -1249,12 +1249,36 @@ def visualize_detectability(mod_rr, spk_count, T):
     return fig
 
 
-def draw_hist(NFC, ax, xlim=12.5, title=False, inset=True, invert=False, eps=None,
-              bar_color=None, legend_fontsize=8):
+def _pct99(eps):
+    """99th percentile of the null NFC distribution, as a plain float.
+
+    `inverse_Rayleigh_CDF` returns a scalar for eps=0 but an array (from a
+    quantized grid lookup, occasionally empty) for eps>0 -- this normalises
+    both to one float, falling back to the uncorrected percentile if the
+    corrected lookup finds no crossing.
     """
-    eps: (float, optional) If given, also overlay the eps-corrected null
-        distribution (see get_epsilon/normalized_Fourier_PDF_corrected)
-        alongside the uncorrected one, for comparison.
+    if not eps:
+        return float(inverse_Rayleigh_CDF(0.99))
+    corrected = np.atleast_1d(inverse_Rayleigh_CDF(0.99, eps=eps))
+    return float(corrected[0]) if len(corrected) else float(inverse_Rayleigh_CDF(0.99))
+
+
+def draw_hist(NFC, ax, xlim=12.5, title=False, inset=True, invert=False, eps=None,
+              bar_color=None, legend_fontsize=8, show_uncorrected=True):
+    """
+    eps: (float, optional) If given, bring in the eps-corrected null
+        distribution (see get_epsilon/normalized_Fourier_PDF_corrected).
+        Exactly what is drawn then depends on `show_uncorrected`.
+    show_uncorrected: (bool) Only meaningful when `eps` is given. True (the
+        default) draws BOTH nulls for comparison -- uncorrected solid black,
+        corrected orange dashed, each with its own 99% line, plus a legend --
+        which is what the analysis diagnostic PDFs want. False draws ONLY the
+        corrected null, as the solid black curve with a single grey 99% line
+        and no legend: visually identical to an uncorrected panel, but showing
+        the null that the p-values of the very same units were computed
+        against (see fit_fourier_sig, which always corrects). Manuscript
+        panels pass False, since plotting an uncorrected null over corrected
+        p-values is just an inconsistency, not a comparison worth making.
     bar_color: (optional) explicit color for the histogram bars -- e.g. a
         mag/positive-control color when this histogram belongs to one of those
         two populations. Defaults to None (matplotlib's own default color).
@@ -1268,35 +1292,37 @@ def draw_hist(NFC, ax, xlim=12.5, title=False, inset=True, invert=False, eps=Non
     XX, YY = normalized_Fourier_PDF()
     YY_corrected = normalized_Fourier_PDF_corrected(XX, XX, YY, eps) if eps else None
     vals, bins = np.histogram(NFC, bins=np.arange(0, 12, 0.2), density=True)
+
+    # When only the corrected null is wanted, it takes over the primary
+    # (solid black + grey threshold) slot instead of being an extra overlay.
+    corrected_only = YY_corrected is not None and not show_uncorrected
+    primary_Y = YY_corrected if corrected_only else YY
+    primary_99 = _pct99(eps) if corrected_only else _pct99(None)
+    null_label = "null" if corrected_only else "uncorrected null"
+
+    # Orientation-agnostic drawing: `invert` only swaps which axis carries NFC.
+    if not invert:
+        ax.bar(bins[:-1], vals, width=np.diff(bins)[0], align="edge", color=bar_color, zorder=2)
+        plot_null = lambda x, y, **kw: ax.plot(x, y, **kw)
+        plot_threshold = ax.axvline
+    else:
+        ax.barh(bins[:-1], vals, height=np.diff(bins)[0], align="edge", color=bar_color, zorder=2)
+        plot_null = lambda x, y, **kw: ax.plot(y, x, **kw)
+        plot_threshold = ax.axhline
+
     # Threshold lines default to a higher zorder than bars in matplotlib (Line2D=2
     # vs. Patch/bar=1), which is why they'd otherwise render on top of and obscure
     # the bars -- set explicit zorders so the bars are drawn in front instead.
-    if not invert:
-        ax.bar(bins[:-1], vals, width=np.diff(bins)[0], align="edge", color=bar_color, zorder=2)
-        ax.plot(XX, YY, label="uncorrected null", color="k", linewidth=1)
-        ax.axvline(inverse_Rayleigh_CDF(0.99), color="grey", alpha=0.5, zorder=1,
-                   label="uncorrected 99%")
-        if YY_corrected is not None:
-            ax.plot(XX, YY_corrected, label="corrected null", color="tab:orange",
-                    linewidth=1, linestyle="--")
-            corrected_99 = np.atleast_1d(inverse_Rayleigh_CDF(0.99, eps=eps))
-            if len(corrected_99):
-                ax.axvline(corrected_99[0], color="tab:orange", alpha=0.5, zorder=1,
-                           linestyle="--", label="corrected 99%")
-            ax.legend(fontsize=legend_fontsize)
-    else:
-        ax.barh(bins[:-1], vals, height=np.diff(bins)[0], align="edge", color=bar_color, zorder=2)
-        ax.plot(YY, XX,  label="uncorrected null", color="k", linewidth=1)
-        ax.axhline(inverse_Rayleigh_CDF(0.99), color="grey", alpha=0.5, zorder=1,
-                  label="uncorrected 99%")
-        if YY_corrected is not None:
-            ax.plot(YY_corrected, XX, label="corrected null", color="tab:orange",
-                    linewidth=1, linestyle="--")
-            corrected_99 = np.atleast_1d(inverse_Rayleigh_CDF(0.99, eps=eps))
-            if len(corrected_99):
-                ax.axhline(corrected_99[0], color="tab:orange", alpha=0.5, zorder=1,
-                          linestyle="--", label="corrected 99%")
-            ax.legend(fontsize=legend_fontsize)
+    plot_null(XX, primary_Y, label=null_label, color="k", linewidth=1)
+    plot_threshold(primary_99, color="grey", alpha=0.5, zorder=1,
+                   label="99%" if corrected_only else "uncorrected 99%")
+
+    if YY_corrected is not None and show_uncorrected:
+        plot_null(XX, YY_corrected, label="corrected null", color="tab:orange",
+                  linewidth=1, linestyle="--")
+        plot_threshold(_pct99(eps), color="tab:orange", alpha=0.5, zorder=1,
+                       linestyle="--", label="corrected 99%")
+        ax.legend(fontsize=legend_fontsize)
 
     # Tidy x and y labels
     ax.set_xlabel("NFC")
