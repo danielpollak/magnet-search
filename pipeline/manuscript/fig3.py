@@ -7,7 +7,6 @@ shown for contrast — non-uniform, left-skewed p-values.
 
 Requires:
   data/manuscript/all_fourier_df.parquet  (run python pipeline/aggregate.py first)
-  ecdfbounds library
 
 Usage:
     python pipeline/manuscript/fig3.py
@@ -27,13 +26,18 @@ import matplotlib
 if not in_notebook:
     matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 import numpy as np
 import pandas as pd
-from ecdfbounds import ecdf, bootstrap_ecdf_band
 
 from magpyneto2 import statistics
 
 import format_parameters as FP
+
+# Narrowest zoom `_add_qval_inset` will draw. Below this the inset stops being
+# a magnification of anything -- and the box placement, which is derived from
+# the data at x0, degenerates. No panel in any current figure reaches it.
+MIN_INSET_N = 3
 
 
 
@@ -108,9 +112,15 @@ def _add_qval_inset(ax, wave_sorted_qvals, wave_colors, n_inset=50, x0_frac=0.35
     finite_lens = [np.sum(np.isfinite(sq)) for sq in wave_sorted_qvals]
     max_n = max(finite_lens)
     x0 = int(x0_frac * max_n)
-    if x0 <= n_inset:
-        # Panel too small for a clean x0 past the zoomed-in region -- skip
-        # rather than risk the inset box colliding with its own source data.
+    # Zoom width ADAPTS to the panel rather than being fixed at n_inset. The
+    # box's no-collision guarantee only holds for x >= x0, so a panel with
+    # fewer than roughly n_inset / x0_frac units (~143 at the defaults) used to
+    # get no inset at all -- the steep early rise is exactly as worth
+    # magnifying there, it just has to be magnified over a proportionately
+    # narrower window. Panels big enough for the full n_inset are unaffected,
+    # so this changes nothing about Fig3.pdf.
+    n_inset = min(n_inset, x0 - 1)
+    if n_inset < MIN_INSET_N:
         return
     ceilings = [sq[x0] for sq, flen in zip(wave_sorted_qvals, finite_lens) if flen > x0]
     if not ceilings:
@@ -126,18 +136,48 @@ def _add_qval_inset(ax, wave_sorted_qvals, wave_colors, n_inset=50, x0_frac=0.35
     # Bottom offset (0.18, vs. 0.06 for the box's other edges) leaves the
     # inset's own x-tick labels room to sit above the parent axes' bottom
     # border -- too little clearance here lets them collide with the parent's
-    # "Neuron" x-axis label just below it.
+    # "Unit" x-axis label just below it.
     inset_bottom = 0.18
     inset_top = y1_frac - 0.04
     if inset_top - inset_bottom < 0.10:
         return
+    # Nothing strictly positive in the zoomed-in prefix means every one of
+    # those q-values underflowed to exactly 0 (the float64 precision floor for
+    # the most extreme NFC, same artifact the parent axes' 1e-8 ylim floor
+    # guards against). A LOG-scale inset over that has nothing to draw at all,
+    # and matplotlib's "Data has no positive values" autoscale fallback leaves
+    # an empty box that reads as "no suspects here" -- the opposite of the
+    # truth. Draw it on a linear axis instead of skipping (see the `else`
+    # branch below): the points then render, which says what is actually true
+    # of them -- every one of these units is pinned at the precision floor,
+    # i.e. as significant as a float64 q-value can be.
+    prefix = np.concatenate([sq[:min(n_inset, len(sq))] for sq in wave_sorted_qvals])
+    has_positive = bool(np.any(np.isfinite(prefix) & (prefix > 0)))
+
     axins = ax.inset_axes([x0_frac + 0.01, inset_bottom, 0.97 - (x0_frac + 0.01), inset_top - inset_bottom])
     for sq, color in zip(wave_sorted_qvals, wave_colors):
         n = min(n_inset, len(sq))
         axins.plot(np.arange(n), sq[:n], ".", color=color, alpha=FP.ALPHA_TRACE, markersize=FP.MS_DATA, rasterized=True)
-    axins.set_yscale("log")
-    if ylim_bottom is not None:
-        axins.set_ylim(bottom=ylim_bottom)
+    if has_positive:
+        axins.set_yscale("log")
+        if ylim_bottom is not None:
+            axins.set_ylim(bottom=ylim_bottom)
+    else:
+        # `ylim_bottom` is deliberately NOT applied here -- it would floor the
+        # axis above the very points this branch exists to show.
+        #
+        # q-values are non-negative and `has_positive` is False, so every
+        # finite point in the zoom window is EXACTLY 0: there is no spread to
+        # resolve and no decade to label. A plain linear axis carrying a
+        # single "0" tick states the entire content of the inset. (A symlog
+        # axis, the obvious way to render zeros, instead labels every decade
+        # between `linthresh` and its autoscaled top -- a dozen-plus labels
+        # stacked inside a box a centimetre tall, illegible and saying
+        # nothing the one "0" doesn't.) The symmetric limits centre the row
+        # of points rather than pinning it to a spine.
+        axins.set_ylim(-1.0, 1.0)
+        axins.yaxis.set_major_locator(mticker.FixedLocator([0.0]))
+        axins.yaxis.set_minor_locator(mticker.NullLocator())
     # Pad the left edge so points sitting right at x=0 aren't squashed against
     # the inset's own y-axis spine.
     axins.set_xlim(-0.05 * n_inset, n_inset)
@@ -169,10 +209,24 @@ def plot_uniform_p(waves, axes, percentile=None, colors=None, pval_col="p_value"
 
     `inset_ylim_bottom`: forwarded to `_add_qval_inset`'s `ylim_bottom` --
     plot_fig3 passes 1e-2 for the neg-result (blue) call only.
+
+    `axes[0]` (the sorted-p-value axes) may be None, in which case only the
+    sorted-q-value axes is drawn. fig3_variants.py's ECDF-deviation page
+    replaces the sorted-p-value panel with a stack of per-bucket
+    ECDF-deviation mini-axes but keeps this exact q-value panel below it, so
+    it needs the q half of this function without the p half.
     """
     if colors is None:
         colors = [None] * len(waves)
-    last_n = 0
+    # Widest bucket, which is what the shared x-axis actually autoscales to.
+    # This used to track the LAST bucket plotted instead, which happens to be
+    # the same thing for occurrence waves (wave 0 is plotted last and is
+    # always the largest, since every neuron has a 1st recording) but is wrong
+    # for any other bucketing -- fig3_variants.py buckets by frequency and by
+    # brain region, orderings under which the last-plotted bucket is routinely
+    # not the widest, and the right-hand tick then landed mid-axes carrying a
+    # label that disagreed with the axis limit it was supposed to mark.
+    max_n = 0
     wave_sorted_qvals, wave_colors = [], []
     for wave_df, color in zip(waves[::-1], colors[::-1]):
         if len(wave_df) == 0:
@@ -186,21 +240,24 @@ def plot_uniform_p(waves, axes, percentile=None, colors=None, pval_col="p_value"
         if len(pval) == 0:
             continue
         qval, pi0 = statistics.storey_qvalues(pval, lambda_=0.5)
-        last_n = len(qval)
+        max_n = max(max_n, len(qval))
         sq = np.sort(qval)
         wave_sorted_qvals.append(sq)
         wave_colors.append(color)
 
-        axes[0].plot(np.sort(pval), ".", color=color, alpha=FP.ALPHA_TRACE, markersize=FP.MS_DATA, rasterized=True)
-        x, lower, upper = bootstrap_ecdf_band(pval)
+        if axes[0] is not None:
+            axes[0].plot(np.sort(pval), ".", color=color, alpha=FP.ALPHA_TRACE, markersize=FP.MS_DATA, rasterized=True)
         axes[1].plot(sq, ".", color=color, alpha=FP.ALPHA_TRACE, markersize=FP.MS_DATA, rasterized=True)
 
-    statistics.nestle_labels(axes[0], x_offset=-0.05, y=False)
+    if axes[0] is not None:
+        statistics.nestle_labels(axes[0], x_offset=-0.05, y=False)
     statistics.nestle_labels(axes[1], x_offset=-0.05, y=False)
-    if last_n > 0:
+    if max_n > 0:
         for ax in axes:
-            ax.set_xticks([0, last_n])
-            ax.set_xticklabels([0, last_n])
+            if ax is None:
+                continue
+            ax.set_xticks([0, max_n])
+            ax.set_xticklabels([0, max_n])
     axes[1].set_yscale("log")
     # Floor the q-value axis at 1e-8 -- points below this are dominated by
     # float64 precision-floor artifacts (1-CDF underflowing to exactly 0 for
@@ -285,8 +342,8 @@ def plot_fig3(all_fourier_df, out_dir: Path, pval_col="p_value", sens_col="sens"
         ax_p_pos.set_title("Visual/Audio", fontsize=FP.FS_TITLE)
         ax_p_neg.set_ylabel("Sorted p-values")
         ax_q_neg.set_ylabel("Sorted q-values")
-        ax_q_neg.set_xlabel("Neuron")
-        ax_q_pos.set_xlabel("Neuron")
+        ax_q_neg.set_xlabel("Unit")
+        ax_q_pos.set_xlabel("Unit")
 
         quad_pos = outer[orow, ocol].get_position(fig)
         fig.text((quad_pos.x0 + quad_pos.x1) / 2, quad_pos.y1 + 0.04, title,
@@ -296,6 +353,13 @@ def plot_fig3(all_fourier_df, out_dir: Path, pval_col="p_value", sens_col="sens"
 
     if suptitle:
         fig.suptitle(suptitle, fontsize=FP.FS_BODY + 2, fontweight="bold", y=0.98)
+
+    if out_name is None:
+        # Caller wants the Figure itself, not a file -- fig3_variants.py
+        # renders page 1 of its multipage PDF through this exact function so
+        # that page can't drift from the canonical figure, and writes it to
+        # its own PdfPages instead of a standalone Fig3.pdf.
+        return fig
 
     out_path = out_dir / out_name
     fig.savefig(out_path, bbox_inches="tight", dpi=FP.DPI)

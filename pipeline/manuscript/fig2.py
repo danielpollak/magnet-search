@@ -115,8 +115,11 @@ def flag_sessions_with_excess_suspects(df, freq_harmonic=1):
         # null while the p-value uniformity panels use the corrected one.
         eps = (statistics.eps_from_Q(recdf[Q_col].iloc[0])
                if Q_col in recdf.columns else 0.0)
+        # bound_percentile=0.95 matches the bar drawn by plot_excess_counts:
+        # a one-tailed 95th-percentile bound on the null binomial, so under
+        # the null a session clears it about 5% of the time.
         n_empirical, f_expected, f_lo, f_hi = statistics.suspect_count_significance(
-            vals, 0.99, conf_int_α=0.05, eps=eps)
+            vals, 0.99, bound_percentile=0.95, eps=eps)
 
         diff_list.append(1 if n_empirical > f_hi else 0)
     return diff_list

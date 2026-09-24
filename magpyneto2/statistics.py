@@ -642,22 +642,38 @@ def bootstrap_occurrence_ecdf_band(df, value_col="p_value", group_cols=UNIQUE_NE
     return x_grid, lower, upper, center
 
 
-def suspect_count_significance(NFC, crossing_percentile:float, conf_int_α:float=0.05, eps:float=0.0):
+def suspect_count_significance(NFC, crossing_percentile:float, bound_percentile:float=0.95, eps:float=0.0):
     """
-    Puts confidence bounds on excess counts
+    Puts a one-tailed upper bound on excess counts
+
+    The suspect criterion itself is one-tailed -- a unit counts as a suspect
+    only if its NFC exceeds the null's `crossing_percentile` (upper tail; NFC
+    is a magnitude, so there is no meaningful lower tail). The bound on the
+    resulting COUNT is therefore one-tailed too: `f_lo` is pinned at 0 and
+    `f_hi` is the `bound_percentile` quantile of the null binomial.
+
+    This used to return a two-sided interval (`binom.ppf(α/2)` to
+    `binom.ppf(1-α/2)` at α=0.05, i.e. the 2.5th-97.5th percentiles), which
+    over-stated the threshold a count had to clear and did not match the
+    manuscript's own description of the test.
 
     Parameters
     ----------
     NFC: (np.array) Normalized Fourier coefficient magnitudes
     crossing_percentile: (float) Percentile above which to count crossings empirically and theoretically
-    α: (float) significance level for confidence intervals
+    bound_percentile: (float) Quantile of the null binomial used as the upper
+        bound. 0.95 (the default) means a count should exceed it about 5% of
+        the time under the null -- note the binomial is discrete, so for small
+        K the realised rate is below the nominal one.
+    eps: (float) Correction factor for dependent samples. 0.0 = uncorrected.
 
     Outputs
     -------
-    n_empirical: (int) Number of coefficients above the confidence bound
-    f_expected: (float) Expected number of coefficients above the confidence bound.
-    f_{lo/hi}: (floats)
-    eps: default=None (float) Correction factor for dependent samples. If None, no correction is applied.
+    n_empirical: (int) Number of coefficients above the suspect threshold
+    f_expected: (float) Expected number of suspects under the null.
+    f_lo: (float) Always 0.0 -- kept in the return signature so existing
+        four-way unpacking at call sites keeps working.
+    f_hi: (float) The one-tailed upper bound.
     """
     # Clean NFC of nans
     NFC = NFC[~np.isnan(NFC)]
@@ -666,8 +682,8 @@ def suspect_count_significance(NFC, crossing_percentile:float, conf_int_α:float
     f_expected = K * (1-crossing_percentile)
 
     binom = scipy.stats.binom(K, 1-crossing_percentile)
-    f_lo = binom.ppf(conf_int_α/2)
-    f_hi = binom.ppf(1-conf_int_α/2)
+    f_lo = 0.0
+    f_hi = binom.ppf(bound_percentile)
 
     #
     inverse_cdf_val = inverse_Rayleigh_CDF(crossing_percentile, eps=eps)
@@ -1314,12 +1330,43 @@ def visualize_detectability(mod_rr, spk_count, T):
     return fig
 
 
-def draw_hist(NFC, ax, xlim=12.5, title=False, inset=True, invert=False, eps=None,
-              bar_color=None, legend_fontsize=8):
+def _pct99(eps):
+    """99th percentile of the null NFC distribution, as a plain float.
+
+    `inverse_Rayleigh_CDF` returns a scalar for eps=0 but an array (from a
+    quantized grid lookup, occasionally empty) for eps>0 -- this normalises
+    both to one float, falling back to the uncorrected percentile if the
+    corrected lookup finds no crossing.
     """
-    eps: (float, optional) If given, also overlay the eps-corrected null
-        distribution (see get_epsilon/normalized_Fourier_PDF_corrected)
-        alongside the uncorrected one, for comparison.
+    if not eps:
+        return float(inverse_Rayleigh_CDF(0.99))
+    corrected = np.atleast_1d(inverse_Rayleigh_CDF(0.99, eps=eps))
+    return float(corrected[0]) if len(corrected) else float(inverse_Rayleigh_CDF(0.99))
+
+
+def draw_hist(NFC, ax, xlim=12.5, title=False, inset=True, invert=False, eps=None,
+              bar_color=None, legend_fontsize=8, null_style="compare"):
+    """
+    eps: (float, optional) If given, bring in the eps-corrected null
+        distribution (see get_epsilon/normalized_Fourier_PDF_corrected).
+        Exactly what is drawn then depends on `null_style`.
+    null_style: (str) Only meaningful when `eps` is given.
+
+        "compare" (default) -- both nulls as equals for diagnosis: uncorrected
+            solid black, corrected orange dashed, EACH with its own 99% line,
+            4-entry legend. This is what the analysis diagnostic PDFs want
+            (pipeline/diagnostics/analysis.py, diagnostics/engert.py), where
+            the whole point is to see how much the correction moved things.
+
+        "corrected-primary" -- for manuscript panels. The CORRECTED null takes
+            the primary slot (solid black), since it is the null the p-values
+            of these very units were computed against (see fit_fourier_sig,
+            which always corrects); the naive null trails behind it as a light
+            grey dashed reference. Only ONE 99% line is drawn, at the
+            corrected value: the two thresholds sit within ~1.6% of each other
+            (3.035 vs 3.084 at Q=27), so drawing both would render as a single
+            thick line or a faint doubling that reads as a printing artifact
+            rather than as information. 2-entry legend.
     bar_color: (optional) explicit color for the histogram bars -- e.g. a
         mag/positive-control color when this histogram belongs to one of those
         two populations. Defaults to None (matplotlib's own default color).
@@ -1333,35 +1380,48 @@ def draw_hist(NFC, ax, xlim=12.5, title=False, inset=True, invert=False, eps=Non
     XX, YY = normalized_Fourier_PDF()
     YY_corrected = normalized_Fourier_PDF_corrected(XX, XX, YY, eps) if eps else None
     vals, bins = np.histogram(NFC, bins=np.arange(0, 12, 0.2), density=True)
+
+    # In "corrected-primary" the corrected null takes over the primary
+    # (solid black + grey threshold) slot instead of being an extra overlay.
+    has_corrected = YY_corrected is not None
+    corrected_primary = has_corrected and null_style == "corrected-primary"
+    primary_Y = YY_corrected if corrected_primary else YY
+    primary_99 = _pct99(eps) if corrected_primary else _pct99(None)
+    null_label = "corrected null" if corrected_primary else "uncorrected null"
+
+    # Orientation-agnostic drawing: `invert` only swaps which axis carries NFC.
+    if not invert:
+        ax.bar(bins[:-1], vals, width=np.diff(bins)[0], align="edge", color=bar_color, zorder=2)
+        plot_null = lambda x, y, **kw: ax.plot(x, y, **kw)
+        plot_threshold = ax.axvline
+    else:
+        ax.barh(bins[:-1], vals, height=np.diff(bins)[0], align="edge", color=bar_color, zorder=2)
+        plot_null = lambda x, y, **kw: ax.plot(y, x, **kw)
+        plot_threshold = ax.axhline
+
     # Threshold lines default to a higher zorder than bars in matplotlib (Line2D=2
     # vs. Patch/bar=1), which is why they'd otherwise render on top of and obscure
     # the bars -- set explicit zorders so the bars are drawn in front instead.
-    if not invert:
-        ax.bar(bins[:-1], vals, width=np.diff(bins)[0], align="edge", color=bar_color, zorder=2)
-        ax.plot(XX, YY, label="uncorrected null", color="k", linewidth=1)
-        ax.axvline(inverse_Rayleigh_CDF(0.99), color="grey", alpha=0.5, zorder=1,
-                   label="uncorrected 99%")
-        if YY_corrected is not None:
-            ax.plot(XX, YY_corrected, label="corrected null", color="tab:orange",
-                    linewidth=1, linestyle="--")
-            corrected_99 = np.atleast_1d(inverse_Rayleigh_CDF(0.99, eps=eps))
-            if len(corrected_99):
-                ax.axvline(corrected_99[0], color="tab:orange", alpha=0.5, zorder=1,
-                           linestyle="--", label="corrected 99%")
-            ax.legend(fontsize=legend_fontsize)
-    else:
-        ax.barh(bins[:-1], vals, height=np.diff(bins)[0], align="edge", color=bar_color, zorder=2)
-        ax.plot(YY, XX,  label="uncorrected null", color="k", linewidth=1)
-        ax.axhline(inverse_Rayleigh_CDF(0.99), color="grey", alpha=0.5, zorder=1,
-                  label="uncorrected 99%")
-        if YY_corrected is not None:
-            ax.plot(YY_corrected, XX, label="corrected null", color="tab:orange",
-                    linewidth=1, linestyle="--")
-            corrected_99 = np.atleast_1d(inverse_Rayleigh_CDF(0.99, eps=eps))
-            if len(corrected_99):
-                ax.axhline(corrected_99[0], color="tab:orange", alpha=0.5, zorder=1,
-                          linestyle="--", label="corrected 99%")
-            ax.legend(fontsize=legend_fontsize)
+    plot_null(XX, primary_Y, label=null_label, color="k", linewidth=1)
+    # In "corrected-primary" the threshold is deliberately kept OUT of the
+    # legend: there is only one of them, so the legend would just be
+    # restating the obvious and crowding a manuscript panel. "compare" needs
+    # it, since there the two thresholds have to be told apart.
+    plot_threshold(primary_99, color="grey", alpha=0.5, zorder=1,
+                   label="_nolegend_" if corrected_primary else "uncorrected 99%")
+
+    if corrected_primary:
+        # Naive null as a light dashed reference only -- and deliberately no
+        # second 99% line (see null_style in the docstring for why).
+        plot_null(XX, YY, label="naive null", color="grey", linewidth=0.8,
+                  linestyle="--", alpha=0.7, zorder=1)
+        ax.legend(fontsize=legend_fontsize)
+    elif has_corrected:
+        plot_null(XX, YY_corrected, label="corrected null", color="tab:orange",
+                  linewidth=1, linestyle="--")
+        plot_threshold(_pct99(eps), color="tab:orange", alpha=0.5, zorder=1,
+                       linestyle="--", label="corrected 99%")
+        ax.legend(fontsize=legend_fontsize)
 
     # Tidy x and y labels
     ax.set_xlabel("NFC")
@@ -1573,10 +1633,13 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
                 # raw data
                 freq = recdf.freq.unique()[0]
 
-                # Confidence bounds
-                # Set by rounding up on order of magnitude of number of units in each recording;
-                # less than  one in a thousand.
-                sig_thres = 0.99 # Set by the number of recordings; less than one in 100
+                # Per-unit suspect threshold: a unit is a suspect if its NFC
+                # exceeds the 99th percentile of the null (p < 0.01).
+                sig_thres = 0.99
+                # Upper bound on the resulting COUNT, one-tailed -- the bar
+                # below spans 0 -> this quantile of the null binomial, so a
+                # count clearing it is excess. See suspect_count_significance.
+                bound_pct = 0.95
 
                 # eps corrects the null distribution for the same finite-Q
                 # dependent-sampling effect that per-unit p_value/2f_p_value
@@ -1585,13 +1648,13 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
                 # an uncorrected Rayleigh null while the p-values reported
                 # elsewhere for the same units use the corrected one.
                 eps_1f = eps_from_Q(recdf["Q"].iloc[0]) if "Q" in recdf.columns else 0.0
-                n_empirical,    _, f_lo, f_hi = suspect_count_significance(recdf["NFC"].values,    sig_thres, conf_int_α=0.05, eps=eps_1f)
+                n_empirical,    _, f_lo, f_hi = suspect_count_significance(recdf["NFC"].values,    sig_thres, bound_percentile=bound_pct, eps=eps_1f)
                 conf_ax.hlines(n_empirical,    counter+.25, counter+0.75, "black", zorder=2, linewidth=1, alpha=0.9)
 
                 n_empirical_2f = None
                 if ~np.all(np.isnan(recdf["2f_NFC"].values)):
                     eps_2f = eps_from_Q(recdf["Q_2f"].iloc[0]) if "Q_2f" in recdf.columns else 0.0
-                    n_empirical_2f, _, _,    _    = suspect_count_significance(recdf["2f_NFC"].values, sig_thres, conf_int_α=0.05, eps=eps_2f)
+                    n_empirical_2f, _, _,    _    = suspect_count_significance(recdf["2f_NFC"].values, sig_thres, bound_percentile=bound_pct, eps=eps_2f)
                     conf_ax.hlines(n_empirical_2f, counter+.25, counter+0.75, "red", zorder=2, linewidth=1, alpha=0.9)
 
                 conf_ax.plot(
