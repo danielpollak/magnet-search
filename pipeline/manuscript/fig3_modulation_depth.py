@@ -123,13 +123,20 @@ THRESHOLD_PERCENTILE = 0.99
 # applied per wave in Fig3 and that threshold definition is kept identical
 # here; the waves are simply concatenated before being drawn.
 #
-# 1e-8 floor: the same one fig3.plot_uniform_p puts on its q-value axis, for
-# the same reason. Below it, p is dominated by the float64 precision floor
-# (1-CDF underflowing for the most extreme NFC -- 57 rows come back as exactly
-# 0.0 and could not be placed on a log scale at all), not by meaningfully
-# distinguishable values. 0.23% of units fall below it and share the
-# colormap's end colour.
-PVAL_FLOOR = 1e-8
+# 1e-3 floor (was 1e-8): below this the colour scale was spending most of its
+# dynamic range on distinctions that are not interpretable. Two things happen
+# down there. The extreme tail is dominated by the float64 precision floor
+# (1-CDF underflows for the largest NFC -- 724 rows come back as exactly 0.0
+# and cannot be placed on a log scale at all). And well before that, a p-value
+# of 1e-5 versus 1e-7 carries no usable meaning here: both say "far past any
+# threshold we apply", and the eps-corrected null's own grid resolution does
+# not support separating them. Flooring at 1e-3 spends the colormap on the
+# 1e-3..1 range where the population actually lives and where the p<0.01
+# suspect threshold sits.
+#
+# 5.15% of units now fall at or below the floor and share the colormap's end
+# colour (it was 2.16% at 1e-8).
+PVAL_FLOOR = 1e-3
 
 # Truncated at 0.88 rather than the full 0..1 range: viridis' top end is a
 # very pale yellow that all but disappears against white at this marker size,
