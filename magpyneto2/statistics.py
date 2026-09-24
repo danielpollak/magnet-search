@@ -577,22 +577,38 @@ def fourier_analysis(spks, freq, Q=100, sr=30_000, T=None, log=False):
     return (C, T, spk_count, fff, i0, ff_alt, fou0, fou_alt, fou_alt_c, NFC)
 
 
-def suspect_count_significance(NFC, crossing_percentile:float, conf_int_α:float=0.05, eps:float=0.0):
+def suspect_count_significance(NFC, crossing_percentile:float, bound_percentile:float=0.95, eps:float=0.0):
     """
-    Puts confidence bounds on excess counts
+    Puts a one-tailed upper bound on excess counts
+
+    The suspect criterion itself is one-tailed -- a unit counts as a suspect
+    only if its NFC exceeds the null's `crossing_percentile` (upper tail; NFC
+    is a magnitude, so there is no meaningful lower tail). The bound on the
+    resulting COUNT is therefore one-tailed too: `f_lo` is pinned at 0 and
+    `f_hi` is the `bound_percentile` quantile of the null binomial.
+
+    This used to return a two-sided interval (`binom.ppf(α/2)` to
+    `binom.ppf(1-α/2)` at α=0.05, i.e. the 2.5th-97.5th percentiles), which
+    over-stated the threshold a count had to clear and did not match the
+    manuscript's own description of the test.
 
     Parameters
     ----------
     NFC: (np.array) Normalized Fourier coefficient magnitudes
     crossing_percentile: (float) Percentile above which to count crossings empirically and theoretically
-    α: (float) significance level for confidence intervals
+    bound_percentile: (float) Quantile of the null binomial used as the upper
+        bound. 0.95 (the default) means a count should exceed it about 5% of
+        the time under the null -- note the binomial is discrete, so for small
+        K the realised rate is below the nominal one.
+    eps: (float) Correction factor for dependent samples. 0.0 = uncorrected.
 
     Outputs
     -------
-    n_empirical: (int) Number of coefficients above the confidence bound
-    f_expected: (float) Expected number of coefficients above the confidence bound.
-    f_{lo/hi}: (floats)
-    eps: default=None (float) Correction factor for dependent samples. If None, no correction is applied.
+    n_empirical: (int) Number of coefficients above the suspect threshold
+    f_expected: (float) Expected number of suspects under the null.
+    f_lo: (float) Always 0.0 -- kept in the return signature so existing
+        four-way unpacking at call sites keeps working.
+    f_hi: (float) The one-tailed upper bound.
     """
     # Clean NFC of nans
     NFC = NFC[~np.isnan(NFC)]
@@ -601,8 +617,8 @@ def suspect_count_significance(NFC, crossing_percentile:float, conf_int_α:float
     f_expected = K * (1-crossing_percentile)
 
     binom = scipy.stats.binom(K, 1-crossing_percentile)
-    f_lo = binom.ppf(conf_int_α/2)
-    f_hi = binom.ppf(1-conf_int_α/2)
+    f_lo = 0.0
+    f_hi = binom.ppf(bound_percentile)
 
     #
     inverse_cdf_val = inverse_Rayleigh_CDF(crossing_percentile, eps=eps)
@@ -1552,10 +1568,13 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
                 # raw data
                 freq = recdf.freq.unique()[0]
 
-                # Confidence bounds
-                # Set by rounding up on order of magnitude of number of units in each recording;
-                # less than  one in a thousand.
-                sig_thres = 0.99 # Set by the number of recordings; less than one in 100
+                # Per-unit suspect threshold: a unit is a suspect if its NFC
+                # exceeds the 99th percentile of the null (p < 0.01).
+                sig_thres = 0.99
+                # Upper bound on the resulting COUNT, one-tailed -- the bar
+                # below spans 0 -> this quantile of the null binomial, so a
+                # count clearing it is excess. See suspect_count_significance.
+                bound_pct = 0.95
 
                 # eps corrects the null distribution for the same finite-Q
                 # dependent-sampling effect that per-unit p_value/2f_p_value
@@ -1564,13 +1583,13 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
                 # an uncorrected Rayleigh null while the p-values reported
                 # elsewhere for the same units use the corrected one.
                 eps_1f = eps_from_Q(recdf["Q"].iloc[0]) if "Q" in recdf.columns else 0.0
-                n_empirical,    _, f_lo, f_hi = suspect_count_significance(recdf["NFC"].values,    sig_thres, conf_int_α=0.05, eps=eps_1f)
+                n_empirical,    _, f_lo, f_hi = suspect_count_significance(recdf["NFC"].values,    sig_thres, bound_percentile=bound_pct, eps=eps_1f)
                 conf_ax.hlines(n_empirical,    counter+.25, counter+0.75, "black", zorder=2, linewidth=1, alpha=0.9)
 
                 n_empirical_2f = None
                 if ~np.all(np.isnan(recdf["2f_NFC"].values)):
                     eps_2f = eps_from_Q(recdf["Q_2f"].iloc[0]) if "Q_2f" in recdf.columns else 0.0
-                    n_empirical_2f, _, _,    _    = suspect_count_significance(recdf["2f_NFC"].values, sig_thres, conf_int_α=0.05, eps=eps_2f)
+                    n_empirical_2f, _, _,    _    = suspect_count_significance(recdf["2f_NFC"].values, sig_thres, bound_percentile=bound_pct, eps=eps_2f)
                     conf_ax.hlines(n_empirical_2f, counter+.25, counter+0.75, "red", zorder=2, linewidth=1, alpha=0.9)
 
                 conf_ax.plot(
