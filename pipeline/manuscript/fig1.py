@@ -245,6 +245,13 @@ PHASE_CMAP = "cet_CET_C6s"
 # sits between are horizontally clear of this narrow middle column.
 LEGEND_LIFT = 0.25
 
+# Height of the exemplar-unit marker (a downward triangle) in panels E/F's
+# ECDF insets, as a fraction of the inset's own height -- just above the
+# x-axis, clear of both ECDF curves. Its p-value label is placed relative to
+# the same value (see _annotate_exemplar_p), so the two stay together if this
+# is ever nudged.
+_EXEMPLAR_MARKER_Y = 0.09
+
 # ── Average spike-waveform panel ──────────────────────────────────────────────
 # 100 randomly-sampled raw waveforms (seeded for reproducibility) for this
 # unit, drawn from the visual-gratings recording (larger spike count of the
@@ -479,15 +486,20 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     # to fill [0, 1].
     mean_subtract = lambda arr: arr - np.mean(arr)
 
-    # Mag raw NPIX (null result) -- scale bar shows one stimulus period (1/freq)
+    # Mag raw NPIX (null result). No scale bar here: this panel and the visual
+    # one below share a frequency (both 3 Hz), a 5 s window and a sample rate,
+    # so their bars would be identical -- the visual panel's one bar labels
+    # both, and dropping this one uncrowds the left column.
     statistics.raw_NPIX(mag_raw_ax, None, mag_spks, None, MAG_WINDOW, MAG_FREQ,
                          label=1 / MAG_FREQ, trace=mag_trace, spike_sr=MAG_TRACE_SR,
                          raster_lw=RASTER_LW, phase_cmap=PHASE_CMAP, normalize=mean_subtract,
-                         stem_scale=ARROW_STEM_SCALE, scalebar_frac=0.5)
+                         stem_scale=ARROW_STEM_SCALE, scalebar=False)
     mag_raw_ax.set_title(f"Voltage trace during magnetic stimulation at {MAG_FREQ:g} Hz",
                           fontsize=FP.FS_TITLE)
 
-    # Visual raw NPIX (positive result) -- same unit, same primitive as the mag panel
+    # Visual raw NPIX (positive result) -- same unit, same primitive as the mag
+    # panel. Carries the figure's only scale bar (one stimulus period, 1/freq),
+    # which applies to the mag panel above equally -- see the comment there.
     statistics.raw_NPIX(vis_raw_ax, None, vis_spks, None, VIS_WINDOW, VIS_FREQ,
                          label=1 / VIS_FREQ, trace=vis_trace, spike_sr=VIS_TRACE_SR,
                          raster_lw=RASTER_LW, phase_cmap=PHASE_CMAP, normalize=mean_subtract,
@@ -674,8 +686,28 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     def _fmt_p(p):
         return "p<0.001" if p < 0.001 else f"p={p:.2g}"
 
+    # The exemplar's p-value label rides just off the top-right corner of its
+    # own triangle rather than sitting at the top of the inset (where it was
+    # until 2026-09-20) -- up there it was ambiguous whether it described the
+    # marker, the ECDF curve, or the whole panel. Anchored to the marker's own
+    # (x, y) and nudged a couple of points out, it reads unambiguously as that
+    # marker's label. Both p-values are small enough to land left of centre, so
+    # a label growing rightwards has room in either panel.
+    def _annotate_exemplar_p(ax, p):
+        ax.annotate(_fmt_p(p), xy=(p, _EXEMPLAR_MARKER_Y),
+                    xycoords=("data", "axes fraction"), xytext=(6, 1),
+                    textcoords="offset points", ha="left", va="bottom",
+                    fontsize=FP.FS_LEGEND, color="black")
+
     ecdf_mag_ax = mag_dist_ax.inset_axes([0.52, 0.48, 0.45, 0.44])
     ecdf_vis_ax = vis_dist_ax.inset_axes([0.52, 0.48, 0.45, 0.44])
+    # Shared y-axis, same reasoning as panel B's two raw traces: both insets
+    # plot the same quantity (ECDF deviation from uniform) and the whole point
+    # of showing them side by side is that one deviates and the other doesn't,
+    # so each must be read against the other's scale rather than being
+    # independently autoscaled to fill its own box. Set before plotting, so
+    # the autoscale that follows lands on the union of the two curves+bands.
+    ecdf_vis_ax.sharey(ecdf_mag_ax)
 
     # Plot mag K-S diagnostic: ECDF(x) - x with 95% CI
     mag_x, mag_lower, mag_upper = bootstrap_ecdf_band(mag_pvals, alpha=0.05)
@@ -693,12 +725,9 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     # mag_dist_ax/vis_dist_ax's own exemplar-NFC marker above (2026-09-02:
     # was a vertical line, then an upward triangle below the axis).
     ecdf_mag_xaxis_trans = ecdf_mag_ax.get_xaxis_transform()
-    ecdf_mag_ax.plot(exemplar_p_mag, 0.09, marker="v", color="black", alpha=0.5, markersize=6,
-                     transform=ecdf_mag_xaxis_trans, clip_on=False, zorder=5)
-    ecdf_mag_ax.annotate(_fmt_p(exemplar_p_mag), xy=(exemplar_p_mag, 1.0),
-                         xycoords=("data", "axes fraction"), xytext=(2, -2),
-                         textcoords="offset points", ha="left", va="top",
-                         fontsize=FP.FS_LEGEND, color="black")
+    ecdf_mag_ax.plot(exemplar_p_mag, _EXEMPLAR_MARKER_Y, marker="v", color="black", alpha=0.5,
+                     markersize=6, transform=ecdf_mag_xaxis_trans, clip_on=False, zorder=5)
+    _annotate_exemplar_p(ecdf_mag_ax, exemplar_p_mag)
     ecdf_mag_ax.set_xlabel("p-value", fontsize=FP.FS_LEGEND, labelpad=1)
     ecdf_mag_ax.set_ylabel("ECDF dev.", fontsize=FP.FS_LEGEND, labelpad=1)
     ecdf_mag_ax.set_xlim((0, 1))
@@ -723,12 +752,9 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     # the (0,1) x-axis, same place its own bar sits in vis_dist_ax's ECDF
     # curve (see exemplar_p_mag's comment above for why/how this is marked).
     ecdf_vis_xaxis_trans = ecdf_vis_ax.get_xaxis_transform()
-    ecdf_vis_ax.plot(exemplar_p_vis, 0.09, marker="v", color="black", alpha=0.5, markersize=6,
-                     transform=ecdf_vis_xaxis_trans, clip_on=False, zorder=5)
-    ecdf_vis_ax.annotate(_fmt_p(exemplar_p_vis), xy=(exemplar_p_vis, 1.0),
-                         xycoords=("data", "axes fraction"), xytext=(2, -2),
-                         textcoords="offset points", ha="left", va="top",
-                         fontsize=FP.FS_LEGEND, color="black")
+    ecdf_vis_ax.plot(exemplar_p_vis, _EXEMPLAR_MARKER_Y, marker="v", color="black", alpha=0.5,
+                     markersize=6, transform=ecdf_vis_xaxis_trans, clip_on=False, zorder=5)
+    _annotate_exemplar_p(ecdf_vis_ax, exemplar_p_vis)
     ecdf_vis_ax.set_xlabel("p-value", fontsize=FP.FS_LEGEND, labelpad=1)
     ecdf_vis_ax.set_ylabel("ECDF dev.", fontsize=FP.FS_LEGEND, labelpad=1)
     ecdf_vis_ax.set_xlim((0, 1))
