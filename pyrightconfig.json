@@ -15,5 +15,6 @@
     "reportGeneralTypeIssues": "warning",
     "reportIndexIssue": "warning",
     "reportOperatorIssue": "warning",
-    "reportAssignmentType": "warning"
+    "reportAssignmentType": "warning",
+    "reportPossiblyUnboundVariable": "warning"
 }
