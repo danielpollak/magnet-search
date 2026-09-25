@@ -24,12 +24,23 @@ it is the `freq` the unit's p-value was computed at). Concretely, per
 the duration `fit_fourier_sig` used for this group -- which is what makes
 `amp_hz` directly comparable to the persisted `sens` on the x axis.
 
-Two pages, per the two useful normalisations of "modulation depth":
+Four pages. The first two are sensitivity vs. the two useful
+normalisations of "modulation depth":
   page 1  relative depth `amp_hz / mean_rate` -- dimensionless, 0-1, the same
           quantity Fig4's simulation sweeps as its synthetic amplitude A, and
           comparable across units of wildly different firing rate.
   page 2  absolute amplitude `amp_hz` in spikes/s -- raw effect size, but
           dominated by each unit's own firing rate.
+The last two put firing rate (`mean_rate_hz`, = spk_count/T) on x, to show
+how much of each of those quantities firing rate alone accounts for:
+  page 3  sensitivity vs. firing rate.
+  page 4  relative modulation depth vs. firing rate.
+
+Two versions of the same four pages are written, differing only in what the
+point colour encodes (see COLOR_SPECS):
+  Fig3_modulation_depth.pdf           the unit's own 1F p-value.
+  Fig3_modulation_depth_duration.pdf  the total duration T of the spike train
+                                      the p-value was computed from.
 
 Only EPHYS species appear (pigeon, zebra finch, quail). A spike PSTH does not
 exist for the rest: mouse/owl are precomputed analysis frames with no raw data
@@ -57,6 +68,7 @@ Usage:
     python pipeline/manuscript/fig3_modulation_depth.py
     python pipeline/manuscript/fig3_modulation_depth.py --recompute --validate
     python pipeline/manuscript/fig3_modulation_depth.py --workers 8
+    python pipeline/manuscript/fig3_modulation_depth.py --color duration
 """
 import argparse
 from multiprocessing import Pool
@@ -152,6 +164,56 @@ PVAL_CMAP = matplotlib.colors.ListedColormap(
 # `ax.scatter` takes an AREA in pt^2, so halving the marker's diameter means
 # squaring the halved diameter here, not halving MS_SMALL**2.
 MS_SCATTER = (FP.MS_SMALL / 2) ** 2
+
+# Duration colormap: plasma, not viridis, so the duration-coloured PDF can't be
+# mistaken for the p-value one at a glance. Truncated at 0.9 for the same
+# reason PVAL_CMAP is -- plasma's top end is a pale yellow that vanishes
+# against white at this marker size.
+DURATION_CMAP = matplotlib.colors.ListedColormap(
+    matplotlib.colormaps["plasma"](np.linspace(0.0, 0.9, 256)),
+    name="plasma_truncated")
+
+# What the point colour encodes, one entry per output PDF. `small_on_top` sets
+# which points are drawn on top where they overlap: smallest value last for
+# p-values (see plot_scatter); otherwise (duration, which has no end that
+# matters more than the other) a fixed-seed shuffle, so no one duration
+# systematically hides the rest. vmin/vmax of None are taken from the data
+# (the full joined frame, so every axes shares one scale).
+COLOR_SPECS = {
+    "pvalue": dict(
+        col="p_value", cmap=PVAL_CMAP, vmin=PVAL_FLOOR, vmax=1.0,
+        label="p-value (1F)", small_on_top=True,
+        # The bottom end is a clip, not a value (see PVAL_FLOOR) -- say so on
+        # the tick rather than letting it read as an exact p of PVAL_FLOOR.
+        # Derived from PVAL_FLOOR so the ticks can't drift out of range again
+        # (they were still the 1e-8 floor's, and matplotlib silently drops
+        # out-of-range ticks, so the clip label never showed).
+        ticks=[PVAL_FLOOR, 1e-2, 0.1, 1.0],
+        ticklabels=[rf"$\leq${PVAL_FLOOR:g}", "0.01", "0.1", "1"],
+        out_name="Fig3_modulation_depth.pdf"),
+    "duration": dict(
+        # T: the (rec, freq) group's analysis duration, read from the NWB
+        # fourier_group_results table -- the same T fit_fourier_sig used.
+        col="T", cmap=DURATION_CMAP, vmin=None, vmax=None,
+        label="Spike-train duration T (s)", small_on_top=False,
+        ticks=None, ticklabels=None,
+        out_name="Fig3_modulation_depth_duration.pdf"),
+}
+DRAW_ORDER_SEED = 0
+
+
+def _resolve_color_spec(name, df):
+    """COLOR_SPECS[name] with any data-derived vmin/vmax filled in from `df`,
+    plus the LogNorm every scatter and the colorbar share."""
+    spec = dict(COLOR_SPECS[name])
+    vals = df[spec["col"]].values
+    vals = vals[np.isfinite(vals) & (vals > 0)]
+    if spec["vmin"] is None:
+        spec["vmin"] = float(vals.min())
+    if spec["vmax"] is None:
+        spec["vmax"] = float(vals.max())
+    spec["norm"] = matplotlib.colors.LogNorm(vmin=spec["vmin"], vmax=spec["vmax"])
+    return spec
 
 
 def resolve_yaml_path(name: str, experiments_dir: Path = None):
@@ -388,7 +450,7 @@ def attach_mod_depth(all_fourier_df, mod_depth_table):
     before = len(all_fourier_df)
     merged = all_fourier_df.merge(
         mod_depth_table[["experiment", "rec", "freq", "id", "mean_rate_hz",
-                          "amp_hz", "mod_depth"]],
+                          "amp_hz", "mod_depth", "T"]],
         on=["rec", "freq", "id"], how="inner", validate="one_to_one")
     kept_species = sorted(merged["species"].unique())
     lost = (all_fourier_df.groupby("species").size()
@@ -405,7 +467,7 @@ def attach_mod_depth(all_fourier_df, mod_depth_table):
     return merged
 
 
-def _add_threshold_line(ax, plotted, depth_col):
+def _add_threshold_line(ax, plotted, x_col, y_col):
     """Slope -1 reference line: the modulation depth a unit of a given `sens`
     would need to reach the THRESHOLD_PERCENTILE point of its own null
     distribution.
@@ -417,15 +479,16 @@ def _add_threshold_line(ax, plotted, depth_col):
     So depth = amp/mean_rate = NFC/sens, and NFC = NFC_crit maps to
     depth = NFC_crit / sens.
 
-    Only drawn on the relative-depth page: on the absolute page the same
-    threshold is amp = NFC_crit * mean_rate / sens, a different line per
-    firing rate rather than one curve.
+    Only drawn on the sensitivity-vs-relative-depth page: on the absolute
+    page the same threshold is amp = NFC_crit * mean_rate / sens, a different
+    line per firing rate rather than one curve, and the firing-rate pages
+    have no sensitivity axis for it to be a function of.
 
     `eps` is taken as the median over the plotted rows' own `Q` (via
     `statistics.eps_from_Q`, the same conversion Fig2 uses), since Q -- and
     hence the finite-sample correction to the null -- varies by recording.
     """
-    if depth_col != "mod_depth" or plotted is None or plotted.empty:
+    if (x_col, y_col) != ("sens", "mod_depth") or plotted is None or plotted.empty:
         return
     qs = plotted["Q"]
     if not np.isfinite(qs).any():
@@ -439,10 +502,13 @@ def _add_threshold_line(ax, plotted, depth_col):
     ax.set_xlim(xlim)
 
 
-def plot_scatter(waves, ax, depth_col, percentile=None, sens_col="sens",
-                  pval_col="p_value"):
-    """One axes: `sens` vs `depth_col`, every point coloured by its own
-    `pval_col` on a log scale (see PVAL_CMAP / PVAL_FLOOR).
+def plot_scatter(waves, ax, x_col, y_col, color_spec, percentile=None,
+                  sens_col="sens", pval_col="p_value"):
+    """One axes: `x_col` vs `y_col`, every point coloured by
+    `color_spec["col"]` on a log scale (see COLOR_SPECS).
+
+    Rows with a non-finite `pval_col` are dropped whatever the colouring, so
+    the p-value and duration versions of a panel draw exactly the same points.
 
     `percentile`, when given, is applied PER WAVE before the waves are
     concatenated -- quadrant D's "top 10% most sensitive" threshold is
@@ -467,23 +533,28 @@ def plot_scatter(waves, ax, depth_col, percentile=None, sens_col="sens",
     if not kept:
         return None
     df = pd.concat(kept, ignore_index=True)
-    # Both axes are log-scaled, so a non-positive sens or depth has no place
-    # on them. These are genuine degenerate units (a flat PSTH fits amplitude
-    # 0), not missing data, and matplotlib would silently drop them anyway --
+    # Both axes are log-scaled, so a non-positive value has no place on them.
+    # These are genuine degenerate units (a flat PSTH fits amplitude 0), not
+    # missing data, and matplotlib would silently drop them anyway --
     # filtered explicitly so the counts match what is drawn.
-    df = df.loc[(df[sens_col] > 0) & (df[depth_col] > 0)
-                & np.isfinite(df[pval_col])]
+    color_col = color_spec["col"]
+    df = df.loc[(df[x_col] > 0) & (df[y_col] > 0)
+                & np.isfinite(df[pval_col]) & np.isfinite(df[color_col])]
     if df.empty:
         return None
-    # Smallest p drawn LAST, hence on top. Without this the handful of
-    # genuinely significant units would be buried under the tens of thousands
-    # of near-p=1 points they overlap, which is precisely the comparison the
-    # colour encoding exists to show.
-    df = df.sort_values(pval_col, ascending=False)
-    ax.scatter(df[sens_col].values, df[depth_col].values,
-               c=np.clip(df[pval_col].values, PVAL_FLOOR, 1.0),
-               cmap=PVAL_CMAP,
-               norm=matplotlib.colors.LogNorm(vmin=PVAL_FLOOR, vmax=1.0),
+    if color_spec["small_on_top"]:
+        # Smallest p drawn LAST, hence on top. Without this the handful of
+        # genuinely significant units would be buried under the tens of
+        # thousands of near-p=1 points they overlap, which is precisely the
+        # comparison the colour encoding exists to show.
+        df = df.sort_values(color_col, ascending=False)
+    else:
+        rng = np.random.default_rng(DRAW_ORDER_SEED)
+        df = df.iloc[rng.permutation(len(df))]
+    ax.scatter(df[x_col].values, df[y_col].values,
+               c=np.clip(df[color_col].values, color_spec["vmin"], color_spec["vmax"]),
+               cmap=color_spec["cmap"],
+               norm=color_spec["norm"],
                s=MS_SCATTER, alpha=FP.ALPHA_TRACE, linewidths=0,
                rasterized=True)
     # Deliberately NOT statistics.nestle_labels, which fig3.plot_uniform_p
@@ -507,14 +578,20 @@ CONDITIONS = [
 QUADRANT_SLOTS = [(0, 0), (0, 1), (1, 0), (1, 1)]
 PANEL_LETTERS = "ABCD"
 
+AXIS_LABELS = {
+    "sens": "Sensitivity",
+    "mod_depth": "Modulation depth (amplitude / mean rate)",
+    "amp_hz": "Modulation amplitude (spikes/s)",
+    "mean_rate_hz": "Firing rate (spikes/s)",
+}
 
-def plot_page(all_fourier_df, depth_col, ylabel, suptitle):
+
+def plot_page(waves, pos_control_waves, x_col, y_col, suptitle, color_spec):
     """One page: Fig3's 2x2 quadrant grid, each quadrant a Magnetic /
-    Visual-Audio pair of `sens`-vs-`depth_col` scatter axes.
+    Visual-Audio pair of `x_col`-vs-`y_col` scatter axes. `waves` /
+    `pos_control_waves` are the two populations' `_split_into_waves` output.
     """
-    all_neg_res, all_pos_control, _ = statistics.get_poscontrols_negresults(all_fourier_df)
-    waves = _split_into_waves(all_neg_res)
-    pos_control_waves = _split_into_waves(all_pos_control)
+    xlabel, ylabel = AXIS_LABELS[x_col], AXIS_LABELS[y_col]
 
     font = {"family": FP.FONT_FAMILY, "size": FP.FS_BODY}
     matplotlib.rc("font", **font)
@@ -522,8 +599,11 @@ def plot_page(all_fourier_df, depth_col, ylabel, suptitle):
     fig = plt.figure(figsize=(FP.FIGSIZE_FIG3[0] * 1.4, FP.FIGSIZE_FIG3[1] * 1.8))
     # right=0.93, not Fig3's 0.98: the remaining strip holds the shared
     # p-value colorbar added at the end of this function.
-    outer = fig.add_gridspec(2, 2, wspace=0.45, hspace=0.35,
-                              left=0.08, right=0.93, top=0.90, bottom=0.07)
+    # top=0.86 / hspace=0.45 leave room for the quadrant headers (placed 0.04
+    # above each quadrant) to clear both the suptitle and the row above's
+    # x labels.
+    outer = fig.add_gridspec(2, 2, wspace=0.45, hspace=0.45,
+                              left=0.08, right=0.93, top=0.86, bottom=0.07)
 
     for (title, cond_filter, percentile), (orow, ocol), letter in \
             zip(CONDITIONS, QUADRANT_SLOTS, PANEL_LETTERS):
@@ -547,18 +627,20 @@ def plot_page(all_fourier_df, depth_col, ylabel, suptitle):
         pos_subset = pos_control_waves if cond_filter is None else \
             [w.loc[cond_filter(w)] for w in pos_control_waves]
 
-        neg_plotted = plot_scatter(neg_subset, ax_neg, depth_col, percentile=percentile)
-        pos_plotted = plot_scatter(pos_subset, ax_pos, depth_col, percentile=percentile)
+        neg_plotted = plot_scatter(neg_subset, ax_neg, x_col, y_col, color_spec,
+                                   percentile=percentile)
+        pos_plotted = plot_scatter(pos_subset, ax_pos, x_col, y_col, color_spec,
+                                   percentile=percentile)
         # After both scatters, so the shared x limits are final.
-        _add_threshold_line(ax_neg, neg_plotted, depth_col)
-        _add_threshold_line(ax_pos, pos_plotted, depth_col)
+        _add_threshold_line(ax_neg, neg_plotted, x_col, y_col)
+        _add_threshold_line(ax_pos, pos_plotted, x_col, y_col)
 
         ax_neg.set_title("Magnetic", fontsize=FP.FS_TITLE)
         ax_pos.set_title("Visual/Audio", fontsize=FP.FS_TITLE)
         ax_neg.set_ylabel(ylabel)
-        ax_neg.set_xlabel("Sensitivity")
-        ax_pos.set_xlabel("Sensitivity")
-        if depth_col == "mod_depth":
+        ax_neg.set_xlabel(xlabel)
+        ax_pos.set_xlabel(xlabel)
+        if ax_pos.get_legend_handles_labels()[0]:
             ax_pos.legend(fontsize=FP.FS_LEGEND, loc="upper right", frameon=False)
 
         quad_pos = outer[orow, ocol].get_position(fig)
@@ -568,40 +650,42 @@ def plot_page(all_fourier_df, depth_col, ylabel, suptitle):
                   ha="left", va="bottom", fontfamily="arial", fontsize=12, fontweight="bold")
 
     # One colorbar for all eight axes: hue is the same quantitative encoding
-    # everywhere (see PVAL_CMAP), so a per-axes bar would repeat itself eight
-    # times. Built from a standalone ScalarMappable rather than from one of
-    # the scatters, so it doesn't matter which axes happened to be drawn last
-    # or whether any given one ended up empty.
+    # everywhere (see COLOR_SPECS), so a per-axes bar would repeat itself
+    # eight times. Built from a standalone ScalarMappable rather than from one
+    # of the scatters, so it doesn't matter which axes happened to be drawn
+    # last or whether any given one ended up empty.
     cax = fig.add_axes([0.955, 0.33, 0.013, 0.34])
     cbar = fig.colorbar(
-        matplotlib.cm.ScalarMappable(
-            norm=matplotlib.colors.LogNorm(vmin=PVAL_FLOOR, vmax=1.0),
-            cmap=PVAL_CMAP),
+        matplotlib.cm.ScalarMappable(norm=color_spec["norm"], cmap=color_spec["cmap"]),
         cax=cax)
-    cbar.set_label("p-value (1F)", fontsize=FP.FS_TITLE)
+    cbar.set_label(color_spec["label"], fontsize=FP.FS_TITLE)
     cbar.ax.tick_params(labelsize=FP.FS_LEGEND)
-    # The bottom end is a clip, not a value (see PVAL_FLOOR) -- say so on the
-    # tick rather than letting it read as an exact p of 1e-8.
-    cbar.set_ticks([1e-8, 1e-6, 1e-4, 1e-2, 1.0])
-    cbar.set_ticklabels([r"$\leq$1e-8", "1e-6", "1e-4", "0.01", "1"])
+    if color_spec["ticks"] is not None:
+        cbar.set_ticks(color_spec["ticks"])
+        cbar.set_ticklabels(color_spec["ticklabels"])
 
     fig.suptitle(suptitle, fontsize=FP.FS_BODY + 2, fontweight="bold", y=0.975)
     return fig
 
 
-def plot_fig3_modulation_depth(all_fourier_df, out_dir: Path,
-                                out_name="Fig3_modulation_depth.pdf"):
-    """Both pages into one PDF (see the module docstring for why two)."""
+def plot_fig3_modulation_depth(all_fourier_df, out_dir: Path, color="pvalue"):
+    """All four pages into one PDF, points coloured per COLOR_SPECS[color]
+    (see the module docstring)."""
+    color_spec = _resolve_color_spec(color, all_fourier_df)
+    all_neg_res, all_pos_control, _ = statistics.get_poscontrols_negresults(all_fourier_df)
+    waves = _split_into_waves(all_neg_res)
+    pos_control_waves = _split_into_waves(all_pos_control)
     pages = [
-        ("mod_depth", "Modulation depth (amplitude / mean rate)",
-         "Detection sensitivity vs. relative modulation depth"),
-        ("amp_hz", "Modulation amplitude (spikes/s)",
-         "Detection sensitivity vs. absolute modulation amplitude"),
+        ("sens", "mod_depth", "Detection sensitivity vs. relative modulation depth"),
+        ("sens", "amp_hz", "Detection sensitivity vs. absolute modulation amplitude"),
+        ("mean_rate_hz", "sens", "Detection sensitivity vs. firing rate"),
+        ("mean_rate_hz", "mod_depth", "Relative modulation depth vs. firing rate"),
     ]
-    out_path = out_dir / out_name
+    out_path = out_dir / color_spec["out_name"]
     with PdfPages(out_path) as pdf:
-        for depth_col, ylabel, suptitle in pages:
-            fig = plot_page(all_fourier_df, depth_col, ylabel, suptitle)
+        for x_col, y_col, suptitle in pages:
+            fig = plot_page(waves, pos_control_waves, x_col, y_col, suptitle,
+                            color_spec)
             pdf.savefig(fig, bbox_inches="tight", dpi=FP.DPI)
             if not in_notebook:
                 plt.close(fig)
@@ -624,6 +708,8 @@ def main():
                         help="Refit the PSTH sinusoids instead of reusing the cache")
     parser.add_argument("--validate", action="store_true",
                         help="Also compare each fitted amplitude against 2*|fou0| from the NWB")
+    parser.add_argument("--color", choices=[*COLOR_SPECS, "both"], default="both",
+                        help="What the point colour encodes; one PDF per choice (default: both)")
     args = parser.parse_args([] if in_notebook else None)
 
     out_dir = Path(args.out_dir)
@@ -638,7 +724,9 @@ def main():
     print(f"Loading {args.parquet} ...")
     all_fourier_df = pd.read_parquet(args.parquet)
     all_fourier_df = attach_mod_depth(all_fourier_df, mod_depth_table)
-    plot_fig3_modulation_depth(all_fourier_df, out_dir)
+    colors = list(COLOR_SPECS) if args.color == "both" else [args.color]
+    for color in colors:
+        plot_fig3_modulation_depth(all_fourier_df, out_dir, color=color)
 
 
 if __name__ == "__main__":

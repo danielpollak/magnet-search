@@ -586,6 +586,48 @@ def fourier_analysis(spks, freq, Q=100, sr=30_000, T=None, log=False):
 UNIQUE_NEURON_KEY = ("species", "ID", "date", "id")
 
 
+def iter_occurrence_draws(df, value_col="p_value", group_cols=UNIQUE_NEURON_KEY,
+                          n_boot=1000, seed=None):
+    """Yield `n_boot` draws of one `value_col` per neuron, each neuron's row
+    picked uniformly at random from its own observations -- the resampling
+    behind `bootstrap_occurrence_ecdf_band` (see there for what it does and
+    does not measure), exposed so other per-draw statistics (e.g. sorted
+    q-values) can be computed from the very same draws.
+
+    Each draw is a length-n_neurons array, in neuron order (not sorted).
+    Non-finite `value_col` rows are dropped before grouping.
+    """
+    vals = pd.to_numeric(df[value_col], errors="coerce").to_numpy(dtype=float)
+    finite = np.isfinite(vals)
+    df, vals = df.loc[finite], vals[finite]
+    if len(vals) == 0:
+        raise ValueError(f"no finite values in {value_col!r} to bootstrap")
+
+    # Flat, offset-indexed layout instead of a padded (n_neurons x max_obs)
+    # matrix: group g's observations occupy vals_sorted[starts[g]:starts[g]+counts[g]],
+    # so a draw is one vectorised gather with no padding to mask around.
+    codes = df.groupby(list(group_cols), sort=False, dropna=False).ngroup().to_numpy()
+    order = np.argsort(codes, kind="stable")
+    vals_sorted = vals[order]
+    counts = np.bincount(codes[order], minlength=codes.max() + 1)
+    starts = np.concatenate([[0], np.cumsum(counts)[:-1]])
+    n_neurons = len(counts)
+
+    rng = np.random.default_rng(seed)
+    for _ in range(n_boot):
+        # rng.random() is in [0, 1), so the offset stays within [0, counts).
+        yield vals_sorted[starts + (rng.random(n_neurons) * counts).astype(np.intp)]
+
+
+# Default p-value grid the occurrence-bootstrap ECDF deviations are evaluated on.
+ECDF_P_GRID = np.linspace(0.0, 1.0, 201)
+
+
+def ecdf_minus_uniform(sorted_vals, x_grid=ECDF_P_GRID):
+    """ECDF of already-sorted `sorted_vals` on `x_grid`, minus the uniform CDF."""
+    return np.searchsorted(sorted_vals, x_grid, side="right") / len(sorted_vals) - x_grid
+
+
 def bootstrap_occurrence_ecdf_band(df, value_col="p_value", group_cols=UNIQUE_NEURON_KEY,
                                    n_boot=1000, alpha=0.05, x_grid=None, seed=None):
     """Band for an ECDF-minus-uniform curve, over WHICH observation each neuron contributes.
@@ -609,33 +651,13 @@ def bootstrap_occurrence_ecdf_band(df, value_col="p_value", group_cols=UNIQUE_NE
     Returns (x_grid, lower, upper, center): the evaluation grid, the pointwise
     alpha/2 and 1-alpha/2 percentiles over draws, and the pointwise median.
     """
-    if x_grid is None:
-        x_grid = np.linspace(0.0, 1.0, 201)
-    x_grid = np.asarray(x_grid, dtype=float)
+    x_grid = ECDF_P_GRID if x_grid is None else np.asarray(x_grid, dtype=float)
 
-    vals = pd.to_numeric(df[value_col], errors="coerce").to_numpy(dtype=float)
-    finite = np.isfinite(vals)
-    df, vals = df.loc[finite], vals[finite]
-    if len(vals) == 0:
-        raise ValueError(f"no finite values in {value_col!r} to bootstrap")
-
-    # Flat, offset-indexed layout instead of a padded (n_neurons x max_obs)
-    # matrix: group g's observations occupy vals_sorted[starts[g]:starts[g]+counts[g]],
-    # so a draw is one vectorised gather with no padding to mask around.
-    codes = df.groupby(list(group_cols), sort=False, dropna=False).ngroup().to_numpy()
-    order = np.argsort(codes, kind="stable")
-    vals_sorted = vals[order]
-    counts = np.bincount(codes[order], minlength=codes.max() + 1)
-    starts = np.concatenate([[0], np.cumsum(counts)[:-1]])
-    n_neurons = len(counts)
-
-    rng = np.random.default_rng(seed)
     deviations = np.empty((n_boot, len(x_grid)), dtype=float)
-    for i in range(n_boot):
-        # rng.random() is in [0, 1), so the offset stays within [0, counts).
-        picked = np.sort(vals_sorted[starts + (rng.random(n_neurons) * counts).astype(np.intp)])
-        ecdf = np.searchsorted(picked, x_grid, side="right") / n_neurons
-        deviations[i] = ecdf - x_grid
+    draws = iter_occurrence_draws(df, value_col=value_col, group_cols=group_cols,
+                                  n_boot=n_boot, seed=seed)
+    for i, picked in enumerate(draws):
+        deviations[i] = ecdf_minus_uniform(np.sort(picked), x_grid)
 
     lower, upper = np.percentile(deviations, [100 * alpha / 2, 100 * (1 - alpha / 2)], axis=0)
     center = np.median(deviations, axis=0)
@@ -2866,10 +2888,8 @@ def storey_qvalues(pvals, lambda_=0.5):
     # Compute initial q-values
     q_raw = pi0 * N * p_sorted / np.arange(1, N + 1)
 
-    # Enforce monotonicity (non-decreasing)
-    qvals[order[-1]] = q_raw[-1]
-    for i in range(N - 2, -1, -1):
-        qvals[order[i]] = min(q_raw[i], qvals[order[i + 1]])
+    # Enforce monotonicity (non-decreasing): running minimum from the top rank down
+    qvals[order] = np.minimum.accumulate(q_raw[::-1])[::-1]
 
     return qvals, pi0
 

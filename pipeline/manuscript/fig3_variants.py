@@ -53,6 +53,13 @@ Page 11 Pigeon, ONE panel, brain areas as buckets overplotted on shared axes.
 Page 12 The same for all species, bucketed by (species, area) rather than by
         bare area -- see `bucket_by_species_area` for why the pair matters.
 Page 13 One panel, one bucket per species, each unit counted exactly once.
+Page 14 Canonical quadrants, ONE bucket per half holding every observation,
+        drawn with Fig 2 C/D's occurrence bootstrap: each draw keeps every
+        neuron once but picks WHICH of its recordings at random
+        (`statistics.iter_occurrence_draws`), so repeat recordings are used
+        rather than dropped or double-counted. Top row: ECDF(p) - p, median
+        and 95% band over draws (exactly Fig 2 C/D). Bottom row: sorted
+        q-values from the same draws, median and 95% band per rank.
 
 Every page keeps Fig 3's own left/right split: the left (blue) half of each
 quadrant is the negative-result magnetic population, the right (orange) half
@@ -98,7 +105,10 @@ import format_parameters as FP
 # default, and for the same reason (see get_poscontrols_negresults: `id`
 # restarts per subject, so `date`+`id` alone collides two animals recorded on
 # one calendar date).
-NEURON_KEY = ["species", "ID", "date", "id"]
+NEURON_KEY = list(statistics.UNIQUE_NEURON_KEY)
+
+# Fig 3's 2x2 quadrant grid positions, in fig3_conditions() order.
+QUADRANT_SLOTS = [(0, 0), (0, 1), (1, 0), (1, 1)]
 
 # The four species carried by both populations. Owl / Quail / mouse are
 # magnetic-only under the current annotations, so a species panel for them
@@ -406,6 +416,15 @@ def _bucket_note(buckets):
     return f"{len(sizes)} buckets, {span} units"
 
 
+def _condition_subset(pop, cond_filter, percentile, sens_col):
+    """`pop` restricted to one Fig 3 quadrant: its condition filter, then (for
+    the top-10% quadrant) ONE global sensitivity threshold over what's left."""
+    sub = pop if cond_filter is None else pop.loc[cond_filter(pop)]
+    if percentile is not None and len(sub):
+        sub = sub.loc[sub[sens_col] > np.percentile(sub[sens_col], percentile)]
+    return sub
+
+
 def _blank_reason(buckets, pval_col):
     """Why a quadrant half has nothing to draw, or None if it does.
 
@@ -672,16 +691,11 @@ def build_condition_bucket_page(all_fourier_df, bucket_fn, suptitle,
     outer = fig.add_gridspec(2, 2, wspace=0.45, hspace=0.42,
                              left=0.08, right=0.98, top=0.87 if legend else 0.85,
                              bottom=0.07)
-    slots = [(0, 0), (0, 1), (1, 0), (1, 1)]
 
     for (title, cond_filter, percentile), (orow, ocol), letter in zip(
-            fig3_conditions(), slots, "ABCD"):
-        subs = []
-        for pop in (neg, pos):
-            sub = pop if cond_filter is None else pop.loc[cond_filter(pop)]
-            if percentile is not None and len(sub):
-                sub = sub.loc[sub[sens_col] > np.percentile(sub[sens_col], percentile)]
-            subs.append(sub)
+            fig3_conditions(), QUADRANT_SLOTS, "ABCD"):
+        subs = [_condition_subset(pop, cond_filter, percentile, sens_col)
+                for pop in (neg, pos)]
 
         if paired_bucket_fn is not None:
             neg_buckets, pos_buckets = paired_bucket_fn(subs[0], subs[1])
@@ -754,6 +768,31 @@ def _y_scale_bar(ax, step, fontsize):
                     fontsize=fontsize, annotation_clip=False)
 
 
+def _add_stack_scale_bar(axs):
+    """The stack's single y scale bar, on its middle row (see `_y_scale_bar`).
+    Separate from `_plot_ecdf_dev_stack` so a caller that re-scales the stack
+    afterwards (see `_share_stack_ylims`) can draw the bar once the y range is
+    final."""
+    if not axs:
+        return
+    step = _nice_step(float(np.diff(axs[0].get_ylim())[0]))
+    if step is not None:
+        _y_scale_bar(axs[len(axs) // 2], step, FP.FS_LEGEND * 0.7)
+
+
+def _share_stack_ylims(*stacks):
+    """Put several ECDF-deviation stacks on one y range: the union of their
+    own ranges. Used for a quadrant's magnetic and A/V stacks, so a deviation
+    of the same size looks the same size in both columns (within a stack the
+    rows already share y). Empty stacks are skipped."""
+    stacks = [axs for axs in stacks if axs]
+    if not stacks:
+        return
+    lims = np.array([axs[0].get_ylim() for axs in stacks])
+    for axs in stacks:
+        axs[0].set_ylim(lims[:, 0].min(), lims[:, 1].max())
+
+
 def _plot_ecdf_dev_stack(fig, cell, buckets, cmap, xlabel=True, ylabel=None,
                          pval_col="p_value", n_boot=N_BOOT):
     """One mini-axes per bucket, stacked and sharing x (p-value) and y
@@ -810,9 +849,8 @@ def _plot_ecdf_dev_stack(fig, cell, buckets, cmap, xlabel=True, ylabel=None,
     if xlabel:
         axs[-1].set_xlabel("p-value", fontsize=FP.FS_LEGEND, labelpad=1)
 
-    step = _nice_step(float(np.diff(axs[0].get_ylim())[0]))
-    if step is not None:
-        _y_scale_bar(axs[bar_row], step, fs)
+    # No scale bar here: the caller draws it (`_add_stack_scale_bar`) once
+    # the y range is final, after `_share_stack_ylims`.
     if ylabel:
         # Sits outboard of the scale bar, and is the only y annotation on the
         # stack besides the bar's own two numbers. Anchored to one mini-axes
@@ -860,11 +898,16 @@ def _plot_ecdf_quadrant(fig, cell, neg_buckets, pos_buckets, title, letter,
     """
     inner = cell.subgridspec(2, 2, wspace=0.45, hspace=0.12, height_ratios=[3.6, 1])
 
-    _plot_ecdf_dev_stack(fig, inner[0, 0], neg_buckets, "Blues",
-                         ylabel="ECDF deviation from uniform null",
-                         pval_col=pval_col, n_boot=n_boot)
-    _plot_ecdf_dev_stack(fig, inner[0, 1], pos_buckets, "Oranges",
-                         pval_col=pval_col, n_boot=n_boot)
+    neg_axs = _plot_ecdf_dev_stack(fig, inner[0, 0], neg_buckets, "Blues",
+                                   ylabel="ECDF deviation from uniform null",
+                                   pval_col=pval_col, n_boot=n_boot)
+    pos_axs = _plot_ecdf_dev_stack(fig, inner[0, 1], pos_buckets, "Oranges",
+                                   pval_col=pval_col, n_boot=n_boot)
+    # Magnetic and A/V on one y range, so their deviations compare directly;
+    # scale bars only once that range is final (they'd be identical anyway).
+    _share_stack_ylims(neg_axs, pos_axs)
+    _add_stack_scale_bar(neg_axs)
+    _add_stack_scale_bar(pos_axs)
 
     ax_q_neg = fig.add_subplot(inner[1, 0])
     ax_q_pos = fig.add_subplot(inner[1, 1])
@@ -937,20 +980,16 @@ def build_ecdf_page(all_fourier_df, bucket_fn=None, suptitle=None,
     # bucket labels on each stack's right-hand side.
     outer = fig.add_gridspec(2, 2, wspace=0.34, hspace=0.16,
                              left=0.07, right=0.93, top=0.94, bottom=0.04)
-    slots = [(0, 0), (0, 1), (1, 0), (1, 1)]
 
     def _quadrant_buckets(base, cond_filter, percentile):
         if bucket_fn is None:
             buckets = base if cond_filter is None else \
                 [(lab, g.loc[cond_filter(g)]) for lab, g in base]
             return _apply_percentile(buckets, percentile, sens_col)
-        sub = base if cond_filter is None else base.loc[cond_filter(base)]
-        if percentile is not None and len(sub):
-            sub = sub.loc[sub[sens_col] > np.percentile(sub[sens_col], percentile)]
-        return bucket_fn(sub)
+        return bucket_fn(_condition_subset(base, cond_filter, percentile, sens_col))
 
     for (title, cond_filter, percentile), (orow, ocol), letter in zip(
-            fig3_conditions(), slots, "ABCD"):
+            fig3_conditions(), QUADRANT_SLOTS, "ABCD"):
         _plot_ecdf_quadrant(fig, outer[orow, ocol],
                             _quadrant_buckets(neg_base, cond_filter, percentile),
                             _quadrant_buckets(pos_base, cond_filter, percentile),
@@ -961,6 +1000,133 @@ def build_ecdf_page(all_fourier_df, bucket_fn=None, suptitle=None,
         suptitle = ("Canonical buckets, drawn as per-bucket ECDF deviation "
                     "(95% bootstrap CI; dashed line = uniform null)")
     fig.suptitle(suptitle, fontsize=FP.FS_BODY + 2, fontweight="bold", y=0.995)
+    return fig
+
+
+# -- Occurrence bootstrap, single bucket (page 14) ---------------------------
+
+def _occurrence_bootstrap_curves(df, pval_col="p_value", n_boot=N_BOOT, seed=0,
+                                 alpha=0.05):
+    """Fig 2 C/D's occurrence bootstrap (`statistics.iter_occurrence_draws`,
+    one randomly chosen recording per neuron per draw), summarised two ways
+    from the SAME draws:
+
+    * ECDF(p) - p on a fixed p grid -- identical to
+      `statistics.bootstrap_occurrence_ecdf_band`, i.e. to Fig 2 C/D;
+    * Storey q-values (lambda 0.5, as in `fig3.plot_uniform_p`), sorted, per
+      rank -- every draw has exactly one value per neuron, so rank k is
+      comparable across draws.
+
+    Returns None if there is nothing to draw, else a dict of the grid, the
+    median/lower/upper ECDF deviation, the median/lower/upper sorted q-values,
+    the neuron count and the recording count (rows with a finite p-value,
+    which is all the bootstrap draws from). The seed matches Fig 2's (0).
+    """
+    n_rec = int(np.isfinite(pd.to_numeric(df[pval_col], errors="coerce")).sum())
+    if n_rec == 0:
+        return None
+    x = statistics.ECDF_P_GRID
+    devs, qs = np.empty((n_boot, len(x))), None
+    for i, picked in enumerate(statistics.iter_occurrence_draws(
+            df, value_col=pval_col, group_cols=NEURON_KEY, n_boot=n_boot, seed=seed)):
+        picked = np.sort(picked)
+        if qs is None:
+            qs = np.empty((n_boot, len(picked)))
+        devs[i] = statistics.ecdf_minus_uniform(picked, x)
+        # `picked` is sorted, so its q-values already come out in rank order.
+        qs[i] = statistics.storey_qvalues(picked, lambda_=0.5)[0]
+    pct = [100 * alpha / 2, 50, 100 * (1 - alpha / 2)]
+    dev_lo, dev_med, dev_hi = np.percentile(devs, pct, axis=0)
+    q_lo, q_med, q_hi = np.percentile(qs, pct, axis=0)
+    return dict(x=x, dev_med=dev_med, dev_lo=dev_lo, dev_hi=dev_hi,
+                q_med=q_med, q_lo=q_lo, q_hi=q_hi, n_neurons=len(q_med),
+                n_recordings=n_rec)
+
+
+def _plot_occurrence_quadrant(fig, cell, neg_df, pos_df, title, letter,
+                              pval_col="p_value", n_boot=N_BOOT):
+    """Canonical quadrant geometry (magnetic left, A/V right; p-row on top,
+    q-row below) for one all-observations bucket per half, drawn from
+    `_occurrence_bootstrap_curves`. Both rows share y across the two halves,
+    so the magnetic and A/V deviations are directly comparable."""
+    inner = cell.subgridspec(2, 2, wspace=0.08, hspace=0.3)
+    ax_e_neg = fig.add_subplot(inner[0, 0])
+    ax_e_pos = fig.add_subplot(inner[0, 1], sharey=ax_e_neg)
+    ax_q_neg = fig.add_subplot(inner[1, 0])
+    ax_q_pos = fig.add_subplot(inner[1, 1], sharey=ax_q_neg)
+    ax_e_pos.tick_params(labelleft=False)
+    ax_q_pos.tick_params(labelleft=False)
+
+    halves = (
+        ("Magnetic", neg_df, FP.COLOR_MAG, ax_e_neg, ax_q_neg, 1e-2),
+        (_av_column_label([("all", pos_df)], [("all", neg_df)]), pos_df,
+         FP.COLOR_VIS, ax_e_pos, ax_q_pos, None),
+    )
+    for pop, df, color, ax_e, ax_q, inset_floor in halves:
+        curves = _occurrence_bootstrap_curves(df, pval_col=pval_col, n_boot=n_boot)
+        if curves is None:
+            for ax in (ax_e, ax_q):
+                ax.text(0.5, 0.5, "not presented", transform=ax.transAxes,
+                        ha="center", va="center", fontsize=FP.FS_LEGEND,
+                        color=FP.COLOR_NULL)
+            ax_e.set_title(pop, fontsize=FP.FS_TITLE)
+            continue
+        x = curves["x"]
+        ax_e.fill_between(x, curves["dev_lo"], curves["dev_hi"], color=color,
+                          alpha=FP.ALPHA_CONFIDENCE, linewidth=0)
+        ax_e.plot(x, curves["dev_med"], color=color, linewidth=FP.LW_TRACE)
+        ax_e.axhline(0, color=FP.COLOR_NULL, linestyle="--",
+                     linewidth=FP.LW_REFERENCE, alpha=0.6)
+        ax_e.set_xlim(0, 1)
+        ax_e.set_xlabel("p-value")
+
+        n = curves["n_neurons"]
+        rank = np.arange(n)
+        ax_q.fill_between(rank, curves["q_lo"], curves["q_hi"], color=color,
+                          alpha=FP.ALPHA_CONFIDENCE, linewidth=0, rasterized=True)
+        ax_q.plot(rank, curves["q_med"], color=color, linewidth=FP.LW_TRACE)
+        ax_q.set_yscale("log")
+        ax_q.set_ylim(bottom=1e-8)
+        ax_q.set_xticks([0, n])
+        ax_q.set_xticklabels([0, n])
+        ax_q.set_xlabel("Unit")
+        # Inset over the median curve, same placement rule as every other
+        # Fig 3 q-value panel.
+        fig3._add_qval_inset(ax_q, [curves["q_med"]], [color], ylim_bottom=inset_floor)
+
+        ax_e.set_title(f"{pop}\n{n} neurons, {curves['n_recordings']} recordings",
+                       fontsize=FP.FS_TITLE)
+
+    ax_e_neg.set_ylabel("ECDF - uniform")
+    ax_q_neg.set_ylabel("Sorted q-values")
+    _quadrant_header(fig, cell, title, letter, dy=0.06)
+
+
+def build_occurrence_bootstrap_page(all_fourier_df, pval_col="p_value",
+                                    sens_col="sens", n_boot=N_BOOT):
+    """Page 14: canonical quadrants, one bucket per half, Fig 2 C/D's
+    occurrence bootstrap (see `_occurrence_bootstrap_curves`).
+
+    Every observation stays in (no dedup) -- the bootstrap is what keeps each
+    neuron counted once per draw. The top-10% quadrant therefore takes one
+    global sensitivity threshold over all its rows, as page 5 does.
+    """
+    neg, pos = _population_frames(all_fourier_df)
+
+    fig = plt.figure(figsize=(FP.FIGSIZE_FIG3[0] * 1.4, FP.FIGSIZE_FIG3[1] * 1.9))
+    outer = fig.add_gridspec(2, 2, wspace=0.45, hspace=0.55,
+                             left=0.08, right=0.98, top=0.84, bottom=0.07)
+    for (title, cond_filter, percentile), (orow, ocol), letter in zip(
+            fig3_conditions(), QUADRANT_SLOTS, "ABCD"):
+        subs = [_condition_subset(pop, cond_filter, percentile, sens_col)
+                for pop in (neg, pos)]
+        _plot_occurrence_quadrant(fig, outer[orow, ocol], subs[0], subs[1],
+                                  title, letter, pval_col=pval_col, n_boot=n_boot)
+
+    fig.suptitle("Canonical quadrants, one bucket of every recording, Fig 2 C/D's "
+                 "occurrence bootstrap (one random recording per neuron per draw; "
+                 "median and 95% band)",
+                 fontsize=FP.FS_BODY + 2, fontweight="bold", y=0.975)
     return fig
 
 
@@ -1058,6 +1224,8 @@ def build_pages(all_fourier_df, pages, out_path: Path, n_boot=N_BOOT):
                     "Species as buckets on shared axes "
                     "(units appearing more than once dropped after the first)",
                     ncols=1, scale=2.2)
+            elif page == 14:
+                fig = build_occurrence_bootstrap_page(all_fourier_df, n_boot=n_boot)
             else:
                 raise ValueError(f"unknown page {page}")
             pdf.savefig(fig, bbox_inches="tight", dpi=FP.DPI)
@@ -1074,10 +1242,10 @@ def main():
     parser.add_argument("--parquet", default=FP.PARQUET_PATH,
                         help=f"Path to all_fourier_df.parquet (default: {FP.PARQUET_PATH})")
     parser.add_argument("--pages", type=int, nargs="+",
-                        default=list(range(1, 14)),
-                        help="Which pages to render, in order (default: 1-13)")
+                        default=list(range(1, 15)),
+                        help="Which pages to render, in order (default: 1-14)")
     parser.add_argument("--n-boot", type=int, default=N_BOOT,
-                        help="Bootstrap replicates for page 3's CI bands")
+                        help="Bootstrap replicates for the ECDF CI bands (pages 3, 7, 14)")
     args = parser.parse_args([] if in_notebook else None)
 
     out_dir = Path(args.out_dir)
