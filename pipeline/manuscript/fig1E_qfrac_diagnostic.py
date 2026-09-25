@@ -83,6 +83,13 @@ MAG_CONTINGENCY = "2023-04-13_17-06-27_W25R_second_site_mag3_inclined"  # see fi
 MAG_FREQ = 3.0
 CLUSTER_ID = 540  # same exemplar unit as fig1.py
 
+# The exemplar rec used before the 2026-09-02 swap (see fig1.py's module
+# docstring) -- plain (non-inclined) Mag3, same unit/frequency. Its
+# population sat 2nd-most-extreme of 67 on the mean-ECDF-deviation check
+# (page 3); shown on page 4 as a reference marker for comparison against the
+# rec actually used now.
+PREV_MAG_CONTINGENCY = "2023-04-13_17-17-14_W25R_second_site_mag3"
+
 Q_FRACS = [0.05, 0.10, 0.15, 0.30, 0.50]
 GUARD_Q_FRAC = 0.30
 GUARD_BANDS = [0, 2, 5, 8]
@@ -90,13 +97,17 @@ GUARD_BANDS = [0, 2, 5, 8]
 HIST_BINS = np.arange(0, 12, 0.2)
 
 
-def load_mag_population():
+def load_population_for_rec(rec):
     cfg = load_experiment(Path(__file__).parent.parent.parent / "experiments" / f"{EXPERIMENT}.yml")
     io_r, nwbfile = nwb_io.read_nwbfile(
         str(Path(FP.DATA_DIR) / f"{EXPERIMENT}.nwb"))
     modulation_df = nwb_io.build_modulation_frame(nwbfile, good_only=cfg.good)
     io_r.close()
-    return modulation_df.loc[modulation_df.rec == MAG_CONTINGENCY].copy()
+    return modulation_df.loc[modulation_df.rec == rec].copy()
+
+
+def load_mag_population():
+    return load_population_for_rec(MAG_CONTINGENCY)
 
 
 def _spectrum_panel(ax, ff_alt, fou_alt, keep_mask, freq, fou0, title):
@@ -261,10 +272,67 @@ def plot_cross_recording_page(pdf, this_rec_mean_dev):
     ax.set_xlabel("mean(ECDF(p) - p) per recording")
     ax.set_ylabel("# NPIX null recordings")
     ax.set_title(
-        f"Fig1E diagnostic (3/3) -- cross-recording check\n"
+        f"Fig1E diagnostic (3/4) -- cross-recording check (mean dev)\n"
         f"{len(mean_devs)} NPIX null (magnetic) recordings (Pigeon/Quail/zebra finch)\n"
         f"{n_as_negative}/{len(mean_devs)} ({100*frac_as_negative:.0f}%) dip as hard or "
         f"harder -- range spans {mean_devs.min():.3f} to {mean_devs.max():.3f}",
+        fontsize=FP.FS_TITLE)
+    ax.legend(fontsize=FP.FS_LEGEND, loc="upper right")
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    fig.tight_layout()
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
+def plot_cross_recording_max_dev_page(pdf, this_rec_max_dev, prev_rec_max_dev=None):
+    """Page 4: same cross-recording check as page 3, but using max|ECDF(p)-p|
+    per recording (the most extreme deviation) instead of the signed mean --
+    easier to read directly off Fig1E's own inset, which annotates max|dev|
+    rather than the mean.
+
+    prev_rec_max_dev, if given, marks where the pre-swap exemplar rec
+    (PREV_MAG_CONTINGENCY, plain Mag3 -- see fig1.py's docstring) falls on
+    this same distribution, as a red downward arrow above the x-axis
+    (alpha=0.5, matching the half-transparent exemplar-marker convention
+    fig1.py itself uses for mag_dist_ax/ecdf_mag_ax).
+    """
+    df = pd.read_parquet(FP.PARQUET_PATH)
+    all_mag_exp, _, _ = get_poscontrols_negresults(df)
+    npix_species = {"Pigeon", "Quail", "zebra finch"}
+    npix_mag = all_mag_exp.loc[all_mag_exp.species.isin(npix_species)]
+
+    rows = []
+    for key, g in npix_mag.groupby(["species", "ID", "date", "rec", "freq"]):
+        p = g["p_value"].dropna().values
+        if len(p) < 50:
+            continue
+        sorted_p = np.sort(p)
+        ecdf = (np.arange(1, len(p) + 1)) / len(p)
+        rows.append(np.max(np.abs(ecdf - sorted_p)))
+    max_devs = np.array(rows)
+
+    fig, ax = plt.subplots(figsize=(7.5, 5))
+    ax.hist(max_devs, bins=20, color=FP.COLOR_MAG, alpha=0.75)
+    ax.axvline(this_rec_max_dev, color="black", linewidth=1.5,
+               label=f"Fig1E exemplar rec\n(max|dev|={this_rec_max_dev:.3f})")
+    if prev_rec_max_dev is not None:
+        xaxis_trans = ax.get_xaxis_transform()
+        ax.annotate("", xy=(prev_rec_max_dev, 0.0), xycoords=xaxis_trans,
+                    xytext=(prev_rec_max_dev, 0.18), textcoords=xaxis_trans,
+                    alpha=0.5, annotation_clip=False,
+                    arrowprops=dict(arrowstyle="->", color="red", alpha=0.5, linewidth=2))
+        ax.plot([], [], color="red", alpha=0.5, marker=r"$\downarrow$", linestyle="none",
+                markersize=10, label=f"pre-swap Mag3 rec\n(max|dev|={prev_rec_max_dev:.3f})")
+    n_as_extreme = int(np.sum(max_devs >= this_rec_max_dev))
+    frac_as_extreme = n_as_extreme / len(max_devs)
+    ax.set_xlabel("max|ECDF(p) - p| per recording")
+    ax.set_ylabel("# NPIX null recordings")
+    ax.set_title(
+        f"Fig1E diagnostic (4/4) -- cross-recording check (max|dev|)\n"
+        f"{len(max_devs)} NPIX null (magnetic) recordings (Pigeon/Quail/zebra finch)\n"
+        f"{n_as_extreme}/{len(max_devs)} ({100*frac_as_extreme:.0f}%) deviate as hard or "
+        f"harder -- range spans {max_devs.min():.3f} to {max_devs.max():.3f}",
         fontsize=FP.FS_TITLE)
     ax.legend(fontsize=FP.FS_LEGEND, loc="upper right")
     ax.spines["top"].set_visible(False)
@@ -293,12 +361,23 @@ def main():
     sorted_p = np.sort(p_prod)
     ecdf = (np.arange(1, len(p_prod) + 1)) / len(p_prod)
     this_rec_mean_dev = np.mean(ecdf - sorted_p)
+    this_rec_max_dev = np.max(np.abs(ecdf - sorted_p))
+
+    # Same statistic for the pre-swap exemplar rec (plain Mag3, see
+    # PREV_MAG_CONTINGENCY), for page 4's reference marker.
+    prev_mag_df = load_population_for_rec(PREV_MAG_CONTINGENCY)
+    fdf_prev, _ = fit_fourier_sig(prev_mag_df, Q_frac=0.15, diagnostics=False)
+    p_prev = fdf_prev["p_value"].values
+    sorted_p_prev = np.sort(p_prev)
+    ecdf_prev = (np.arange(1, len(p_prev) + 1)) / len(p_prev)
+    prev_rec_max_dev = np.max(np.abs(ecdf_prev - sorted_p_prev))
 
     out_path = out_dir / "Fig1E_qfrac_diagnostic.pdf"
     with PdfPages(out_path) as pdf:
         plot_qfrac_sweep_page(pdf, mag_df, spk_540, group_T)
         plot_guardband_sweep_page(pdf, mag_df, spk_540, group_T)
         plot_cross_recording_page(pdf, this_rec_mean_dev)
+        plot_cross_recording_max_dev_page(pdf, this_rec_max_dev, prev_rec_max_dev)
 
     print(f"Saved {out_path}")
 
