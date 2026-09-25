@@ -1,0 +1,19 @@
+{
+    "venvPath": "C:/Users/dan/anaconda3/envs",
+    "venv": "magneto2",
+    "pythonVersion": "3.11",
+    "pythonPlatform": "Windows",
+    "extraPaths": ["../MagnetSearch/magpyneto"],
+    "include": ["pipeline", "magpyneto2", "verify_outputs.py"],
+    "exclude": ["**/__pycache__", "data", "figs", "logs", "**/*.egg-info"],
+    "typeCheckingMode": "standard",
+    "reportArgumentType": "warning",
+    "reportAttributeAccessIssue": "warning",
+    "reportCallIssue": "warning",
+    "reportOptionalMemberAccess": "warning",
+    "reportPrivateImportUsage": "warning",
+    "reportGeneralTypeIssues": "warning",
+    "reportIndexIssue": "warning",
+    "reportOperatorIssue": "warning",
+    "reportAssignmentType": "warning"
+}
