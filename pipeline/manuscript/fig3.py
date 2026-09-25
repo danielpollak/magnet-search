@@ -105,7 +105,7 @@ def split_into_occurrence_waves(all_fourier_df, pval_col="p_value"):
 
 
 def _add_qval_inset(ax, wave_sorted_qvals, wave_colors, n_inset=50, x0_frac=0.35, margin=0.7,
-                     ylim_bottom=None):
+                     ylim_bottom=None, wave_bands=None):
     """Add an inset to `ax` (a log-scale sorted-q-value axes) magnifying each
     wave's first `n_inset` units -- the steep early rise is otherwise
     compressed into a sliver of pixels against the full (often thousands-
@@ -132,6 +132,13 @@ def _add_qval_inset(ax, wave_sorted_qvals, wave_colors, n_inset=50, x0_frac=0.35
     y-axis -- used for the neg-result ("blue"/magnetic) inset, which
     otherwise autoscales down to whatever its smallest plotted q-value
     happens to be.
+
+    `wave_bands`, if given, is one `(lower, upper)` pair of arrays (or None)
+    per wave, shaded behind that wave's points -- fig3_variants' page 14
+    passes its per-rank bootstrap band. A band's LOWER edge sits below its
+    wave, so it is what the box has to clear: placement uses min(wave, lower)
+    at x0. That keeps the guarantee above because `lower` is sorted too (a
+    per-rank quantile of sorted draws is itself non-decreasing in rank).
     """
     if not wave_sorted_qvals:
         return
@@ -150,7 +157,11 @@ def _add_qval_inset(ax, wave_sorted_qvals, wave_colors, n_inset=50, x0_frac=0.35
     n_inset = min(n_inset, x0 - 1)
     if n_inset < MIN_INSET_N:
         return
-    ceilings = [sq[x0] for sq, flen in zip(wave_sorted_qvals, finite_lens) if flen > x0]
+    if wave_bands is None:
+        wave_bands = [None] * len(wave_sorted_qvals)
+    ceilings = [sq[x0] if band is None else min(sq[x0], band[0][x0])
+                for sq, flen, band in zip(wave_sorted_qvals, finite_lens, wave_bands)
+                if flen > x0]
     if not ceilings:
         return
     y1 = min(ceilings) * margin
@@ -183,8 +194,11 @@ def _add_qval_inset(ax, wave_sorted_qvals, wave_colors, n_inset=50, x0_frac=0.35
     has_positive = bool(np.any(np.isfinite(prefix) & (prefix > 0)))
 
     axins = ax.inset_axes([x0_frac + 0.01, inset_bottom, 0.97 - (x0_frac + 0.01), inset_top - inset_bottom])
-    for sq, color in zip(wave_sorted_qvals, wave_colors):
+    for sq, color, band in zip(wave_sorted_qvals, wave_colors, wave_bands):
         n = min(n_inset, len(sq))
+        if band is not None:
+            axins.fill_between(np.arange(n), band[0][:n], band[1][:n], color=color,
+                               alpha=FP.ALPHA_CONFIDENCE, linewidth=0, rasterized=True)
         axins.plot(np.arange(n), sq[:n], ".", color=color, alpha=FP.ALPHA_TRACE, markersize=FP.MS_DATA, markeredgewidth=0, rasterized=True)
     if has_positive:
         axins.set_yscale("log")
