@@ -27,6 +27,7 @@ if not in_notebook:
     matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
+from matplotlib.colors import LinearSegmentedColormap
 import numpy as np
 import pandas as pd
 
@@ -39,6 +40,31 @@ import format_parameters as FP
 # the data at x0, degenerates. No panel in any current figure reaches it.
 MIN_INSET_N = 3
 
+# Panels with more than LARGE_PANEL_N units widen the inset's zoom from its
+# default 50 to LARGE_PANEL_INSET_N units: with buckets thousands long, 50
+# units can end before a bucket's q-values have finished dropping away, so
+# buckets that fall precipitously just past unit 50 would be missed.
+LARGE_PANEL_N = 1500
+LARGE_PANEL_INSET_N = 100
+
+
+
+def cmap_to_black(cmap_name, floor=0.25):
+    """`cmap_name`'s light tint -> saturated hue -> pure black, so the darkest
+    shade in every Fig 3-family plot is black for maximum dynamic range. Shared
+    by fig3_variants / fig3_supp2 so every Fig 3 PDF uses the same ramp."""
+    base = matplotlib.colormaps[cmap_name]
+    return LinearSegmentedColormap.from_list(
+        f"{cmap_name}_to_black", [base(floor), base(0.7), "black"])
+
+
+def shades_to_black(cmap_name, n):
+    """`n` discrete shades from `cmap_to_black`, lightest first; a lone shade
+    is black."""
+    if n == 0:
+        return []
+    ramp = cmap_to_black(cmap_name)
+    return list(ramp(np.linspace(0.0, 1.0, n) if n > 1 else [1.0]))
 
 
 def _split_into_waves(df, wave_groups=("species", "ID", "date", "id")):
@@ -112,6 +138,8 @@ def _add_qval_inset(ax, wave_sorted_qvals, wave_colors, n_inset=50, x0_frac=0.35
     finite_lens = [np.sum(np.isfinite(sq)) for sq in wave_sorted_qvals]
     max_n = max(finite_lens)
     x0 = int(x0_frac * max_n)
+    if max_n > LARGE_PANEL_N:
+        n_inset = LARGE_PANEL_INSET_N
     # Zoom width ADAPTS to the panel rather than being fixed at n_inset. The
     # box's no-collision guarantee only holds for x >= x0, so a panel with
     # fewer than roughly n_inset / x0_frac units (~143 at the defaults) used to
@@ -157,7 +185,7 @@ def _add_qval_inset(ax, wave_sorted_qvals, wave_colors, n_inset=50, x0_frac=0.35
     axins = ax.inset_axes([x0_frac + 0.01, inset_bottom, 0.97 - (x0_frac + 0.01), inset_top - inset_bottom])
     for sq, color in zip(wave_sorted_qvals, wave_colors):
         n = min(n_inset, len(sq))
-        axins.plot(np.arange(n), sq[:n], ".", color=color, alpha=FP.ALPHA_TRACE, markersize=FP.MS_DATA, rasterized=True)
+        axins.plot(np.arange(n), sq[:n], ".", color=color, alpha=FP.ALPHA_TRACE, markersize=FP.MS_DATA, markeredgewidth=0, rasterized=True)
     if has_positive:
         axins.set_yscale("log")
         if ylim_bottom is not None:
@@ -246,8 +274,8 @@ def plot_uniform_p(waves, axes, percentile=None, colors=None, pval_col="p_value"
         wave_colors.append(color)
 
         if axes[0] is not None:
-            axes[0].plot(np.sort(pval), ".", color=color, alpha=FP.ALPHA_TRACE, markersize=FP.MS_DATA, rasterized=True)
-        axes[1].plot(sq, ".", color=color, alpha=FP.ALPHA_TRACE, markersize=FP.MS_DATA, rasterized=True)
+            axes[0].plot(np.sort(pval), ".", color=color, alpha=FP.ALPHA_TRACE, markersize=FP.MS_DATA, markeredgewidth=0, rasterized=True)
+        axes[1].plot(sq, ".", color=color, alpha=FP.ALPHA_TRACE, markersize=FP.MS_DATA, markeredgewidth=0, rasterized=True)
 
     if axes[0] is not None:
         statistics.nestle_labels(axes[0], x_offset=-0.05, y=False)
@@ -287,8 +315,8 @@ def plot_fig3(all_fourier_df, out_dir: Path, pval_col="p_value", sens_col="sens"
     # for pos-control, so the two are not comparable and must never share a color
     # (see plot_uniform_p's docstring). Shade still varies by occurrence within
     # each population, echoing FP.COLOR_MAG ("steelblue") / FP.COLOR_VIS ("coral").
-    neg_colors = list(matplotlib.colormaps["Blues"](np.linspace(0.35, 0.9, len(waves))))
-    pos_colors = list(matplotlib.colormaps["Oranges"](np.linspace(0.35, 0.9, len(pos_control_waves))))
+    neg_colors = shades_to_black("Blues", len(waves))
+    pos_colors = shades_to_black("Oranges", len(pos_control_waves))
 
     # Each of the 4 conditions gets its own 2x2 quadrant: columns = negative-
     # result ("Magnetic") vs. positive-control ("Visual/Audio"), rows = p-values
