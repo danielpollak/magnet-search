@@ -147,7 +147,7 @@ def process_spikes(st, T, fs):
 
 def run_diagnostics(
         ff_alt, fou_alt, fou0, frq, rec, Q, spk_count,
-        fou_alt_c, spks, save_path=r'C:\Users\dan\Documents\MagnetSearch\figs\nwb'):
+        fou_alt_c, spks, T, save_path=r'C:\Users\dan\Documents\MagnetSearch\figs\nwb'):
     """
     Make diagnostic plots
 
@@ -162,6 +162,7 @@ def run_diagnostics(
     spk_count: n neurons
     fou_alt_c: alt c values for neurons
     spks: spike times
+    T: recording duration (s), passed through to Moments_vs_FR
     """
     # Save diagnostic plots
     ax = plot_power_by_freq(ff_alt, fou_alt, fou0, frq, save_path)
@@ -178,7 +179,7 @@ def run_diagnostics(
 
     ax = Moments_vs_FR(spk_count, fou_alt_c, T)
     plt.gca().set_title(f"{frq}, {rec}")
-    save_and_close(plt.gcf(), rec, f"Moments_vs_fr_Q{Q}", save_path)
+    save_and_close(plt.gcf(), rec, f"Moments_vs_fr_Q{Q}", frq, save_path)
     
     ax = power_spectra(spks, f0=frq)
     ax.set_title(f"{frq}, {rec}")

@@ -879,10 +879,10 @@ def plot_magnitude_cdf(ff_alt, fou_alt, kk=None, ax=None):
         yyy = yyy / yyy[-1] # Lazy way to normalize
 
         use = np.abs(xxx)<=.6
-        ax.plot(xxx[use], yyy[use], color=lighten(cc[i]), linewidth=3)
+        ax.plot(xxx[use], yyy[use], color=lighten(colors[i].copy()), linewidth=3)
 
         use = np.abs(xx)<=.6
-        ax.plot(xx[use], yy[use], '.', markersize=4, color=cc[i])
+        ax.plot(xx[use], yy[use], '.', markersize=4, color=colors[i])
     return ax
     
 
@@ -2368,6 +2368,8 @@ def raw_NPIX(raw_NPIX_ax, ldr, spks, unitrow, window, freq, label=0.100,
         spike_sr = ldr.samplingrate(ldr.spikestream())
         # trace = spike_recording.get_traces(start_frame=int(t_on * spike_sr), end_frame=int(t_off * spike_sr), channel_ids=[f"AP{unitrow.ch + 1}"])
         trace = ldr.data(ldr.spikestream())[int(t_on * spike_sr):int(t_off * spike_sr), unitrow.ch]
+    elif spike_sr is None:
+        raise ValueError("raw_NPIX: `spike_sr` is required when `trace` is passed")
     plot_trace = normalize(trace)
     raw_NPIX_ax.plot(plot_trace, "k")
 

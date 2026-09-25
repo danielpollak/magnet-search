@@ -170,7 +170,7 @@ def get_theta(analog_dat_path, threshold=None):
         side  = mean_center(ADC_trace[:,1], threshold)
     else: 
         ADC = se.BinDatRecordingExtractor(
-            folder_location + "/analogin.dat",
+            analog_dat_path,
             sampling_frequency=30_000, numchan=8, dtype="int16")
 
         ADC_trace = ADC.get_traces()

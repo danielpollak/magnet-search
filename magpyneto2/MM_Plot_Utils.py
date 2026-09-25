@@ -120,10 +120,10 @@ def hist(X, bins=50, range=None, density=None, weights=None, histtype='stepfille
     
     if histtype=='step' or histtype=='stepfilled': # in these cases the legend sequence needs to be inverted for some reason
         if isinstance(legend, list):
-        	legend = legend[-1::-1]
+            legend = legend[-1::-1]
     
     n, bins, patches = axes.hist(X, bins=bins, range=range, density=density, weights=weights, 
-    		histtype=histtype, stacked=stacked, align=align, 
+            histtype=histtype, stacked=stacked, align=align, 
             color=col, alpha=alpha, linewidth=linewidth,
             label=legend, orientation=orientation)
 
