@@ -65,7 +65,7 @@ def functional_cluster(tiff, F, stat, n_clusters=3):
 
     for i, cell in enumerate(stat):
         # Edit the cell to a color, eventually label by colormap
-        label = kmeans.labels_[i]
+        label = kmeans.labels_[i]  # pyright: ignore[reportOptionalSubscript] -- set by fit() above
         color = 255*np.array(cm.Dark2(label / n_clusters)[:-1])
 
         stacked_img[cell["ypix"], cell["xpix"], :] = color
