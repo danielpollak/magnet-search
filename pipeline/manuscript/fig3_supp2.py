@@ -87,13 +87,13 @@ if not in_notebook:
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.cm import ScalarMappable
-from matplotlib.colors import LinearSegmentedColormap, LogNorm
+from matplotlib.colors import LogNorm
 from matplotlib.transforms import ScaledTranslation
 import numpy as np
 import pandas as pd
 
 from magpyneto2 import statistics
-from fig3 import _split_into_waves
+from fig3 import _split_into_waves, cmap_to_black
 
 import format_parameters as FP
 
@@ -333,11 +333,10 @@ DENSITY_CMAP_FLOOR = 0.18
 
 
 def _density_cmap(name):
-    """`name` truncated to start at DENSITY_CMAP_FLOOR, with empty (masked)
-    bins rendered white -- see DENSITY_CMAPS."""
-    cmap = LinearSegmentedColormap.from_list(
-        f"{name}_truncated",
-        matplotlib.colormaps[name](np.linspace(DENSITY_CMAP_FLOOR, 1.0, 256)))
+    """`name` starting at DENSITY_CMAP_FLOOR and running to black (the shared
+    Fig 3 ramp, `fig3.cmap_to_black`), with empty (masked) bins rendered
+    white -- see DENSITY_CMAPS."""
+    cmap = cmap_to_black(name, floor=DENSITY_CMAP_FLOOR)
     cmap.set_bad("white")
     return cmap
 
@@ -498,7 +497,7 @@ def _plot_triangle_grid(plot_df_neg, plot_df_pos, cols_neg, cols_pos, title, mod
         else:
             ax.scatter(both[col], both[row], s=FP.MS_SMALL, alpha=FP.ALPHA_TRACE,
                        color=FP.COLOR_MAG if pop == "neg" else FP.COLOR_VIS,
-                       rasterized=True)
+                       linewidths=0, rasterized=True)
         ax.set_xlim(-0.1, 1.1)
         ax.set_ylim(-0.1, 1.1)
         ax.set_xticks([0.0, 1.0])
