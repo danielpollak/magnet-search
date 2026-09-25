@@ -31,7 +31,7 @@ Three things are established, one is ruled out, and one remains open:
 | **Established** | It **decreases with spikes per unit** (slope −0.0045/decade, p = 0.0002) |
 | **Established** | It does **not** decrease with number of units (slope +0.0008/decade, r² = 0.0004, p = 0.77) |
 | **Ruled out** | The eps correction, σ̂ scale error, spectral leakage, stimulus artifact |
-| **Open** | The imaging (GCaMP) deviation is ~3.6× larger than ephys and is *not* explained by this |
+| **Established** | The imaging (GCaMP) deviation is a *different* effect — two large opposing terms, resolved in [Why imaging is different](#why-imaging-is-different) |
 
 ## The statistic
 
@@ -160,13 +160,70 @@ cannot furnish a prediction for them at all; their +0.0254 is 3.6× the ephys va
 drags the pooled figure to +0.0163. The pooled number is therefore imaging-dominated and
 should not be read as a property of the dataset as a whole.
 
-The leading hypothesis for the imaging residual — **untested** — is that GCaMP traces are
-sparse large transients, so their effective sample size is far below their frame count,
-and their Fourier coefficients are correspondingly non-Gaussian. The decisive test is
-phase randomization: preserve each trace's power spectrum exactly while Gaussianizing it
-and destroying transient structure, then recompute NFC. If the deviation vanishes it is
-non-Gaussianity; if it survives, the power spectrum alone is responsible. That requires
-the NWB traces rather than the parquet and has not been done.
+The imaging deviation has a different cause, worked out in the next section.
+
+## Why imaging is different
+
+Run `imaging_surrogates.py`. It replaces the real GCaMP traces with surrogates that each
+preserve one specific property, so whichever surrogate reproduces the deviation identifies
+what is responsible. The recordings are **exactly** the 24 zebrafish recordings that make
+up the imaging half of the Fig2 C population (derived from `get_poscontrols_negresults`,
+not hand-picked).
+
+![Imaging surrogates](nfc_finite_sample_bias/fig_imaging_surrogates.png)
+
+| surrogate | what it preserves | dev@0.5 |
+|---|---|---|
+| real traces | everything | **+0.0447** |
+| phase randomised | FFT magnitudes exactly | +0.0447 |
+| Gaussian, matched spectrum | expected power spectrum only | **−0.1051** |
+| Gaussian, white | nothing (pure finite-N floor) | +0.0073 |
+
+**The phase-randomised column is a control that must do nothing, and doesn't.** It matches
+`real` to **3.7e-07**. `compute_NFC` is built purely from coefficient *magnitudes*, so a
+surrogate that preserves them exactly cannot change NFC — which is also why the naive
+"phase randomization test" is not the right experiment here, despite being the obvious one
+to reach for.
+
+Reading the ladder as a decomposition:
+
+| term | contribution |
+|---|---|
+| finite-N floor (white → baseline) | **+0.007** |
+| spectral shape (white → matched spectrum) | **−0.112** |
+| non-Gaussianity (matched spectrum → real) | **+0.150** |
+| net | +0.045 |
+
+So imaging is **two large opposing effects that nearly cancel**, not one small residual:
+
+- The GCaMP power spectrum decays steeply across the off-frequency window, so σ̂ is badly
+  over-estimated and a *Gaussian* process with that spectrum would sit at **−0.105**. This
+  is the same convex-noise-floor mechanism
+  [`fig1_mag_noise_floor_correction.md`](fig1_mag_noise_floor_correction.md) found in
+  ephys, roughly 20× larger.
+- Real traces are not Gaussian — they are sparse, large transients — and that pushes
+  **+0.150** the other way, overwhelming the spectral term and landing at +0.045.
+
+Non-Gaussianity dominates, which was the hypothesis; but it is much larger than the net
+deviation suggests, because the spectral term hides most of it. The per-frequency batches
+agree: 0.1 Hz +0.0456, 0.3 Hz +0.0646, 0.4 Hz +0.0228 (real), against −0.1061 / −0.0856 /
+−0.1227 for the matched-spectrum surrogate.
+
+### Cross-check against the production path
+
+The harness is independent of the parquet, so the two must be reconciled before any of
+this is trusted:
+
+| | dev@0.5 |
+|---|---|
+| surrogate harness, cell-count-weighted over 24 recs | **+0.0350** |
+| parquet imaging population, pooled, no dedup | **+0.0357** |
+| parquet imaging population, pooled + deduped | +0.0254 |
+
+They agree to 0.0007 on the like-for-like comparison. The +0.0254 quoted in the table
+above is the *deduped* figure — dropping repeat observations of the same neuron lowers it —
+and the harness additionally excludes medaka's 3 recordings (578 of 11,329 imaging rows),
+whose `rec` names are tif basenames rather than experiment names.
 
 ## Reconciling with the noise-floor report
 
@@ -212,18 +269,32 @@ not as a signal.
    ECDF would find it.
 3. **More neurons will not fix it.** Longer recordings (more spikes per unit) will.
 4. **The pooled Fig2 C number is imaging-dominated.** Quoting ephys and imaging separately
-   is more honest than quoting +0.0163.
+   is more honest than quoting +0.0163 — they have entirely different causes.
+5. **The two modalities are not the same phenomenon.** Ephys is finite-sample bias in an
+   asymptotic null. Imaging is non-Gaussian trace structure partly cancelled by a
+   mis-estimated noise floor. A single "the null is slightly off" sentence covering both
+   would be wrong.
 
 ## Reproducing
 
 ```bash
+# Ephys: finite-sample bias (Poisson simulation)
 python docs/nfc_finite_sample_bias/simulate.py                  # full sweeps, ~10 min
 python docs/nfc_finite_sample_bias/simulate.py --figures-only   # replot from saved CSVs
+
+# Imaging: surrogate decomposition (reads the engert NWB files)
+python docs/nfc_finite_sample_bias/imaging_surrogates.py                 # ~10 min
+python docs/nfc_finite_sample_bias/imaging_surrogates.py --figures-only  # replot
 ```
 
-`docs/nfc_finite_sample_bias/` contains the script, the three figures embedded above, and
-`results_units.csv` / `results_spikes.csv` / `results_real.csv` holding every seed-level
-observation behind the tables.
+`docs/nfc_finite_sample_bias/` contains both scripts, the four figures embedded above, and
+`results_units.csv` / `results_spikes.csv` / `results_real.csv` /
+`results_imaging_surrogates.csv` holding every observation behind the tables.
+
+`imaging_surrogates.py` calls the production `fit_Fourier`, `corrected_pvalues` and
+`_load_from_nwb` directly rather than reimplementing them, so there is nothing to
+self-test; its correctness check is the phase-randomised control column (which must, and
+does, reproduce `real` exactly) plus the cross-check against the parquet above.
 
 The script reimplements `statistics.fourier_analysis`'s NFC computation in vectorised form
 (the production version loops in Python over both units and frequencies, far too slow for
