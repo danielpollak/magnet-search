@@ -1049,7 +1049,7 @@ def _plot_occurrence_quadrant(fig, cell, neg_df, pos_df, title, letter,
     q-row below) for one all-observations bucket per half, drawn from
     `_occurrence_bootstrap_curves`. Both rows share y across the two halves,
     so the magnetic and A/V deviations are directly comparable."""
-    inner = cell.subgridspec(2, 2, wspace=0.08, hspace=0.3)
+    inner = cell.subgridspec(2, 2, wspace=0.16, hspace=0.3)
     ax_e_neg = fig.add_subplot(inner[0, 0])
     ax_e_pos = fig.add_subplot(inner[0, 1], sharey=ax_e_neg)
     ax_q_neg = fig.add_subplot(inner[1, 0])
@@ -1078,6 +1078,9 @@ def _plot_occurrence_quadrant(fig, cell, neg_df, pos_df, title, letter,
         ax_e.axhline(0, color=FP.COLOR_NULL, linestyle="--",
                      linewidth=FP.LW_REFERENCE, alpha=0.6)
         ax_e.set_xlim(0, 1)
+        # Three ticks (and wspace 0.16): at five, the magnetic axis's "1.00"
+        # ran into the A/V axis's "0.00" across the gap between them.
+        ax_e.set_xticks([0, 0.5, 1])
         ax_e.set_xlabel("p-value")
 
         n = curves["n_neurons"]
@@ -1090,9 +1093,10 @@ def _plot_occurrence_quadrant(fig, cell, neg_df, pos_df, title, letter,
         ax_q.set_xticks([0, n])
         ax_q.set_xticklabels([0, n])
         ax_q.set_xlabel("Unit")
-        # Inset over the median curve, same placement rule as every other
-        # Fig 3 q-value panel.
-        fig3._add_qval_inset(ax_q, [curves["q_med"]], [color], ylim_bottom=inset_floor)
+        # Inset over the median curve and its band, same placement rule as
+        # every other Fig 3 q-value panel.
+        fig3._add_qval_inset(ax_q, [curves["q_med"]], [color], ylim_bottom=inset_floor,
+                             wave_bands=[(curves["q_lo"], curves["q_hi"])])
 
         ax_e.set_title(f"{pop}\n{n} neurons, {curves['n_recordings']} recordings",
                        fontsize=FP.FS_TITLE)
