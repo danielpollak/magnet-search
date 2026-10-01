@@ -372,8 +372,14 @@ whose `rec` names are tif basenames rather than experiment names.
 **Date:** 2026-10-01. **Scripts:** `slow_variation.py` (real traces) and `slow_variation_sim.py`
 (simulation).
 
-The advisor's hypothesis was that slow fluctuations, in firing rate or in noise level, make
-the traces nonstationary. NFC divides the on-frequency coefficient by σ̂, estimated from 2M
+**The problem.** For the magnetic stimulus we expect no response, so the p-values should be
+uniform. In the imaging recordings they are not: there are too many in the middle of the
+range (dev@0.5 > 0, the table below). Either something responds, or the null distribution
+the p-values are computed against is wrong for these traces. This section works out which,
+and why.
+
+**The hypothesis.** The advisor's hypothesis was that slow fluctuations, in firing rate or in
+noise level, make the traces nonstationary. NFC divides the on-frequency coefficient by σ̂, estimated from 2M
 neighbouring bins, and the null assumes those 2M+1 periodogram ordinates are independent.
 A slow change in a trace's amplitude scales a whole band of ordinates by a common factor.
 Neighbouring ordinates then move together, and σ̂ has fewer effective degrees of freedom than
@@ -398,6 +404,10 @@ Four batches:
 | medaka 0.1 Hz | 578 | 0.021 | **+0.088** |
 
 ### 1. Raw traces: the miscalibrated batches are floor-clipped
+
+**The question.** Before testing any mechanism, look at what the traces actually are. If slow
+variation is the culprit, it should be visible by eye. And if some batches are miscalibrated
+and others are not, the traces should look different between them.
 
 ![Raw traces](nfc_finite_sample_bias/fig_sv_traces.png)
 
@@ -456,6 +466,12 @@ is the same as the split between ordinary traces and floor-clipped ones.
 
 ### 2. Is the excess tied to the stimulus frequency? No
 
+**The question.** Is the excess something the stimulus does, or something the traces do? A
+response, or a stimulus artifact, would push p-values down only at the stimulus frequency. A
+problem with the null itself would show up at *any* frequency we choose to analyse, including
+ones where nothing was presented. So the test is to repeat the whole p-value calculation at
+many analysis frequencies and see whether the stimulus frequency stands out.
+
 ![Frequency scan](nfc_finite_sample_bias/fig_sv_freq_scan.png)
 
 <sub>**Figure 11. dev@0.5 across analysis frequencies.** Columns: batches. Each point pools every ROI trace in the batch at one analysis frequency (log-spaced bins), with the window fixed at each recording's production M bins. Orange: real traces. Green: detrended and envelope-normalised. Gray: white noise of the same shape. Shading: 95% binomial band. Vertical lines: stimulus f (solid) and 2f (dashed).</sub>
@@ -486,6 +502,15 @@ Figure 12 does the same check bin by bin, within ±30 bins of the stimulus:
 
 ### 3. Neighbouring ordinates move together, and the slow envelope is why
 
+**The question.** Does the null's key assumption hold? NFC compares the power at the stimulus
+frequency with the average power in 2M neighbouring frequency bins (σ̂). The null distribution
+assumes those 2M+1 values ("ordinates" of the periodogram) are statistically independent, so
+that σ̂ averages 2M independent numbers. If a trace's overall activity level drifts slowly up
+and down, every bin in the window rises and falls together. Neighbouring ordinates are then
+correlated, σ̂ is an average of fewer effectively independent numbers than the null assumes,
+and the NFC distribution is no longer the one we compare it against. The test is to measure
+that correlation directly.
+
 ![Bin coupling](nfc_finite_sample_bias/fig_sv_bin_coupling.png)
 
 <sub>**Figure 13. Coupling between neighbouring periodogram ordinates.** Within-ROI Pearson correlation of window ordinates I_k and I_k+lag, averaged over ROIs (each recording weighted by its ROI count), for real traces and each surrogate. Under the null the ordinates are independent and the curve is ≈ 0 at every lag, as it is for white noise (light gray).</sub>
@@ -512,6 +537,33 @@ at every lag; the white-noise line shows that baseline.
   slightly overshooting.
 
 ### 4. Taking slow variation out, and putting it in
+
+**The idea.** Section 3 shows that slow variation and the broken independence go together, but
+not that slow variation *causes* the p-value excess. Surrogates test causation from both
+directions:
+
+- **Take it out.** Remove the slow variation from the real traces and recompute the
+  p-values. If slow variation causes the excess, the excess should shrink or vanish.
+- **Put it in.** Take noise that is well-behaved by construction (stationary, so its
+  ordinates are independent and its p-values are uniform) and add the real traces' slow
+  variation to it. If slow variation causes the excess, the excess should appear.
+
+"Slow variation" comes in two kinds, removed in two steps (both are drawn on the traces in
+Figure 10):
+
+| kind | example | how it is removed | how it is added back |
+|---|---|---|---|
+| **additive** | baseline drift, bleaching | **detrend:** subtract a per-trace cubic fit (orange in Figure 10) | — (detrending turned out to change nothing, so there was nothing to add back) |
+| **multiplicative** | the trace's amplitude or activity level changing over minutes | **envelope-normalise:** divide the trace by its own 60 s running RMS, the "envelope" (blue in Figure 10) | multiply stationary noise by that ROI's envelope |
+
+The stationary noise comes in two flavours: plain white noise, and Gaussian noise with the
+ROI's own (smoothed) power spectrum. The second checks that any effect isn't simply due to
+the spectrum's shape.
+
+**How to read Figure 14.** Each line is ECDF(p) − p for one version of the traces. A
+perfectly calibrated null gives a flat line at 0, inside the gray band. The real traces
+(thick orange) bulge upward in the middle. If "take it out" works, the green line drops
+toward 0. If "put it in" works, the noise-times-envelope lines rise away from 0.
 
 ![Surrogates](nfc_finite_sample_bias/fig_sv_surrogates.png)
 
@@ -584,6 +636,14 @@ a dip below zero near p ≈ 0.1 and a peak near p ≈ 0.6. NFC is under-disperse
 small p-values *and* too few near 1, not inflated.
 
 ### 5. Simulation: which kind of slow variation does this?
+
+**The question.** Sections 3–4 point at slow amplitude variation, but in the real data that is
+mixed up with everything else about these traces, in particular the floor clipping found in
+section 1. Simulation separates them. Synthetic GCaMP traces are generated with no
+stimulus-locked component at all, so the null is true by construction. One ingredient is
+switched on at a time: the advisor's slowly varying firing rate, slowly varying noise level,
+additive drift, floor clipping, and clipping combined with slow rate changes. Whichever
+ingredient reproduces the real excess, its shape and its bin coupling is the mechanism.
 
 ![Imaging simulation](nfc_finite_sample_bias/fig_sv_sim_imaging.png)
 
