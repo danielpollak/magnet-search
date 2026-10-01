@@ -402,6 +402,37 @@ photon-starved.
 | zebrafish 0.1 Hz | 0.94 | 89% | 1.67 | 53 |
 | medaka 0.1 Hz | 0.91 | 91% | 1.50 | 61 |
 
+Per recording, with links to each recording's 5-page analysis diagnostics PDF (page 5 is the
+P(iscell) × npix joint histogram).
+
+| batch | recording (diagnostics PDF) | ROI traces | median fraction of frames at the trace minimum | dev@0.5 |
+|---|---|---|---|---|
+| zebrafish 0.3 Hz | [`engert_20220914_fish2_magneto_0`](../figs/analysis/engert_20220914_fish2_magneto_0_analysis_diagnostics.pdf) | 150 | 0.98 | +0.040 |
+| zebrafish 0.3 Hz | [`engert_20220914_fish2_magneto_1`](../figs/analysis/engert_20220914_fish2_magneto_1_analysis_diagnostics.pdf) | 223 | 0.97 | +0.128 |
+| zebrafish 0.3 Hz | [`engert_20220914_fish2_magneto_2`](../figs/analysis/engert_20220914_fish2_magneto_2_analysis_diagnostics.pdf) | 240 | 0.98 | +0.008 |
+| zebrafish 0.3 Hz | [`engert_20220915_fish1_magneto_0`](../figs/analysis/engert_20220915_fish1_magneto_0_analysis_diagnostics.pdf) | 57 | 0.99 | +0.061 |
+| zebrafish 0.3 Hz | [`engert_20220915_fish1_magneto_1`](../figs/analysis/engert_20220915_fish1_magneto_1_analysis_diagnostics.pdf) | 92 | 0.99 | +0.043 |
+| zebrafish 0.3 Hz | [`engert_20220915_fish1_magneto_2`](../figs/analysis/engert_20220915_fish1_magneto_2_analysis_diagnostics.pdf) | 95 | 0.98 | +0.058 |
+| zebrafish 0.1 Hz | [`engert_20221001_fish1_magneto_0`](../figs/analysis/engert_20221001_fish1_magneto_0_analysis_diagnostics.pdf) | 378 | 0.98 | +0.016 |
+| zebrafish 0.1 Hz | [`engert_20221001_fish1_magneto_1`](../figs/analysis/engert_20221001_fish1_magneto_1_analysis_diagnostics.pdf) | 424 | 0.95 | +0.080 |
+| zebrafish 0.1 Hz | [`engert_20221001_fish1_magneto_2`](../figs/analysis/engert_20221001_fish1_magneto_2_analysis_diagnostics.pdf) | 418 | 0.96 | -0.002 |
+| zebrafish 0.1 Hz | [`engert_20221001_fish2_magneto_0`](../figs/analysis/engert_20221001_fish2_magneto_0_analysis_diagnostics.pdf) | 250 | 0.97 | +0.060 |
+| zebrafish 0.1 Hz | [`engert_20221001_fish2_magneto_1`](../figs/analysis/engert_20221001_fish2_magneto_1_analysis_diagnostics.pdf) | 275 | 0.95 | +0.027 |
+| zebrafish 0.1 Hz | [`engert_20221001_fish2_magneto_2`](../figs/analysis/engert_20221001_fish2_magneto_2_analysis_diagnostics.pdf) | 259 | 0.95 | +0.068 |
+| zebrafish 0.1 Hz | [`engert_20221002_fish1_magneto_1`](../figs/analysis/engert_20221002_fish1_magneto_1_analysis_diagnostics.pdf) | 382 | 0.28 | +0.031 |
+| zebrafish 0.1 Hz | [`engert_20221002_fish2_magneto_0`](../figs/analysis/engert_20221002_fish2_magneto_0_analysis_diagnostics.pdf) | 345 | 0.97 | +0.048 |
+| zebrafish 0.1 Hz | [`engert_20221002_fish2_magneto_1`](../figs/analysis/engert_20221002_fish2_magneto_1_analysis_diagnostics.pdf) | 404 | 0.89 | +0.052 |
+| zebrafish 0.1 Hz | [`engert_20221002_fish2_magneto_2`](../figs/analysis/engert_20221002_fish2_magneto_2_analysis_diagnostics.pdf) | 393 | 0.91 | +0.062 |
+| medaka 0.1 Hz | [`medaka_fish3_8dpf_magneto_0`](../figs/analysis/medaka_fish3_8dpf_magneto_0_analysis_diagnostics.pdf) | 166 | 0.91 | +0.090 |
+| medaka 0.1 Hz | [`medaka_fish3_8dpf_magneto_1`](../figs/analysis/medaka_fish3_8dpf_magneto_1_analysis_diagnostics.pdf) | 199 | 0.91 | +0.088 |
+| medaka 0.1 Hz | [`medaka_fish3_8dpf_magneto_2`](../figs/analysis/medaka_fish3_8dpf_magneto_2_analysis_diagnostics.pdf) | 213 | 0.90 | +0.087 |
+
+`engert_20221002_fish1_magneto_1` is the one less-clipped recording (median 0.28) and has one
+of the smaller deviations. For contrast, a 2022 Q1 recording is
+[`engert_20220221_magnet`](../figs/analysis/engert_20220221_magnet_analysis_diagnostics.pdf).
+The PDFs live in `figs/analysis/`, which is gitignored, so these links work in a local
+checkout after `pipeline/analysis.py` has been run, but not on GitHub.
+
 So the split already found by batch in the threshold grid (Q1 calibrated, 0.1/0.3 Hz not)
 is the same as the split between ordinary traces and floor-clipped ones.
 
