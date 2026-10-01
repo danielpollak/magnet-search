@@ -555,7 +555,19 @@ baseline, and whatever it misses survives the division.
 
 ![Metrics by quartile](nfc_finite_sample_bias/fig_sv_metrics_quartiles.png)
 
-<sub>**Figure 16. ECDF deviation by quartile of each per-ROI metric.** Rows: window tilt; lag-1 ordinate coupling; slow-power fraction (< 0.02 Hz); envelope CV (60 s); excess kurtosis; fraction of frames at the trace minimum. Columns: batches. Q1 (lightest) is the lowest quartile. Legend: dev@0.5 per quartile. Gray: 95% binomial band for one quartile.</sub>
+<sub>**Figure 16. ECDF deviation by quartile of each per-ROI metric.** Rows: window tilt; lag-1 ordinate coupling; slow-power fraction (< 0.02 Hz); envelope CV (60 s); excess kurtosis; fraction of frames at the trace minimum. Columns: batches. Within each batch, ROI traces are ranked by that row's metric and split into four equal-sized groups; each line is the ECDF deviation of one group's p-values. Q1 (lightest) is the lowest quartile. Legend: dev@0.5 per quartile. Gray: 95% binomial band for one quartile. The metrics are defined in the table below.</sub>
+
+
+Per-ROI metrics in Figures 16–17, all computed on the same N frames that `fit_Fourier` analyses:
+
+| metric | definition | what it is meant to catch |
+|---|---|---|
+| window tilt | slope of a straight-line fit of log10 periodogram power against bin offset across the 2M off-frequency bins, with offset scaled so −M → −1 and +M → +1. Units are log10 power per half-window, positive if power rises toward higher frequency | a sloped noise floor across the window (a pure linear tilt leaves σ̂ unbiased on average; curvature would not) |
+| lag-1 ordinate coupling | Pearson correlation, across the window, of each ordinate with its neighbour (I_k vs I_k+1) | the dependence between neighbouring ordinates shown in Figure 13, per ROI |
+| slow-power fraction | power below 0.02 Hz divided by total power (DC excluded) | how much of the trace is slow variation |
+| envelope CV (60 s) | coefficient of variation over time of the squared 60 s RMS envelope of the trace, high-passed at 0.02 Hz | slow modulation of the trace's amplitude |
+| excess kurtosis | kurtosis − 3 of the high-passed trace | sparse, transient-dominated traces |
+| fraction of frames at the trace minimum | share of frames equal to the trace's own minimum | floor clipping (Figure 10) |
 
 Per ROI (Figure 16), the excess concentrates in the most nonstationary and most clipped traces. Within
 the 0.3 Hz batch the top quartile of envelope CV, kurtosis or floor fraction sits at
