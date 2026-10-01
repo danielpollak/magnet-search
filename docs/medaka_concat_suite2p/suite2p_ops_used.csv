@@ -1,0 +1,53 @@
+key,value,note
+fs,10.0,copied from original ops.npy
+tau,1.0,copied from original ops.npy
+diameter,0,copied from original ops.npy
+nchannels,1,copied from original ops.npy
+nplanes,1,copied from original ops.npy
+functional_chan,1,copied from original ops.npy
+do_registration,1,copied from original ops.npy
+nonrigid,True,copied from original ops.npy
+block_size,"(128, 128)",copied from original ops.npy
+maxregshift,0.1,copied from original ops.npy
+maxregshiftNR,5,copied from original ops.npy
+smooth_sigma,1.15,copied from original ops.npy
+smooth_sigma_time,0,copied from original ops.npy
+snr_thresh,1.2,copied from original ops.npy
+two_step_registration,False,copied from original ops.npy
+nimg_init,300,copied from original ops.npy
+batch_size,500,copied from original ops.npy
+th_badframes,1.0,copied from original ops.npy
+norm_frames,True,copied from original ops.npy
+do_bidiphase,False,copied from original ops.npy
+bidiphase,0,copied from original ops.npy
+1Preg,False,copied from original ops.npy
+spatial_hp_reg,42,copied from original ops.npy
+pre_smooth,0,copied from original ops.npy
+spatial_taper,40,copied from original ops.npy
+subpixel,10,copied from original ops.npy
+sparse_mode,True,copied from original ops.npy
+spatial_scale,0,copied from original ops.npy
+threshold_scaling,1.0,copied from original ops.npy
+max_overlap,0.75,copied from original ops.npy
+high_pass,100,copied from original ops.npy
+connected,True,copied from original ops.npy
+max_iterations,20,copied from original ops.npy
+nbinned,5000,copied from original ops.npy
+spatial_hp_detect,25,copied from original ops.npy
+denoise,False,copied from original ops.npy
+anatomical_only,0,copied from original ops.npy
+neucoeff,0.7,copied from original ops.npy
+inner_neuropil_radius,2,copied from original ops.npy
+min_neuropil_pixels,350,copied from original ops.npy
+allow_overlap,False,copied from original ops.npy
+lam_percentile,50.0,copied from original ops.npy
+preclassify,0.0,copied from original ops.npy
+soma_crop,True,copied from original ops.npy
+baseline,'maximin',copied from original ops.npy
+win_baseline,60.0,copied from original ops.npy
+sig_baseline,10.0,copied from original ops.npy
+prctile_baseline,8.0,copied from original ops.npy
+spikedetect,True,copied from original ops.npy
+use_builtin_classifier,True,CHANGED: original classifier unknowable; force builtin for all local runs
+delete_bin,False,keep registered data.bin locally (scratch)
+suite2p_version,0.14.4,original: 0.10.1

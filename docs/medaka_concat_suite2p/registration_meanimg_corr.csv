@@ -1,0 +1,145 @@
+source,trial_i,trial_j,r
+raw_tiff,magneto_0,magneto_0,1.0
+raw_tiff,magneto_0,magneto_1,0.9652
+raw_tiff,magneto_0,magneto_2,0.9671
+raw_tiff,magneto_0,no_magneto_0,0.8171
+raw_tiff,magneto_0,no_magneto_1,0.7704
+raw_tiff,magneto_0,no_magneto_2,0.7431
+raw_tiff,magneto_1,magneto_0,0.9652
+raw_tiff,magneto_1,magneto_1,1.0
+raw_tiff,magneto_1,magneto_2,0.9733
+raw_tiff,magneto_1,no_magneto_0,0.8091
+raw_tiff,magneto_1,no_magneto_1,0.7774
+raw_tiff,magneto_1,no_magneto_2,0.7393
+raw_tiff,magneto_2,magneto_0,0.9671
+raw_tiff,magneto_2,magneto_1,0.9733
+raw_tiff,magneto_2,magneto_2,1.0
+raw_tiff,magneto_2,no_magneto_0,0.8246
+raw_tiff,magneto_2,no_magneto_1,0.7878
+raw_tiff,magneto_2,no_magneto_2,0.7636
+raw_tiff,no_magneto_0,magneto_0,0.8171
+raw_tiff,no_magneto_0,magneto_1,0.8091
+raw_tiff,no_magneto_0,magneto_2,0.8246
+raw_tiff,no_magneto_0,no_magneto_0,1.0
+raw_tiff,no_magneto_0,no_magneto_1,0.96
+raw_tiff,no_magneto_0,no_magneto_2,0.9489
+raw_tiff,no_magneto_1,magneto_0,0.7704
+raw_tiff,no_magneto_1,magneto_1,0.7774
+raw_tiff,no_magneto_1,magneto_2,0.7878
+raw_tiff,no_magneto_1,no_magneto_0,0.96
+raw_tiff,no_magneto_1,no_magneto_1,1.0
+raw_tiff,no_magneto_1,no_magneto_2,0.9531
+raw_tiff,no_magneto_2,magneto_0,0.7431
+raw_tiff,no_magneto_2,magneto_1,0.7393
+raw_tiff,no_magneto_2,magneto_2,0.7636
+raw_tiff,no_magneto_2,no_magneto_0,0.9489
+raw_tiff,no_magneto_2,no_magneto_1,0.9531
+raw_tiff,no_magneto_2,no_magneto_2,1.0
+raw_tiff_aligned(-2px no_magneto),magneto_0,magneto_0,1.0
+raw_tiff_aligned(-2px no_magneto),magneto_0,magneto_1,0.9652
+raw_tiff_aligned(-2px no_magneto),magneto_0,magneto_2,0.9671
+raw_tiff_aligned(-2px no_magneto),magneto_0,no_magneto_0,0.8408
+raw_tiff_aligned(-2px no_magneto),magneto_0,no_magneto_1,0.8035
+raw_tiff_aligned(-2px no_magneto),magneto_0,no_magneto_2,0.7826
+raw_tiff_aligned(-2px no_magneto),magneto_1,magneto_0,0.9652
+raw_tiff_aligned(-2px no_magneto),magneto_1,magneto_1,1.0
+raw_tiff_aligned(-2px no_magneto),magneto_1,magneto_2,0.9733
+raw_tiff_aligned(-2px no_magneto),magneto_1,no_magneto_0,0.845
+raw_tiff_aligned(-2px no_magneto),magneto_1,no_magneto_1,0.836
+raw_tiff_aligned(-2px no_magneto),magneto_1,no_magneto_2,0.796
+raw_tiff_aligned(-2px no_magneto),magneto_2,magneto_0,0.9671
+raw_tiff_aligned(-2px no_magneto),magneto_2,magneto_1,0.9733
+raw_tiff_aligned(-2px no_magneto),magneto_2,magneto_2,1.0
+raw_tiff_aligned(-2px no_magneto),magneto_2,no_magneto_0,0.8501
+raw_tiff_aligned(-2px no_magneto),magneto_2,no_magneto_1,0.826
+raw_tiff_aligned(-2px no_magneto),magneto_2,no_magneto_2,0.8114
+raw_tiff_aligned(-2px no_magneto),no_magneto_0,magneto_0,0.8408
+raw_tiff_aligned(-2px no_magneto),no_magneto_0,magneto_1,0.845
+raw_tiff_aligned(-2px no_magneto),no_magneto_0,magneto_2,0.8501
+raw_tiff_aligned(-2px no_magneto),no_magneto_0,no_magneto_0,1.0
+raw_tiff_aligned(-2px no_magneto),no_magneto_0,no_magneto_1,0.9607
+raw_tiff_aligned(-2px no_magneto),no_magneto_0,no_magneto_2,0.9497
+raw_tiff_aligned(-2px no_magneto),no_magneto_1,magneto_0,0.8035
+raw_tiff_aligned(-2px no_magneto),no_magneto_1,magneto_1,0.836
+raw_tiff_aligned(-2px no_magneto),no_magneto_1,magneto_2,0.826
+raw_tiff_aligned(-2px no_magneto),no_magneto_1,no_magneto_0,0.9607
+raw_tiff_aligned(-2px no_magneto),no_magneto_1,no_magneto_1,1.0
+raw_tiff_aligned(-2px no_magneto),no_magneto_1,no_magneto_2,0.954
+raw_tiff_aligned(-2px no_magneto),no_magneto_2,magneto_0,0.7826
+raw_tiff_aligned(-2px no_magneto),no_magneto_2,magneto_1,0.796
+raw_tiff_aligned(-2px no_magneto),no_magneto_2,magneto_2,0.8114
+raw_tiff_aligned(-2px no_magneto),no_magneto_2,no_magneto_0,0.9497
+raw_tiff_aligned(-2px no_magneto),no_magneto_2,no_magneto_1,0.954
+raw_tiff_aligned(-2px no_magneto),no_magneto_2,no_magneto_2,1.0
+concat data.bin,magneto_0,magneto_0,1.0
+concat data.bin,magneto_0,magneto_1,0.8573
+concat data.bin,magneto_0,magneto_2,0.8729
+concat data.bin,magneto_0,no_magneto_0,0.4934
+concat data.bin,magneto_0,no_magneto_1,0.3439
+concat data.bin,magneto_0,no_magneto_2,0.2313
+concat data.bin,magneto_1,magneto_0,0.8573
+concat data.bin,magneto_1,magneto_1,1.0
+concat data.bin,magneto_1,magneto_2,0.9015
+concat data.bin,magneto_1,no_magneto_0,0.5089
+concat data.bin,magneto_1,no_magneto_1,0.4228
+concat data.bin,magneto_1,no_magneto_2,0.2219
+concat data.bin,magneto_2,magneto_0,0.8729
+concat data.bin,magneto_2,magneto_1,0.9015
+concat data.bin,magneto_2,magneto_2,1.0
+concat data.bin,magneto_2,no_magneto_0,0.5006
+concat data.bin,magneto_2,no_magneto_1,0.3757
+concat data.bin,magneto_2,no_magneto_2,0.2581
+concat data.bin,no_magneto_0,magneto_0,0.4934
+concat data.bin,no_magneto_0,magneto_1,0.5089
+concat data.bin,no_magneto_0,magneto_2,0.5006
+concat data.bin,no_magneto_0,no_magneto_0,1.0
+concat data.bin,no_magneto_0,no_magneto_1,0.8504
+concat data.bin,no_magneto_0,no_magneto_2,0.7823
+concat data.bin,no_magneto_1,magneto_0,0.3439
+concat data.bin,no_magneto_1,magneto_1,0.4228
+concat data.bin,no_magneto_1,magneto_2,0.3757
+concat data.bin,no_magneto_1,no_magneto_0,0.8504
+concat data.bin,no_magneto_1,no_magneto_1,1.0
+concat data.bin,no_magneto_1,no_magneto_2,0.7428
+concat data.bin,no_magneto_2,magneto_0,0.2313
+concat data.bin,no_magneto_2,magneto_1,0.2219
+concat data.bin,no_magneto_2,magneto_2,0.2581
+concat data.bin,no_magneto_2,no_magneto_0,0.7823
+concat data.bin,no_magneto_2,no_magneto_1,0.7428
+concat data.bin,no_magneto_2,no_magneto_2,1.0
+concat_aligned data.bin,magneto_0,magneto_0,1.0
+concat_aligned data.bin,magneto_0,magneto_1,0.8573
+concat_aligned data.bin,magneto_0,magneto_2,0.8729
+concat_aligned data.bin,magneto_0,no_magneto_0,0.5253
+concat_aligned data.bin,magneto_0,no_magneto_1,0.4196
+concat_aligned data.bin,magneto_0,no_magneto_2,0.2867
+concat_aligned data.bin,magneto_1,magneto_0,0.8573
+concat_aligned data.bin,magneto_1,magneto_1,1.0
+concat_aligned data.bin,magneto_1,magneto_2,0.9015
+concat_aligned data.bin,magneto_1,no_magneto_0,0.5531
+concat_aligned data.bin,magneto_1,no_magneto_1,0.6027
+concat_aligned data.bin,magneto_1,no_magneto_2,0.3099
+concat_aligned data.bin,magneto_2,magneto_0,0.8729
+concat_aligned data.bin,magneto_2,magneto_1,0.9015
+concat_aligned data.bin,magneto_2,magneto_2,1.0
+concat_aligned data.bin,magneto_2,no_magneto_0,0.5286
+concat_aligned data.bin,magneto_2,no_magneto_1,0.4563
+concat_aligned data.bin,magneto_2,no_magneto_2,0.3322
+concat_aligned data.bin,no_magneto_0,magneto_0,0.5253
+concat_aligned data.bin,no_magneto_0,magneto_1,0.5531
+concat_aligned data.bin,no_magneto_0,magneto_2,0.5286
+concat_aligned data.bin,no_magneto_0,no_magneto_0,1.0
+concat_aligned data.bin,no_magneto_0,no_magneto_1,0.8511
+concat_aligned data.bin,no_magneto_0,no_magneto_2,0.7824
+concat_aligned data.bin,no_magneto_1,magneto_0,0.4196
+concat_aligned data.bin,no_magneto_1,magneto_1,0.6027
+concat_aligned data.bin,no_magneto_1,magneto_2,0.4563
+concat_aligned data.bin,no_magneto_1,no_magneto_0,0.8511
+concat_aligned data.bin,no_magneto_1,no_magneto_1,1.0
+concat_aligned data.bin,no_magneto_1,no_magneto_2,0.7477
+concat_aligned data.bin,no_magneto_2,magneto_0,0.2867
+concat_aligned data.bin,no_magneto_2,magneto_1,0.3099
+concat_aligned data.bin,no_magneto_2,magneto_2,0.3322
+concat_aligned data.bin,no_magneto_2,no_magneto_0,0.7824
+concat_aligned data.bin,no_magneto_2,no_magneto_1,0.7477
+concat_aligned data.bin,no_magneto_2,no_magneto_2,1.0
