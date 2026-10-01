@@ -84,7 +84,7 @@ might trend.
 
 ![Bias vs number of units](nfc_finite_sample_bias/fig_units_sweep.png)
 
-**Figure 1. Finite-sample bias does not shrink with the number of units.** Homogeneous Poisson trains (150 spikes each, so the null is exactly true), 24 seeds per point. *Left:* dev@0.5 = ECDF(0.5) − 0.5 against the number of units simulated; mean ± SEM across seeds. The light horizontal line is the grand mean (+0.0038). *Right:* SD of dev@0.5 across seeds (blue) against the iid binomial expectation √(0.25/U) (dashed). Only the precision improves with more units.
+<sub>**Figure 1. Finite-sample bias does not shrink with the number of units.** Homogeneous Poisson trains (150 spikes each, so the null is exactly true), 24 seeds per point. *Left:* dev@0.5 = ECDF(0.5) − 0.5 against the number of units simulated; mean ± SEM across seeds. The light horizontal line is the grand mean (+0.0038). *Right:* SD of dev@0.5 across seeds (blue) against the iid binomial expectation √(0.25/U) (dashed). Only the precision improves with more units.</sub>
 
 Poisson trains, 150 spikes each, 24 seeds per point:
 
@@ -121,7 +121,7 @@ Yes.
 
 ![Bias vs spikes per unit](nfc_finite_sample_bias/fig_spikes_sweep.png)
 
-**Figure 2. Finite-sample bias decays with spikes per unit.** dev@0.5 for Poisson null populations at 50–4000 spikes/unit (4000 units, 12 seeds per point; mean ± SEM). Orange line: the real ephys magnetic population (+0.0070). Diamond: its median spike count (134).
+<sub>**Figure 2. Finite-sample bias decays with spikes per unit.** dev@0.5 for Poisson null populations at 50–4000 spikes/unit (4000 units, 12 seeds per point; mean ± SEM). Orange line: the real ephys magnetic population (+0.0070). Diamond: its median spike count (134).</sub>
 
 Poisson trains, 4000 units, 12 seeds per point:
 
@@ -158,7 +158,7 @@ overlaid (seed-averaged, 12 × 4000 units per curve), with the real ephys curve 
 
 ![ECDF deviation curves per spike count](nfc_finite_sample_bias/fig_spikes_curves.png)
 
-**Figure 3. Whole ECDF-deviation curves per spike count.** ECDF(p) − p for the Poisson null, seed-averaged over 12 × 4000 units, with one line per spike count (lighter = fewer spikes). *Left:* original sweep, 50–4000 spikes/unit. *Right:* widened sweep, 10–1000. Dashed orange: the real ephys magnetic population.
+<sub>**Figure 3. Whole ECDF-deviation curves per spike count.** ECDF(p) − p for the Poisson null, seed-averaged over 12 × 4000 units, with one line per spike count (lighter = fewer spikes). *Left:* original sweep, 50–4000 spikes/unit. *Right:* widened sweep, 10–1000. Dashed orange: the real ephys magnetic population.</sub>
 
 - The simulated curves are small positive humps that go back to zero at both ends, and
   they get flatter as spike count rises. The 4000-spike curve dips slightly negative,
@@ -179,7 +179,7 @@ over 10–1000 instead of 50–4000:
 
 ![Bias vs spikes per unit, widened range](nfc_finite_sample_bias/fig_spikes_sweep_wide.png)
 
-**Figure 4. Widened spike-count sweep.** As Figure 2, over 10–1000 spikes/unit (geometric spacing), with the same total simulation budget.
+<sub>**Figure 4. Widened spike-count sweep.** As Figure 2, over 10–1000 spikes/unit (geometric spacing), with the same total simulation budget.</sub>
 
 | spikes/unit | dev@0.5 | SEM | P(p<0.01) |
 |---|---|---|---|
@@ -206,7 +206,7 @@ that inclusion filtering has already removed.
 
 ![Empirical spikes per unit](nfc_finite_sample_bias/fig_spk_count_distribution.png)
 
-**Figure 5. Empirical spikes per unit in the real ephys magnetic units.** *Left:* histogram over 4716 units (log x; minimum 51 spikes). The 25th/50th/75th percentiles are marked. Ticks below the axis mark the spike counts simulated in the original and widened sweeps (Figures 2 and 4). *Right:* ECDF per species (n in the legend); dashed = all ephys.
+<sub>**Figure 5. Empirical spikes per unit in the real ephys magnetic units.** *Left:* histogram over 4716 units (log x; minimum 51 spikes). The 25th/50th/75th percentiles are marked. Ticks below the axis mark the spike counts simulated in the original and widened sweeps (Figures 2 and 4). *Right:* ECDF per species (n in the legend); dashed = all ephys.</sub>
 
 Real magnetic ephys units (the same 4716-unit population as `results_real.csv`; per-unit
 counts in `results_real_spk_counts.csv`):
@@ -240,7 +240,7 @@ Pigeon is the lowest-firing species and contributes about half the ephys units (
 
 ![Pigeon spikes per unit by area](nfc_finite_sample_bias/fig_spk_count_distribution_pigeon.png)
 
-**Figure 6. Pigeon spikes per unit, by brain area.** As Figure 5, pigeon only (2319 units). *Right:* ECDF per area (HP, CB, pallium); dashed = all pigeon.
+<sub>**Figure 6. Pigeon spikes per unit, by brain area.** As Figure 5, pigeon only (2319 units). *Right:* ECDF per area (HP, CB, pallium); dashed = all pigeon.</sub>
 
 | area | units | quartiles | 50–100 | 100–1000 | ≥ 1000 | mixture-predicted dev@0.5 |
 |---|---|---|---|---|---|---|
@@ -266,7 +266,7 @@ Pigeon is the lowest-firing species and contributes about half the ephys units (
 
 ![Real vs simulated](nfc_finite_sample_bias/fig_real_vs_sim.png)
 
-**Figure 7. Observed vs predicted dev@0.5.** Orange: observed in the real magnetic population (all, ephys only, imaging only). Blue: predicted by finite-sample bias alone, interpolating the Poisson sweep (Figure 2) at the median spike count of 134. Imaging has frames, not spikes, so it has no prediction.
+<sub>**Figure 7. Observed vs predicted dev@0.5.** Orange: observed in the real magnetic population (all, ephys only, imaging only). Blue: predicted by finite-sample bias alone, interpolating the Poisson sweep (Figure 2) at the median spike count of 134. Imaging has frames, not spikes, so it has no prediction.</sub>
 
 | population | n units | median spikes | observed dev@0.5 | predicted by finite-sample bias |
 |---|---|---|---|---|
@@ -298,7 +298,7 @@ not hand-picked).
 
 ![Imaging surrogates](nfc_finite_sample_bias/fig_imaging_surrogates.png)
 
-**Figure 8. Imaging surrogate ladder (superseded; see Figure 9).** dev@0.5 for the 24 zebrafish imaging recordings in the Fig 2C pool: real traces and three surrogates. Bars are the mean across recordings ± SEM. The "Gaussian, matched spectrum" bar is an artifact of that surrogate (Figure 9).
+<sub>**Figure 8. Imaging surrogate ladder (superseded; see Figure 9).** dev@0.5 for the 24 zebrafish imaging recordings in the Fig 2C pool: real traces and three surrogates. Bars are the mean across recordings ± SEM. The "Gaussian, matched spectrum" bar is an artifact of that surrogate (Figure 9).</sub>
 
 | surrogate | what it preserves | dev@0.5 |
 |---|---|---|
@@ -325,7 +325,7 @@ to reach for.
 
 ![Surrogate validation](nfc_finite_sample_bias/fig_sv_surrogate_validation.png)
 
-**Figure 9. Surrogate generators applied to white noise.** ECDF(p) − p for 20,000 white-noise traces (N = 1080 frames, M = 32), shown as is (gray), after the smooth-spectrum Gaussian surrogate used in this report (blue), and after the old `gaussian_psd` surrogate of Figure 8 (orange). A valid surrogate should leave white noise at the white-noise floor, and the old one does not. Legend values are dev@0.5. Gray band: 95% binomial band.
+<sub>**Figure 9. Surrogate generators applied to white noise.** ECDF(p) − p for 20,000 white-noise traces (N = 1080 frames, M = 32), shown as is (gray), after the smooth-spectrum Gaussian surrogate used in this report (blue), and after the old `gaussian_psd` surrogate of Figure 8 (orange). A valid surrogate should leave white noise at the white-noise floor, and the old one does not. Legend values are dev@0.5. Gray band: 95% binomial band.</sub>
 
 Reading the ladder as a decomposition:
 
@@ -401,7 +401,7 @@ Four batches:
 
 ![Raw traces](nfc_finite_sample_bias/fig_sv_traces.png)
 
-**Figure 10. Raw traces.** The first three ROIs (no selection on p) of one recording per batch (rows). Black: F. Orange: the per-trace cubic trend that "detrended" removes. Blue: mean + 2 SD × the 60 s RMS envelope that "envelope-normalised" divides out. Panel titles give each ROI's p-value at the stimulus frequency.
+<sub>**Figure 10. Raw traces.** The first three ROIs (no selection on p) of one recording per batch (rows). Black: F. Orange: the per-trace cubic trend that "detrended" removes. Blue: mean + 2 SD × the 60 s RMS envelope that "envelope-normalised" divides out. Panel titles give each ROI's p-value at the stimulus frequency.</sub>
 
 Figure 10 shows the first three ROIs of one recording per batch, with no selection on p. The 2022
 Q1 traces look like ordinary fluorescence: baseline about 5000, continuous noise, transients
@@ -458,7 +458,7 @@ is the same as the split between ordinary traces and floor-clipped ones.
 
 ![Frequency scan](nfc_finite_sample_bias/fig_sv_freq_scan.png)
 
-**Figure 11. dev@0.5 across analysis frequencies.** Columns: batches. Each point pools every ROI trace in the batch at one analysis frequency (log-spaced bins), with the window fixed at each recording's production M bins. Orange: real traces. Green: detrended and envelope-normalised. Gray: white noise of the same shape. Shading: 95% binomial band. Vertical lines: stimulus f (solid) and 2f (dashed).
+<sub>**Figure 11. dev@0.5 across analysis frequencies.** Columns: batches. Each point pools every ROI trace in the batch at one analysis frequency (log-spaced bins), with the window fixed at each recording's production M bins. Orange: real traces. Green: detrended and envelope-normalised. Gray: white noise of the same shape. Shading: 95% binomial band. Vertical lines: stimulus f (solid) and 2f (dashed).</sub>
 
 Figure 11 recomputes dev@0.5 at about 50 analysis frequencies from 0.07 Hz to Nyquist.
 The window width is held at each recording's production M bins, so only the spectral
@@ -470,7 +470,7 @@ stimulus does.
 
 ![Near the stimulus bin](nfc_finite_sample_bias/fig_sv_near_stimulus.png)
 
-**Figure 12. The stimulus bin vs its neighbours.** dev@0.5 at the stimulus bin (offset 0, large dot) and at every bin within ±30 bins of it, with the window fixed at M bins. Gray: individual recordings. Orange: the batch pool, with its 95% binomial band.
+<sub>**Figure 12. The stimulus bin vs its neighbours.** dev@0.5 at the stimulus bin (offset 0, large dot) and at every bin within ±30 bins of it, with the window fixed at M bins. Gray: individual recordings. Orange: the batch pool, with its 95% binomial band.</sub>
 
 Figure 12 does the same check bin by bin, within ±30 bins of the stimulus:
 - **Zebrafish 0.1 Hz and 0.3 Hz:** the stimulus bin is an ordinary member of a flat band.
@@ -488,7 +488,7 @@ Figure 12 does the same check bin by bin, within ±30 bins of the stimulus:
 
 ![Bin coupling](nfc_finite_sample_bias/fig_sv_bin_coupling.png)
 
-**Figure 13. Coupling between neighbouring periodogram ordinates.** Within-ROI Pearson correlation of window ordinates I_k and I_k+lag, averaged over ROIs (each recording weighted by its ROI count), for real traces and each surrogate. Under the null the ordinates are independent and the curve is ≈ 0 at every lag, as it is for white noise (light gray).
+<sub>**Figure 13. Coupling between neighbouring periodogram ordinates.** Within-ROI Pearson correlation of window ordinates I_k and I_k+lag, averaged over ROIs (each recording weighted by its ROI count), for real traces and each surrogate. Under the null the ordinates are independent and the curve is ≈ 0 at every lag, as it is for white noise (light gray).</sub>
 
 Figure 13 takes each ROI's 2M+1 periodogram ordinates in the analysis window and correlates
 ordinate k with ordinate k+lag. Independent ordinates, which the null assumes, give about 0
@@ -515,7 +515,7 @@ at every lag; the white-noise line shows that baseline.
 
 ![Surrogates](nfc_finite_sample_bias/fig_sv_surrogates.png)
 
-**Figure 14. Surrogates at the stimulus frequency.** ECDF(p) − p per batch for the real traces, the same traces with slow variation removed (detrended; detrended + envelope-normalised), and stationary noise with and without each ROI's own envelope imposed. Stochastic surrogates are averaged over 3 draws. Legend: dev@0.5. Gray: 95% binomial band.
+<sub>**Figure 14. Surrogates at the stimulus frequency.** ECDF(p) − p per batch for the real traces, the same traces with slow variation removed (detrended; detrended + envelope-normalised), and stationary noise with and without each ROI's own envelope imposed. Stochastic surrogates are averaged over 3 draws. Legend: dev@0.5. Gray: 95% binomial band.</sub>
 
 | dev@0.5 at the stimulus f | 0.4 Hz | 0.3 Hz | 0.1 Hz | medaka |
 |---|---|---|---|---|
@@ -535,7 +535,7 @@ at every lag; the white-noise line shows that baseline.
 
   ![Window periodograms](nfc_finite_sample_bias/fig_sv_window_spectra.png)
 
-  **Figure 15. Every ROI's periodogram across the analysis window.** *Top:* each row is one ROI trace's window periodogram (ordinate / 2σ̂², log colour scale). x is the bin offset divided by M (0 = the analysis frequency), and rows are sorted by p (smallest at the top). *Bottom:* median (line) and IQR (shading) across ROIs. Dashed and dotted lines: median and IQR of independent Exp(1) ordinates.
+  <sub>**Figure 15. Every ROI's periodogram across the analysis window.** *Top:* each row is one ROI trace's window periodogram (ordinate / 2σ̂², log colour scale). x is the bin offset divided by M (0 = the analysis frequency), and rows are sorted by p (smallest at the top). *Bottom:* median (line) and IQR (shading) across ROIs. Dashed and dotted lines: median and IQR of independent Exp(1) ordinates.</sub>
 
 - **Taking the envelope out removes part of the excess:**
   - two thirds in medaka (+0.088 → +0.028);
@@ -555,7 +555,7 @@ baseline, and whatever it misses survives the division.
 
 ![Metrics by quartile](nfc_finite_sample_bias/fig_sv_metrics_quartiles.png)
 
-**Figure 16. ECDF deviation by quartile of each per-ROI metric.** Rows: window tilt; lag-1 ordinate coupling; slow-power fraction (< 0.02 Hz); envelope CV (60 s); excess kurtosis; fraction of frames at the trace minimum. Columns: batches. Q1 (lightest) is the lowest quartile. Legend: dev@0.5 per quartile. Gray: 95% binomial band for one quartile.
+<sub>**Figure 16. ECDF deviation by quartile of each per-ROI metric.** Rows: window tilt; lag-1 ordinate coupling; slow-power fraction (< 0.02 Hz); envelope CV (60 s); excess kurtosis; fraction of frames at the trace minimum. Columns: batches. Q1 (lightest) is the lowest quartile. Legend: dev@0.5 per quartile. Gray: 95% binomial band for one quartile.</sub>
 
 Per ROI (Figure 16), the excess concentrates in the most nonstationary and most clipped traces. Within
 the 0.3 Hz batch the top quartile of envelope CV, kurtosis or floor fraction sits at
@@ -564,7 +564,7 @@ the 0.3 Hz batch the top quartile of envelope CV, kurtosis or floor fraction sit
 
 ![Metrics vs p, one dot per ROI](nfc_finite_sample_bias/fig_sv_metrics_scatter.png)
 
-**Figure 17. Per-ROI metrics against p-value.** Same metrics and layout as Figure 16, one dot per ROI trace. Panel titles give Spearman ρ.
+<sub>**Figure 17. Per-ROI metrics against p-value.** Same metrics and layout as Figure 16, one dot per ROI trace. Panel titles give Spearman ρ.</sub>
 
 In the one-dot-per-ROI scatters (Figure 17), no metric correlates monotonically with p, which is what a
 pile-up in the *middle* of the p range predicts. The ECDF curves show that shape directly:
@@ -575,7 +575,7 @@ small p-values *and* too few near 1, not inflated.
 
 ![Imaging simulation](nfc_finite_sample_bias/fig_sv_sim_imaging.png)
 
-**Figure 18. Simulated imaging traces under each kind of slow variation.** Columns: the three batch configurations (f, frame count, Q_frac). Rows 1–6 show ECDF(p) − p for: a stationary event-rate sweep; rate × OU; noise SD × OU; additive OU drift; floor-clipped with rate × OU; and floor-clipped with the log-rate SD swept at τ = 100 s. Legends give the swept parameter, dev@0.5 and, for clipped traces, the fraction of frames at the floor. 16,000 traces per condition. Gray: 95% binomial band. Bottom row: neighbouring-ordinate coupling, as in Figure 13.
+<sub>**Figure 18. Simulated imaging traces under each kind of slow variation.** Columns: the three batch configurations (f, frame count, Q_frac). Rows 1–6 show ECDF(p) − p for: a stationary event-rate sweep; rate × OU; noise SD × OU; additive OU drift; floor-clipped with rate × OU; and floor-clipped with the log-rate SD swept at τ = 100 s. Legends give the swept parameter, dev@0.5 and, for clipped traces, the fraction of frames at the floor. 16,000 traces per condition. Gray: 95% binomial band. Bottom row: neighbouring-ordinate coupling, as in Figure 13.</sub>
 
 **Setup (Figure 18).** The simulated traces are synthetic GCaMP:
 - Poisson events at 0.1/s, 2 s decay, Gaussian noise;
@@ -614,7 +614,7 @@ Every condition is a valid null, because nothing is locked to the analysis frequ
 
 ![Ephys simulation](nfc_finite_sample_bias/fig_sv_sim_ephys.png)
 
-**Figure 19. Simulated ephys with slow rate modulation (the advisor's test).** ECDF(p) − p for 16,000 Poisson units (3 Hz, T = 300 s, Q = 27, ≈ 134 spikes/unit), either homogeneous (gray) or with OU log-rate modulation (SD 1) at τ = 3–300 s. Legend: dev@0.5. Gray band: 95% binomial band.
+<sub>**Figure 19. Simulated ephys with slow rate modulation (the advisor's test).** ECDF(p) − p for 16,000 Poisson units (3 Hz, T = 300 s, Q = 27, ≈ 134 spikes/unit), either homogeneous (gray) or with OU log-rate modulation (SD 1) at τ = 3–300 s. Legend: dev@0.5. Gray band: 95% binomial band.</sub>
 
 **Ephys** (Figure 19; the advisor's literal test, in `simulate.py`'s 3 Hz / T = 300 s / Q = 27 setup,
 about 134 spikes per unit, 16,000 units):
