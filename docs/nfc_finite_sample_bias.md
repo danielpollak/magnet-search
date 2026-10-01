@@ -6,7 +6,7 @@ changed. Everything below is reproduced by `docs/nfc_finite_sample_bias/simulate
 **Related:** [`fig1_mag_noise_floor_correction.md`](fig1_mag_noise_floor_correction.md),
 which found the *opposite-signed* effect in a single recording — see
 [Reconciling with the noise-floor report](#reconciling-with-the-noise-floor-report).
-**Figures:** numbered Figure 1–19 in this report. "Fig 2C" always means the manuscript figure.
+**Figures:** numbered Figure 1–23 in this report. "Fig 2C" always means the manuscript figure.
 
 ## Summary
 
@@ -737,6 +737,121 @@ violation caused by data quality, not a hint of a magnetic response. It sits at 
 frequency, with the stimulus bin in the middle of the pack. The traces fail the
 independence assumption that the Rayleigh/eps-corrected null rests on.
 
+## Excluding ROIs with long dead time (imaging)
+
+**Date:** 2026-10-01. **Script:** `activity_coverage.py`.
+
+**The question.** Figure 10 shows that many ROIs in the floor-clipped recordings are not
+usable cells. Some fire a handful of times in the whole recording. Others are "on" for a few
+minutes and sit at the floor for the rest. The previous section found that this kind of trace
+is what breaks the null. Can such ROIs be removed by a rule that is reliable (it keeps the
+traces that look like cells) and rational (its threshold is chosen from the data, not
+guessed)? And does removing them restore calibration?
+
+**What is measured.** Per ROI trace, on the frames `fit_Fourier` analyses:
+
+| quantity | definition |
+|---|---|
+| floor | the trace's most common value, if it holds ≥ 20% of frames. Below that the trace counts as unclipped (no floor). The minimum is not used, because a single outlier frame below the floor (the bottom-right medaka trace in Figure 10 has one) would make every floor frame count as active. |
+| active frame | a frame above the floor. Every frame of an unclipped trace is active. |
+| active fraction | share of frames that are active |
+| coverage | share of 60 s windows that contain ≥ 3 active frames: is the ROI "on" throughout the recording, or only part of it? |
+
+Neither quantity uses stimulus timing or the power at any frequency. Excluding ROIs on them
+therefore cannot create or remove a stimulus-locked response. The threshold is judged on
+**sham frequencies**: about 20 log-spaced analysis frequencies per recording, all more than
+M bins from the stimulus, where nothing was presented. Their p-values should be uniform. The
+stimulus frequency is only read off afterwards.
+
+### Distributions: how active are the ROIs?
+
+![Activity distributions](nfc_finite_sample_bias/fig_ac_distributions.png)
+
+<sub>**Figure 20. Activity per ROI trace, by set of recordings.** *Top:* fraction of frames above the floor. *Bottom:* coverage, the share of 60 s windows with ≥ 3 active frames. *Left:* histograms (density). *Right:* ECDFs. The 2022 Q1 traces are unclipped, so every frame counts as active and they all sit at 1 (gray spike). n (ROI traces) in the legend.</sub>
+
+- **Active fraction is low everywhere in the clipped recordings.** The median trace is above
+  the floor in only 2% (0.3 Hz), 6% (0.1 Hz) and 8% (medaka) of frames. This measures how
+  sparse the activity is, not whether it is spread over the recording, so it separates dead
+  ROIs from live ones poorly. Coverage is the more useful quantity.
+- **Coverage is spread out, with a lump at the low end and a spike at 1.**
+  - 0.3 Hz zebrafish: mostly low (median 0.10; only 3% of traces have full coverage).
+  - 0.1 Hz zebrafish: median 0.39, with 22% at full coverage.
+  - Medaka: mostly high (median 0.78, 25% at full coverage).
+- **There is no clean valley between "dead" and "alive".** The histograms are roughly flat
+  between 0.2 and 0.9, so the distributions alone don't dictate a threshold. The calibration
+  sweep (Figure 22) has to.
+- **A few traces in these recordings are unclipped.** About 4% in the 0.1 Hz zebrafish
+  recordings, mostly `engert_20221002_fish1_magneto_1`, whose baseline is about 12,800 (see
+  the per-recording table in section 1). They have coverage 1 and pass any threshold.
+
+### Do low-coverage ROIs look like junk, and high-coverage ones like cells?
+
+![Gallery](nfc_finite_sample_bias/fig_ac_gallery.png)
+
+<sub>**Figure 21. Raw traces at evenly spaced coverage quantiles.** For each clipped set of recordings (columns), 8 ROI traces picked at evenly spaced quantiles of coverage, from the lowest (top) to the highest (bottom). There is no selection on p. Titles give the recording, ROI, coverage and active fraction.</sub>
+
+- **Coverage below about 0.15 is junk:** two to a dozen isolated spikes, or one burst and then
+  nothing.
+- **Around 0.3** the traces fire throughout, but sparsely.
+- **From about 0.5 up** they look like cells.
+
+One caveat: ≥ 3 active frames per window is a lenient definition of "on". A trace with a long
+quiet stretch can still score well if a few single-frame blips fall in the quiet windows
+(`engert_20221002_fish2_magneto_2` ROI 9, coverage 0.83, is mostly silent for its first 500 s).
+A stricter per-window criterion would catch it, at the cost of more ROIs.
+
+### Does excluding them restore calibration?
+
+![Threshold sweep](nfc_finite_sample_bias/fig_ac_threshold_sweep.png)
+
+<sub>**Figure 22. Calibration vs coverage threshold.** For each clipped set of recordings (columns), the deviation at p = 0.5 after keeping only ROI traces with coverage ≥ the threshold (x). *Top:* sham frequencies pooled (coloured, the calibration target) and the stimulus frequency (black dashed, read-out only). Gray: 95% binomial band for the number of ROIs kept, treating each ROI as one observation; this is conservative for the sham line, which pools about 20 frequencies per ROI. *Bottom:* ROI traces kept.</sub>
+
+![ECDF curves after exclusion](nfc_finite_sample_bias/fig_ac_curves.png)
+
+<sub>**Figure 23. Whole ECDF-deviation curves after exclusion.** ECDF(p) − p at coverage thresholds 0, 0.25, 0.5 and 0.75 (light to dark), for each set of recordings (columns). *Top:* sham frequencies pooled. *Bottom:* stimulus frequency. Gray: 95% binomial band for the smallest subset shown.</sub>
+
+| coverage ≥ | 0.3 Hz zebrafish: kept / sham dev / stimulus dev | 0.1 Hz zebrafish: kept / sham / stimulus | medaka: kept / sham / stimulus |
+|---|---|---|---|
+| 0 (everything) | 857 / +0.051 / +0.058 | 3528 / +0.036 / +0.043 | 578 / +0.039 / +0.088 |
+| 0.10 | 416 / +0.014 / +0.026 | 2708 / +0.020 / +0.035 | 545 / +0.036 / +0.091 |
+| 0.25 | 255 / +0.005 / −0.006 | 2115 / +0.014 / +0.027 | 498 / +0.035 / +0.084 |
+| 0.50 | 163 / +0.007 / +0.021 | 1643 / +0.012 / +0.030 | 422 / +0.033 / +0.085 |
+| 0.75 | 86 / 0.000 / 0.000 | 1164 / +0.011 / +0.039 | 296 / +0.030 / +0.095 |
+
+- **Zebrafish: yes.** The sham deviation falls steeply up to a threshold of about 0.2–0.3 and
+  then flattens. In the 0.3 Hz recordings it reaches about zero. In the 0.1 Hz recordings it
+  drops from +0.036 to about +0.012 and stays there. The sham curves in Figure 23 lose the
+  mid-p bulge and sit inside the band.
+- **Medaka: no.** Its ROIs mostly have high coverage already, and the sham deviation barely
+  moves (+0.039 → +0.030). Whatever miscalibrates medaka is not dead time. The photon-starved,
+  coarsely quantised signal (`medaka_concat_suite2p.md`) is the obvious candidate.
+- **A rational threshold is where the sham curve flattens: coverage ≥ 0.25 to 0.3.** Higher
+  thresholds buy no further calibration, cost many ROIs, and widen the band. At 0.25 the
+  rule keeps 255 of 857 ROI traces (0.3 Hz), 2115 of 3528 (0.1 Hz) and 498 of 578
+  (medaka). This also agrees with the gallery, where 0.25–0.3 is about where traces stop
+  looking like junk.
+
+**The stimulus frequency, once the noise is cleaned up.** In the 0.1 Hz recordings, the
+stimulus-frequency deviation stays above the sham deviation at every threshold:
+- 0.1 Hz zebrafish: about +0.03 against +0.012.
+- Medaka: about +0.085 against +0.033.
+
+Each gap is about 1.5–2 SE (binomial on the ROIs kept), so neither is significant on its own.
+But they have the same sign, they come from two species at the same 0.1 Hz frequency, and
+medaka's stimulus bin was already one of the two highest in Figure 12. This should be checked
+before Fig 2C is finalised, for example with the bin-by-bin view of Figure 12 restricted to
+the ROIs kept, and the sham pool as the reference. It is flagged here, not concluded.
+
+### What this establishes
+
+| | finding |
+|---|---|
+| **Established** | Coverage (share of 60 s windows with ≥ 3 frames above the floor) separates junk ROIs from cell-like ones by eye (Figure 21), and it is blind to the stimulus. |
+| **Established** | In the 0.3 Hz and 0.1 Hz zebrafish recordings, excluding coverage < 0.25 removes most of the sham-frequency miscalibration (0.3 Hz: +0.051 → +0.005; 0.1 Hz: +0.036 → +0.014). It keeps 30% and 60% of ROI traces respectively. |
+| **Established** | It does not fix medaka (+0.039 → +0.035). Medaka's problem is something other than dead time. |
+| **Open** | In both sets of 0.1 Hz recordings, the stimulus-frequency deviation stays above the sham deviation after exclusion (gaps of 1.5–2 SE). |
+| **Decision needed** | Whether to adopt a coverage criterion in the production engert/medaka inclusion step (next to P(iscell) and npix), and at what threshold. This report recommends 0.25, chosen on sham calibration. |
+
 ## Reconciling with the noise-floor report
 
 [`fig1_mag_noise_floor_correction.md`](fig1_mag_noise_floor_correction.md) (2026-08-19)
@@ -804,6 +919,10 @@ python docs/nfc_finite_sample_bias/slow_variation.py                     # ~5 mi
 python docs/nfc_finite_sample_bias/slow_variation.py --figures-only      # replot (needs the local cache)
 python docs/nfc_finite_sample_bias/slow_variation_sim.py                 # ~25 min
 python docs/nfc_finite_sample_bias/slow_variation_sim.py --figures-only
+
+# Imaging: excluding ROIs with long dead time
+python docs/nfc_finite_sample_bias/activity_coverage.py                  # ~5 min
+python docs/nfc_finite_sample_bias/activity_coverage.py --figures-only   # replot (needs the local cache)
 ```
 
 `slow_variation.py` asserts that its recomputed production p-values match the parquet
@@ -813,8 +932,10 @@ exactly at the stimulus frequency. It writes `results_slow_variation_{rois,curve
 also needs `slow_variation_cache.npz` (window periodograms and example traces), which is
 gitignored and regenerated by a full run. `slow_variation_sim.py` writes
 `results_sv_sim_{curves,coupling}.csv` and `fig_sv_sim_*.png`.
+`activity_coverage.py` writes `results_activity_{rois,sweep,curves}.csv` and `fig_ac_*.png`.
+Its gallery cache `activity_coverage_cache.npz` is gitignored.
 
-`docs/nfc_finite_sample_bias/` contains the scripts, the figures embedded above (Figures 1–19), and
+`docs/nfc_finite_sample_bias/` contains the scripts, the figures embedded above (Figures 1–23), and
 `results_units.csv` / `results_spikes.csv` / `results_spikes_wide.csv` /
 `results_curves.csv` / `results_real.csv` / `results_real_spk_counts.csv` /
 `results_imaging_surrogates.csv` holding every observation behind the tables.
