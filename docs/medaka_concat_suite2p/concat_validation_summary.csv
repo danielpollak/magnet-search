@@ -1,0 +1,21 @@
+concat_run,iou_threshold_to_concat,population,centroid_pairs,centroid_pairs_both_mapped,agree_same_concat_roi,disagree_diff_concat_roi,precision,concat_implied_pairs,missed_by_centroid,recall
+concat_aligned,0.3,all,20582,2115,1681,434,0.7948,2780,1099,0.6047
+concat_aligned,0.3,included,254,114,103,11,0.9035,161,58,0.6398
+concat_aligned,0.5,all,20582,968,709,259,0.7324,972,263,0.7294
+concat_aligned,0.5,included,254,37,34,3,0.9189,43,9,0.7907
+concat_aligned,per-trial,magneto_0,"shift=(-0.06,0.04)",frac all ROIs IoU>=0.3: 0.231,frac included IoU>=0.3: 0.367,median IoU included: 0.133,,,,
+concat_aligned,per-trial,magneto_1,"shift=(-0.05,0.02)",frac all ROIs IoU>=0.3: 0.242,frac included IoU>=0.3: 0.372,median IoU included: 0.154,,,,
+concat_aligned,per-trial,magneto_2,"shift=(-0.05,0.01)",frac all ROIs IoU>=0.3: 0.236,frac included IoU>=0.3: 0.291,median IoU included: 0.094,,,,
+concat_aligned,per-trial,no_magneto_0,"shift=(-2.07,0.02)",frac all ROIs IoU>=0.3: 0.209,frac included IoU>=0.3: 0.326,median IoU included: 0.101,,,,
+concat_aligned,per-trial,no_magneto_1,"shift=(-2.03,0.01)",frac all ROIs IoU>=0.3: 0.222,frac included IoU>=0.3: 0.302,median IoU included: 0.068,,,,
+concat_aligned,per-trial,no_magneto_2,"shift=(-2.03,0.01)",frac all ROIs IoU>=0.3: 0.207,frac included IoU>=0.3: 0.261,median IoU included: 0.000,,,,
+concat,0.3,all,20582,2184,1447,737,0.6625,3281,1834,0.441
+concat,0.3,included,254,93,72,21,0.7742,157,85,0.4586
+concat,0.5,all,20582,1181,698,483,0.591,1382,684,0.5051
+concat,0.5,included,254,36,33,3,0.9167,51,18,0.6471
+concat,per-trial,magneto_0,"shift=(-0.06,0.04)",frac all ROIs IoU>=0.3: 0.240,frac included IoU>=0.3: 0.331,median IoU included: 0.133,,,,
+concat,per-trial,magneto_1,"shift=(-0.05,0.02)",frac all ROIs IoU>=0.3: 0.248,frac included IoU>=0.3: 0.367,median IoU included: 0.121,,,,
+concat,per-trial,magneto_2,"shift=(-0.05,0.01)",frac all ROIs IoU>=0.3: 0.251,frac included IoU>=0.3: 0.282,median IoU included: 0.105,,,,
+concat,per-trial,no_magneto_0,"shift=(-0.07,0.02)",frac all ROIs IoU>=0.3: 0.220,frac included IoU>=0.3: 0.333,median IoU included: 0.102,,,,
+concat,per-trial,no_magneto_1,"shift=(-0.03,0.01)",frac all ROIs IoU>=0.3: 0.228,frac included IoU>=0.3: 0.289,median IoU included: 0.065,,,,
+concat,per-trial,no_magneto_2,"shift=(-0.03,0.01)",frac all ROIs IoU>=0.3: 0.213,frac included IoU>=0.3: 0.281,median IoU included: 0.040,,,,
