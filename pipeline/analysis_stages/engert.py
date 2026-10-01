@@ -145,9 +145,19 @@ def compute_fourier_results(cfg, verbose=True):
     N_frames = int(120 * (F.shape[1] // 60))
     n_frames = np.full(len(NFC), N_frames)
 
+    # ── ROI identity ─────────────────────────────────────────────────────────
+    # `id` is the suite2p ROI index (row of the session's PlaneSegmentation),
+    # NOT the row's position among this trial's surviving traces. A session's
+    # repeat trials share one segmentation, but flatline removal runs per
+    # trial and keeps a different subset each time, so a positional id named
+    # different cells in different trials -- and the (species, ID, date, id)
+    # neuron key merged unrelated ROIs across trials. F's rows are
+    # roi_df[included_mask] in order, so this is aligned 1:1 with F.
+    roi_ids = np.where(included_mask)[0]
+
     # ── Build fourier_df ─────────────────────────────────────────────────────
     fourier_df = pd.DataFrame({
-        "id":        np.arange(len(NFC)),
+        "id":        roi_ids,
         "p_value":   p_value,
         "n_frames":  n_frames,
         "NFC":       NFC,
@@ -197,7 +207,7 @@ def compute_fourier_results(cfg, verbose=True):
         # 1F/2F harmonic pair; concat leaves those NaN for these rows, which
         # write_imaging_fourier_results's onfreq_coef_2f=None (below) matches.
         visual_fourier_df = pd.DataFrame({
-            "id":       np.arange(len(NFC_v)),
+            "id":       roi_ids,   # suite2p ROI index -- see the primary group above
             "p_value":  p_value_v,
             "n_frames": n_frames,
             "NFC":      NFC_v,
