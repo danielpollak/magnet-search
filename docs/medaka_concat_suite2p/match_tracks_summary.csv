@@ -1,0 +1,19 @@
+population,n_trials_spanned,n_tracks_one_roi_per_trial,n_tracks_fully_pairwise_consistent
+all,1,7021,7021
+all,2,2700,2700
+all,3,1453,698
+all,4,663,95
+all,5,214,7
+all,6,45,1
+all,conflict(>1 ROI/trial),1177,
+included,1,667,667
+included,2,110,110
+included,3,27,12
+included,4,6,2
+included,5,5,1
+included,6,0,0
+included,conflict(>1 ROI/trial),3,
+all,3-of-3 magneto_only (triangle),292,292
+all,3-of-3 no_magneto_only (triangle),283,283
+included,3-of-3 magneto_only (triangle),3,3
+included,3-of-3 no_magneto_only (triangle),7,7
