@@ -499,7 +499,7 @@ many analysis frequencies and see whether the stimulus frequency stands out.
 
 Figure 11 recomputes dev@0.5 at about 50 analysis frequencies from 0.07 Hz to Nyquist.
 The window width is held at each recording's production M bins, so only the spectral
-neighbourhood changes. In the three floor-clipped cohorts the real-trace curve (orange) sits
+neighbourhood changes. In the three floor-clipped sets of recordings the real-trace curve (orange) sits
 at **+0.04 to +0.05 at every frequency**. Averaged over the whole scan it is +0.051 (0.3 Hz),
 +0.037 (0.1 Hz) and +0.040 (medaka); white noise gives +0.004. Nothing at 0.1, 0.3 or 0.2 Hz
 stands out. The excess is a property of the traces at every frequency, not something the
