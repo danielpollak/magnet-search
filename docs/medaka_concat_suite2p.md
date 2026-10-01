@@ -45,6 +45,11 @@ therefore merges unrelated cells across trials. Can we get real cross-trial ROI 
   the between-block difference is **not** an xy translation. It looks like a small change of plane
   (z) or a change in which cells are bright between the two blocks.
 
+![Per-trial mean images from the NAS](medaka_concat_suite2p/fig_meanimg_nas.png)
+
+![Mean images and mean-image correlation per run](medaka_concat_suite2p/fig_registration.png)
+
+
 ## Task A: suite2p over the concatenated trials
 
 [`02_run_suite2p.py`](medaka_concat_suite2p/02_run_suite2p.py) uses the `suite2p` conda env
@@ -88,6 +93,11 @@ Inclusion rule is the production rule: `p_iscell > 0.7`, `npix > 10`, then `remo
 - **Flatline removal is per trial.** It runs on each trial's slice of the concat F, so 21–26 concat
   ROIs drop out in one or more trials.
 
+![ROI footprints](medaka_concat_suite2p/fig_roi_footprints.png)
+
+![P(iscell) and npix ECDFs](medaka_concat_suite2p/fig_roi_ecdfs.png)
+
+
 ### Fourier p-values ([`fourier_pvalue_summary.csv`](medaka_concat_suite2p/fourier_pvalue_summary.csv), [`fig_pvalue_ecdf.png`](medaka_concat_suite2p/fig_pvalue_ecdf.png))
 
 I sliced the concat F back into trials and ran the production fit: `fit_Fourier` + `corrected_pvalues`,
@@ -103,6 +113,9 @@ T = 1, with f = 0.1 Hz / Q_frac = 0.15 and 1/60 Hz / Q_frac = 0.50.
   separate runs picking cells that were active in that particular trial.
 - **Side finding.** This is direct support for the `_0`-has-no-visual-stimulus convention. It holds
   for `no_magneto_1/2` too, not only `magneto_1/2`.
+
+![Fourier p-value ECDF deviation per segmentation](medaka_concat_suite2p/fig_pvalue_ecdf.png)
+
 
 **Conclusion for A:** concatenating does not change the population-level p-value picture. It does
 give about 150–160 ROIs (about 140 excluding edge artifacts) with one shared footprint and a trace in every trial.
@@ -143,6 +156,11 @@ ratios are noisy.
     3-of-3 within-block triangles: 3 for magneto and 7 for no_magneto. With all ROIs at the same
     cutoff there are 45 six-trial tracks (1 fully consistent) and 1,177 conflicting components, but
     that graph is mostly chance matches.
+
+![Centroid match distance and IoU, real vs null](medaka_concat_suite2p/fig_match_distance_iou.png)
+
+![Cross-trial match tracks](medaka_concat_suite2p/fig_match_tracks.png)
+
 
 ### Validation against the concatenated segmentation
 
