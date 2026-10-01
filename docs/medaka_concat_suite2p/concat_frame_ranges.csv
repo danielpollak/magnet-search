@@ -1,0 +1,7 @@
+order,trial,tiff,frame_start,frame_stop,n_frames
+0,fish3_8dpf_magneto_0,fish3_8dpf_magneto_0.tif,0,1080,1080
+1,fish3_8dpf_magneto_1,fish3_8dpf_magneto_1.tif,1080,2160,1080
+2,fish3_8dpf_magneto_2,fish3_8dpf_magneto_2.tif,2160,3240,1080
+3,fish3_8dpf_no_magneto_0,fish3_8dpf_no_magneto_0.tif,3240,4320,1080
+4,fish3_8dpf_no_magneto_1,fish3_8dpf_no_magneto_1.tif,4320,5400,1080
+5,fish3_8dpf_no_magneto_2,fish3_8dpf_no_magneto_2.tif,5400,6480,1080
