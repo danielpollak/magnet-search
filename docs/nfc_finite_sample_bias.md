@@ -306,6 +306,11 @@ to reach for.
 > [Slow variation and floor-clipped traces](#slow-variation-and-floor-clipped-traces-imaging).
 > The text below is kept as the original record.
 
+![Surrogate validation](nfc_finite_sample_bias/fig_sv_surrogate_validation.png)
+
+*Each Gaussian surrogate generator applied to pure white noise, which should give the
+white-noise floor. The old `gaussian_psd` (orange) does not.*
+
 Reading the ladder as a decomposition:
 
 | term | contribution |
@@ -469,8 +474,11 @@ at every lag; the white-noise line shows that baseline.
   spectrum sits at about −0.01. On white noise the same generator gives −0.007, so the
   spectral-shape effect is essentially zero, not the −0.11 the earlier surrogate claimed.
   The raw window periodograms agree: across all four batches the median normalised
-  ordinate is flat from −M to +M (`fig_sv_window_spectra.png`, every ROI's window shown
-  as one row, sorted by p).
+  ordinate is flat from −M to +M (figure below: every ROI's window is one row, sorted
+  by p).
+
+  ![Window periodograms](nfc_finite_sample_bias/fig_sv_window_spectra.png)
+
 - **Taking the envelope out removes part of the excess:**
   - two thirds in medaka (+0.088 → +0.028);
   - a third at 0.1 Hz (+0.043 → +0.027);
@@ -492,8 +500,11 @@ baseline, and whatever it misses survives the division.
 Per ROI, the excess concentrates in the most nonstationary and most clipped traces. Within
 the 0.3 Hz batch the top quartile of envelope CV, kurtosis or floor fraction sits at
 +0.14 to +0.15, while the other quartiles sit at 0 to +0.05. The 0.1 Hz batch is similar
-(+0.09 to +0.10 in the top quartile). One-dot-per-ROI scatters are in
-`fig_sv_metrics_scatter.png`. No metric correlates monotonically with p, which is what a
+(+0.09 to +0.10 in the top quartile).
+
+![Metrics vs p, one dot per ROI](nfc_finite_sample_bias/fig_sv_metrics_scatter.png)
+
+In the one-dot-per-ROI scatters above, no metric correlates monotonically with p, which is what a
 pile-up in the *middle* of the p range predicts. The ECDF curves show that shape directly:
 a dip below zero near p ≈ 0.1 and a peak near p ≈ 0.6. NFC is under-dispersed, with too few
 small p-values *and* too few near 1, not inflated.
