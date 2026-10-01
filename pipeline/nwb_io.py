@@ -1505,7 +1505,7 @@ def write_imaging_fourier_results(nwbfile, rec, freq, Q, T_duration, fourier_df_
         )
         unit_table.add_column("group_1f_index", "row index into fourier_group_results, 1F")
         unit_table.add_column("group_2f_index", "row index into fourier_group_results, 2F (-1 if none)")
-        unit_table.add_column("unit_id", "sequential id matching legacy full_fourier_df's id column")
+        unit_table.add_column("unit_id", "fourier_df id: suite2p ROI index (PlaneSegmentation row) for engert; position among surviving ROIs for medaka")
         unit_table.add_column("p_value", "p-value, 1F")
         unit_table.add_column("n_frames", "frame count")
         unit_table.add_column("NFC", "NFC, 1F")
