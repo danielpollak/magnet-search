@@ -1,0 +1,7 @@
+trial,dy_vs_magneto_0,dx_vs_magneto_0,pc_peak,applied_dy,applied_dx,raw_mean_vs_NAS_meanImg_shift(magneto_0 only)
+fish3_8dpf_magneto_0,-0.0,0.0,1.0,0,0,"2.19,7.80"
+fish3_8dpf_magneto_1,0.06,0.04,0.3865,0,0,
+fish3_8dpf_magneto_2,0.0,-0.03,0.3964,0,0,
+fish3_8dpf_no_magneto_0,-1.9,-0.13,0.1203,-2,0,
+fish3_8dpf_no_magneto_1,-1.87,-0.19,0.1225,-2,0,
+fish3_8dpf_no_magneto_2,-1.98,-0.26,0.1073,-2,0,
