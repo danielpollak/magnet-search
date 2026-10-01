@@ -20,8 +20,9 @@ slightly away from the origin. Simulating homogeneous Poisson spike trains — f
 the null is *exactly* true by construction — reproduces the ephys deviation essentially
 exactly.
 
-**The p < 0.01 suspect threshold is unaffected** (`P(p<0.01)` = 0.0093–0.0110 across every
-simulated condition). This is a bulk effect. The magnetic null result does not depend on it.
+**The p < 0.01 suspect threshold is unaffected** (`P(p<0.01)` = 0.0086–0.0110 across every
+simulated condition at ≥ 18 spikes/unit; at 10 spikes it drops to a conservative 0.0074,
+but no real unit has fewer than 51). This is a bulk effect. The magnetic null result does not depend on it.
 
 Three things are established, one is ruled out, and one remains open:
 
@@ -140,6 +141,114 @@ within noise of zero; by 4000 it has crossed slightly negative.
 Note the `P(p<0.01)` column: **0.0093–0.0110 throughout.** The suspect threshold is
 untouched at every spike count.
 
+**What a sweep point means.** Every unit at a given point has *exactly* that many spikes.
+Each point is a population where every unit has the same spike count, not a draw from a
+spread of spike counts. How the real spike-count distribution combines these points is
+covered [below](#which-regime-do-the-real-units-sit-in).
+
+### The whole ECDF-deviation curve, per spike count
+
+dev@0.5 is one point on a curve. Here is the full `ECDF(p) − p` for every sweep point
+overlaid (seed-averaged, 12 × 4000 units per curve), with the real ephys curve dashed:
+
+![ECDF deviation curves per spike count](nfc_finite_sample_bias/fig_spikes_curves.png)
+
+- The simulated curves are small positive humps that go back to zero at both ends, and
+  they get flatter as spike count rises. The 4000-spike curve dips slightly negative,
+  matching its dev@0.5.
+- **The real ephys curve does not have the simulated shape.** The Poisson curves peak at
+  p ≈ 0.2–0.55. The real curve is still rising at p ≈ 0.8 (peak +0.0117 at p = 0.79),
+  where every simulated curve at a realistic spike count (≥ 50) has dropped back to
+  ≲ +0.005. It also sits slightly negative for p < 0.05, which no simulated curve does.
+  So finite-sample bias matches the real **dev@0.5** (next section), but not the **shape**
+  of the real curve above p ≈ 0.6. Something else is contributing to that upper-bulk
+  excess. It is a bulk effect with no bearing on the p < 0.01 threshold, but "accounts
+  exactly" below applies to the p = 0.5 point, not the whole curve.
+
+### Widened range: 10–1000 spikes/unit, same budget
+
+Same budget as the original sweep (9 spike counts × 12 seeds × 4000 units), log-spaced
+over 10–1000 instead of 50–4000:
+
+![Bias vs spikes per unit, widened range](nfc_finite_sample_bias/fig_spikes_sweep_wide.png)
+
+| spikes/unit | dev@0.5 | SEM | P(p<0.01) |
+|---|---|---|---|
+| 10 | **+0.0185** | 0.0023 | **0.0074** |
+| 18 | +0.0093 | 0.0026 | 0.0086 |
+| 32 | +0.0073 | 0.0021 | 0.0091 |
+| 56 | +0.0048 | 0.0019 | 0.0099 |
+| 100 | +0.0067 | 0.0022 | 0.0095 |
+| 178 | +0.0049 | 0.0039 | 0.0102 |
+| 316 | +0.0044 | 0.0025 | 0.0101 |
+| 562 | +0.0040 | 0.0014 | 0.0100 |
+| 1000 | +0.0024 | 0.0022 | 0.0099 |
+
+> slope = **−0.0058 per decade**, 95% CI [−0.0083, −0.0033], r² = 0.160, **p = 1.7e-05**
+
+The 100- and 1000-spike points match the original sweep bit-for-bit (same seeds), as they
+should. Going lower makes the decay clearer: dev@0.5 roughly doubles from 18 to 10 spikes.
+At 10 spikes the tail also starts to go wrong, *conservatively*: P(p<0.01) = 0.0074, so
+the test under-calls there. Neither matters for this dataset, because **no real ephys unit
+has fewer than 51 spikes** (see below). The 10–50 half of this sweep describes a regime
+that inclusion filtering has already removed.
+
+### Which regime do the real units sit in?
+
+![Empirical spikes per unit](nfc_finite_sample_bias/fig_spk_count_distribution.png)
+
+Real magnetic ephys units (the same 4716-unit population as `results_real.csv`; per-unit
+counts in `results_real_spk_counts.csv`):
+
+| spikes/unit | share of units |
+|---|---|
+| < 50 | 0% (hard floor at 51) |
+| 50–100 | **40.7%** |
+| 100–1000 | **48.9%** |
+| 1000–4000 | 8.5% |
+| ≥ 4000 | 1.8% |
+
+Quartiles: 71 / 134 / 330. The distribution is piled against the ~50-spike floor with a
+long right tail, so **the low-firing end dominates**. About 90% of units sit below 1000
+spikes, where the sweep still shows a clearly positive bias, and only ~10% are in the
+≳ 1000 range where it has decayed to noise. By species, pigeon is the lowest-firing (median
+86), then zebra finch (176), quail (332), and mouse far above the rest (median 2546, but
+only 49 units).
+
+Since the ECDF of a pooled population is the unit-weighted average of its parts' ECDFs,
+the right prediction weights dev@0.5(N) by the real N distribution rather than evaluating
+it at the median. Doing that (both sweeps pooled, counts outside the sweep range clamped
+to its end points) gives **+0.0059**, against +0.0070 observed. That is within about half
+an SEM of the median-based +0.0070, so the conclusion below stands, but the four-decimal
+agreement there is partly a matter of which summary is used.
+
+#### Pigeon, by brain area
+
+Pigeon is the lowest-firing species and contributes about half the ephys units (2319 of
+4716), so it is split out here by brain area:
+
+![Pigeon spikes per unit by area](nfc_finite_sample_bias/fig_spk_count_distribution_pigeon.png)
+
+| area | units | quartiles | 50–100 | 100–1000 | ≥ 1000 | mixture-predicted dev@0.5 |
+|---|---|---|---|---|---|---|
+| all pigeon | 2319 | 62 / 86 / 184 | 57.3% | 39.2% | 3.5% | +0.0065 |
+| HP | 1540 | 60 / 77 / 150 | **63.1%** | 34.2% | 2.7% | +0.0066 |
+| CB | 525 | 66 / 99 / 247 | 50.3% | 45.5% | 4.2% | +0.0064 |
+| pallium | 254 | 83 / 138 / 308 | 36.2% | 56.7% | 7.1% | +0.0061 |
+
+- **HP drives pigeon's low spike counts.** It is two-thirds of pigeon units, and nearly
+  two-thirds of its units sit in the 50–100 bin. Pallium looks like the dataset as a whole
+  (median 138 vs 134). CB is in between.
+- **Area and bird are confounded.** HP units come from W1R and W25R. CB and pallium both
+  come from Pk12L. This split can't tell a brain-area effect from a bird or session effect.
+- **The areas' spike-count differences barely change the predicted bias.** Mixture
+  predictions span only +0.0061 to +0.0066, a spread of 0.0005, well under the sweep's
+  SEM of about 0.002. The simulated bias is nearly flat across 50–1000 spikes and only
+  drops clearly beyond that. So pigeon (and HP in particular) pulls the dataset's
+  *spike-count* distribution down, but it pushes the predicted finite-sample bias *up*
+  only slightly (+0.0065 for pigeon vs +0.0059 for all ephys). That is the direction you'd
+  expect, since fewer spikes means more bias, and the size is negligible.
+
 ## How much of the real deviation does this explain?
 
 ![Real vs simulated](nfc_finite_sample_bias/fig_real_vs_sim.png)
@@ -153,7 +262,9 @@ untouched at every spike count.
 **For ephys, finite-sample bias accounts for the deviation exactly** — +0.0070 observed
 against +0.0070 predicted by interpolating the Poisson sweep at 134 spikes. The agreement
 to four decimals is fortuitous given SEM ≈ 0.002 on the prediction, but the match is not
-in doubt.
+in doubt. (Weighting by the full spike-count distribution instead of the median gives
++0.0059, still a match within noise. This holds at p = 0.5 only: the curve overlay above
+shows the real curve's excess at p ≈ 0.6–0.9 is *not* reproduced.)
 
 **For imaging it does not.** GCaMP units have frames, not spikes, so the spike-count sweep
 cannot furnish a prediction for them at all; their +0.0254 is 3.6× the ephys value and
@@ -287,8 +398,9 @@ python docs/nfc_finite_sample_bias/imaging_surrogates.py                 # ~10 m
 python docs/nfc_finite_sample_bias/imaging_surrogates.py --figures-only  # replot
 ```
 
-`docs/nfc_finite_sample_bias/` contains both scripts, the four figures embedded above, and
-`results_units.csv` / `results_spikes.csv` / `results_real.csv` /
+`docs/nfc_finite_sample_bias/` contains both scripts, the eight figures embedded above, and
+`results_units.csv` / `results_spikes.csv` / `results_spikes_wide.csv` /
+`results_curves.csv` / `results_real.csv` / `results_real_spk_counts.csv` /
 `results_imaging_surrogates.csv` holding every observation behind the tables.
 
 `imaging_surrogates.py` calls the production `fit_Fourier`, `corrected_pvalues` and
