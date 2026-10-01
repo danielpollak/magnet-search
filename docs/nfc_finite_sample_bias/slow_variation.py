@@ -329,7 +329,7 @@ def _band(ax, n):
 
 
 def fig_traces(ex, out):
-    """Raw traces with the cubic trend and the slow envelope that the surrogates remove."""
+    """Raw traces with the slow envelope that envelope normalisation divides out."""
     fig, axes = plt.subplots(len(BATCHES), 3, figsize=(12, 1.9 * len(BATCHES)), squeeze=False)
     for r, b in enumerate(BATCHES):
         e = ex[b]
@@ -338,7 +338,6 @@ def fig_traces(ex, out):
             ax = axes[r, c]
             y = e["F"][c]
             ax.plot(t, y, color=C_INK, lw=0.4)
-            ax.plot(t, e["trend"][c], color=C_REAL, lw=1.2, label="cubic trend")
             sd = np.std(highpass(y[None], e["T"]))
             ax.plot(t, np.mean(y) + 2 * sd * e["env"][c], color=C_SIM, lw=1.2,
                     label=f"mean + 2 SD x envelope ({ENV_WIN_S:.0f} s RMS)")
@@ -350,7 +349,7 @@ def fig_traces(ex, out):
             if c == 0:
                 ax.set_ylabel("F (a.u.)", fontsize=7)
     axes[0, 0].legend(fontsize=6, frameon=False, loc="upper right")
-    fig.suptitle("Raw traces (first three ROIs of one recording per batch, no selection on p)",
+    fig.suptitle("Raw traces (first three ROIs of one recording from each set of recordings, no selection on p)",
                  fontsize=9)
     fig.tight_layout()
     fig.savefig(out, dpi=150, facecolor="white")
@@ -643,13 +642,21 @@ def _save_cache(Inorm, ex):
     np.savez_compressed(CACHE, **flat)
 
 
-def _load_cache():
+def _load_cache(rois):
+    """Examples are keyed by their recording name, NOT by position: they are saved in
+    recording order, which is not BATCHES order (keying by position once mislabelled
+    every row of fig_sv_traces.png)."""
     z = np.load(CACHE)
+    batch_of = rois.groupby("experiment")["batch"].first()
     ex = {}
-    for i, b in enumerate(BATCHES):
-        ex[b] = {k: z[f"ex{i}_{k}"] for k in ("F", "env", "trend", "p", "ids")}
-        ex[b]["T"] = float(z[f"ex{i}_T"])
-        ex[b]["name"] = str(z[f"ex{i}_name"])
+    i = 0
+    while f"ex{i}_name" in z:
+        name = str(z[f"ex{i}_name"])
+        e = {k: z[f"ex{i}_{k}"] for k in ("F", "env", "trend", "p", "ids")}
+        e["T"] = float(z[f"ex{i}_T"])
+        e["name"] = name
+        ex[batch_of[name]] = e
+        i += 1
     return z["Inorm"], ex
 
 
@@ -659,7 +666,7 @@ def main():
         curves = pd.read_csv(_HERE / "results_slow_variation_curves.csv")
         coup = pd.read_csv(_HERE / "results_slow_variation_coupling.csv")
         scan = pd.read_csv(_HERE / "results_slow_variation_scan.csv")
-        Inorm, ex = _load_cache()
+        Inorm, ex = _load_cache(rois)
         figures(rois, curves, coup, scan, Inorm, ex)
         return
 
