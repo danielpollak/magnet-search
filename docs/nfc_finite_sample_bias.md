@@ -432,7 +432,7 @@ and others do not, the traces should look different between them.
 
 ![Raw traces](nfc_finite_sample_bias/fig_sv_traces.png)
 
-<sub>**Figure 10. Raw traces.** The first three ROIs (no selection on p) of one recording from each set of recordings (rows). Black: F. Orange: the per-trace cubic trend that "detrended" removes. Blue: mean + 2 SD × the 60 s RMS envelope that "envelope-normalised" divides out. Panel titles give each ROI's p-value at the stimulus frequency.</sub>
+<sub>**Figure 10. Raw traces.** The first three ROIs (no selection on p) of one recording from each set of recordings (rows). Black: F. Blue: mean + 2 SD × the 60 s RMS envelope that "envelope-normalised" divides out. Panel titles give each ROI's p-value at the stimulus frequency.</sub>
 
 Figure 10 shows the first three ROIs of one recording from each set of recordings, with no selection on p. The 2022
 Q1 traces look like ordinary fluorescence: baseline about 5000, continuous noise, transients
@@ -569,12 +569,12 @@ directions:
   ordinates are independent and its p-values are uniform) and add the real traces' slow
   variation to it. If slow variation causes the excess, the excess should appear.
 
-"Slow variation" comes in two kinds, removed in two steps (both are drawn on the traces in
+"Slow variation" comes in two kinds, removed in two steps (the envelope is drawn on the traces in
 Figure 10):
 
 | kind | example | how it is removed | how it is added back |
 |---|---|---|---|
-| **additive** | baseline drift, bleaching | **detrend:** subtract a per-trace cubic fit (orange in Figure 10) | — (detrending turned out to change nothing, so there was nothing to add back) |
+| **additive** | baseline drift, bleaching | **detrend:** subtract a per-trace cubic fit | — (detrending turned out to change nothing, so there was nothing to add back) |
 | **multiplicative** | the trace's amplitude or activity level changing over minutes | **envelope-normalise:** divide the trace by its own 60 s running RMS, the "envelope" (blue in Figure 10) | multiply stationary noise by that ROI's envelope |
 
 The stationary noise comes in two flavours: plain white noise, and Gaussian noise with the
