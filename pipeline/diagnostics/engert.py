@@ -12,6 +12,8 @@ plot_engert_diagnostics  — single multi-page PDF:
           with a period-duration scale bar so cycles can be counted by eye
   Page 6: Cell mask FOV — excluded cells gray, included cells colored by NFC
   Page 7: P(iscell) x npix joint histogram with ECDF marginals
+  Page 8: outline of the fish in the mean image (pipeline/body_outline.py, parameters from
+          the YAML's body_outline block): ROIs inside/outside it, and P(iscell)/NFC of each
 """
 from pathlib import Path
 
@@ -24,13 +26,30 @@ from matplotlib.backends.backend_pdf import PdfPages
 
 from magpyneto2.statistics import draw_hist, inset_hist, get_epsilon
 from pipeline.diagnostics.analysis import _subsample_units, _rasterize_ax
+from pipeline import body_outline
+
+
+def _pixels(mask_entries):
+    # NWB pixel_mask convention: (x, y, weight) triples -- but
+    # pynwb reads each ROI's mask back as a 1-D STRUCTURED
+    # (record) array with named fields (x, y, weight), not a
+    # plain (n_pixels, 3) array. Fancy column indexing
+    # (arr[:, 1]) raises "too many indices for array: array is
+    # 1-dimensional, but 2 were indexed" on that structured
+    # form -- confirmed on real data. Field-name indexing works
+    # for the structured form; fall back to column indexing in
+    # case a caller ever passes a plain 2D array instead.
+    arr = np.asarray(mask_entries)
+    if arr.dtype.names is not None:
+        return arr["y"].astype(int), arr["x"].astype(int)  # (ypix, xpix)
+    return arr[:, 1].astype(int), arr[:, 0].astype(int)  # (ypix, xpix)
 
 
 def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
                              onfreq_coef_l, offfreq_coef_l, save_dir,
                              roi_df=None, included_mask=None, imaging_dims=None,
                              freq_win_2f=None, onfreq_coef_2f=None,
-                             offfreq_coef_2f=None, Q_2f=None):
+                             offfreq_coef_2f=None, Q_2f=None, mean_img=None):
     """Write a multi-page PDF of GCaMP analysis diagnostics.
 
     Parameters
@@ -69,6 +88,8 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
                      harmonics of each other, so its caller never passes
                      these). Page 3 (2F diagnostics) is skipped if
                      `onfreq_coef_2f` is None.
+    mean_img       : np.ndarray (Ly, Lx), optional, from `nwb_io.read_mean_image` -- suite2p's
+                     time-averaged image, for Page 8 (fish outline). Page 8 says so if None.
     """
     save_dir = Path(save_dir)
     out_path = save_dir / f"{cfg.name}_analysis_diagnostics.pdf"
@@ -217,21 +238,6 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
 
             img = np.zeros((Ly, Lx, 3), dtype=np.float32)
 
-            def _pixels(mask_entries):
-                # NWB pixel_mask convention: (x, y, weight) triples -- but
-                # pynwb reads each ROI's mask back as a 1-D STRUCTURED
-                # (record) array with named fields (x, y, weight), not a
-                # plain (n_pixels, 3) array. Fancy column indexing
-                # (arr[:, 1]) raises "too many indices for array: array is
-                # 1-dimensional, but 2 were indexed" on that structured
-                # form -- confirmed on real data. Field-name indexing works
-                # for the structured form; fall back to column indexing in
-                # case a caller ever passes a plain 2D array instead.
-                arr = np.asarray(mask_entries)
-                if arr.dtype.names is not None:
-                    return arr["y"].astype(int), arr["x"].astype(int)  # (ypix, xpix)
-                return arr[:, 1].astype(int), arr[:, 0].astype(int)  # (ypix, xpix)
-
             # All excluded ROIs → dim gray
             for pixel_mask in roi_df.loc[~included_mask, "pixel_mask"]:
                 ypix, xpix = _pixels(pixel_mask)
@@ -316,6 +322,75 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
         except Exception as exc:
             fig, ax = plt.subplots(figsize=(6, 4))
             ax.text(0.5, 0.5, f"cell mask / iscell error:\n{exc}",
+                    ha="center", va="center", transform=ax.transAxes, fontsize=7)
+            pdf.savefig(fig, dpi=150)
+            plt.close(fig)
+
+        # ── Page 8: outline of the fish; which ROIs lie outside it ──────────
+        # Diagnostic only: the outline is not (yet) applied to the analysed population.
+        try:
+            if mean_img is None:
+                raise ValueError("no mean image in the NWB file -- re-run processing to add it")
+            if roi_df is None or included_mask is None:
+                raise ValueError("roi_df/included_mask not provided")
+            included = np.asarray(included_mask, dtype=bool)
+            params = body_outline.params_for(cfg.body_outline)
+            body = body_outline.body(mean_img, params)
+            masks = [_pixels(m) for m in roi_df["pixel_mask"]]
+            inside = body_outline.inside_share(masks, body) >= 0.5
+            if params.get("polygon"):
+                source = "hand-drawn polygon (YAML body_outline)"
+            else:
+                source = (("YAML body_outline" if cfg.body_outline
+                           else "defaults (no body_outline in YAML)") + ": "
+                          + ", ".join(f"{k}={params[k]}" for k in body_outline.DEFAULTS))
+            c_in, c_out = "#2a78d6", "#eb6834"
+
+            fig = plt.figure(figsize=(16, 6.2))
+            gs = fig.add_gridspec(1, 4, width_ratios=[1, 1, 0.32, 0.32], wspace=0.15)
+            show = body_outline.log_mean(mean_img)
+            lo, hi = np.percentile(show, [1, 99.5])
+            for k, (title, sel) in enumerate((("all ROIs", np.ones(len(roi_df), bool)),
+                                              ("analysed ROIs", included))):
+                ax = fig.add_subplot(gs[0, k])
+                ax.imshow(show, cmap="gray", vmin=lo, vmax=hi)
+                rgba = np.zeros((*body.shape, 4))
+                for i in np.where(sel)[0]:
+                    yy, xx = masks[i]
+                    rgba[yy, xx] = matplotlib.colors.to_rgba(c_in if inside[i] else c_out, 0.85)
+                ax.imshow(rgba, interpolation="nearest", rasterized=True)
+                ax.contour(body, levels=[0.5], colors="#f2c400", linewidths=1)
+                ax.set_title(f"{title}: {(sel & inside).sum()} inside (blue), "
+                             f"{(sel & ~inside).sum()} outside (orange)", fontsize=9)
+                ax.axis("off")
+            # One strip per variable: P(iscell) of every ROI, NFC of the analysed ones
+            # (NFC is in the same order as roi_df[included]).
+            rng = np.random.default_rng(0)
+            for k, (vals, ins, label) in enumerate((
+                    (roi_df["p_iscell"].values, inside, "P(iscell), all ROIs"),
+                    (NFC, inside[included], "NFC, analysed ROIs"))):
+                ax = fig.add_subplot(gs[0, 2 + k])
+                for j, (m, c) in enumerate(((ins, c_in), (~ins, c_out))):
+                    x = j + rng.uniform(-0.3, 0.3, m.sum())
+                    ax.scatter(x, vals[m], s=2, c=c, alpha=0.4, linewidths=0, rasterized=True)
+                    if m.any():
+                        ax.plot([j - 0.35, j + 0.35], [np.median(vals[m])] * 2, color="k", lw=1.5)
+                ax.set_xticks([0, 1])
+                ax.set_xticklabels(["inside", "outside"], fontsize=8)
+                ax.set_title(label, fontsize=9)
+                ax.tick_params(labelsize=7)
+                if k == 0:
+                    ax.axhline(cfg.iscell_threshold, color="k", ls="--", lw=0.8)
+                    ax.set_ylim(-0.03, 1.03)
+            fig.suptitle(f"{cfg.name}  |  yellow: outline of the fish in the mean image "
+                         f"(not applied to the analysis)  |  {source}\n"
+                         f"one dot per ROI; black bar: median; dashed: iscell_threshold",
+                         fontsize=9)
+            pdf.savefig(fig, dpi=110)
+            plt.close(fig)
+        except Exception as exc:
+            fig, ax = plt.subplots(figsize=(6, 4))
+            ax.text(0.5, 0.5, f"fish outline error:\n{exc}",
                     ha="center", va="center", transform=ax.transAxes, fontsize=7)
             pdf.savefig(fig, dpi=150)
             plt.close(fig)
