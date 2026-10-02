@@ -15,6 +15,7 @@ import pandas as pd
 from magpyneto2.engert_helpers import fit_Fourier, remove_flatlines
 from magpyneto2.statistics import corrected_pvalues
 from pipeline import body_outline, nwb_io
+from pipeline.roi_coverage import activity
 
 _VISUAL_FREQ = 1 / 60
 # 0.10/0.20/0.25 (earlier fresh-default choices) all yield too few bins for
@@ -28,9 +29,10 @@ _VISUAL_FREQ = 1 / 60
 _VISUAL_Q_FRAC = 0.50
 
 
-def _load_from_nwb(nwb_path, iscell_thres, npix_thres, outline=None):
+def _load_from_nwb(nwb_path, iscell_thres, npix_thres, outline=None, coverage_min=0.0,
+                   sample_period=1.0):
     """Same contract as engert's _load_from_nwb — see that module's
-    docstring for the included_mask and `outline` semantics."""
+    docstring for the included_mask, `outline` and `coverage_min` semantics."""
     if not os.path.exists(nwb_path):
         raise FileNotFoundError(
             f"{nwb_path} not found -- run `python pipeline/processing.py "
@@ -51,6 +53,8 @@ def _load_from_nwb(nwb_path, iscell_thres, npix_thres, outline=None):
                 f"`python pipeline/processing.py --experiment <name>`.")
         inside, _ = body_outline.inside_rois(roi_df, mean_img, outline)
         mask &= inside
+    if coverage_min > 0:
+        mask &= activity(F_all.astype(float), sample_period)["coverage"] >= coverage_min
     F_masked = F_all[mask]
 
     F_final, _, _, inclusion_inds = remove_flatlines(F_masked)
@@ -78,9 +82,10 @@ def compute_fourier_results(cfg, verbose=True):
     _p(f"[medaka] {cfg.name}: loading Suite2p from {cfg.nwb_path()}")
     F, roi_df, included_mask, imaging_dims = _load_from_nwb(
         cfg.nwb_path(), cfg.iscell_threshold, cfg.npix_threshold,
-        outline=body_outline.params_for(cfg.body_outline))
+        outline=body_outline.params_for(cfg.body_outline),
+        coverage_min=cfg.coverage_threshold, sample_period=cfg.sample_period)
     _p(f"[medaka] {cfg.name}: {len(F)} cells after iscell/npix filter + fish outline + "
-       f"flatline removal")
+       f"coverage >= {cfg.coverage_threshold} + flatline removal")
 
     # Magnetic frequency (keep intermediates for diagnostics)
     NFC_b, onfreq_coef_b, offfreq_coef_b, freq_win_b, M_b, avg_signal_b = fit_Fourier(F, T=T, f=f_b, Q_frac=Q_frac_b)
