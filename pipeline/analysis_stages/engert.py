@@ -279,4 +279,5 @@ def run_analysis(cfg):
         onfreq_coef_l, offfreq_coef_l, diag_dir,
         roi_df=roi_df, included_mask=included_mask, imaging_dims=imaging_dims,
         freq_win_2f=freq_win_2f, onfreq_coef_2f=onfreq_coef_2f_l,
-        offfreq_coef_2f=offfreq_coef_2f_l, Q_2f=Q_2f)
+        offfreq_coef_2f=offfreq_coef_2f_l, Q_2f=Q_2f,
+        mean_img=nwb_io.load_mean_image(cfg.nwb_path()))
