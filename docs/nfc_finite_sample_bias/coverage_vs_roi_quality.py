@@ -3,7 +3,7 @@
     python docs/nfc_finite_sample_bias/coverage_vs_roi_quality.py     # ~2 min
 
 Companion to activity_coverage.py. For EVERY ROI in each imaging recording of the Fig 2C
-magnetic pool -- not just those passing the production P(iscell)/npix cut -- computes
+magnetic pool, plus the visual-only 2022 Q1 recordings (VISUAL) -- not just those passing the production P(iscell)/npix cut -- computes
 coverage (activity_coverage.activity, on the same first-N frames fit_Fourier analyses) and
 plots it against P(iscell) and npix. One page per set of recordings, three panels:
 
@@ -42,6 +42,21 @@ from pipeline import nwb_io  # noqa: E402
 
 OUT_CSV = _HERE / "results_coverage_vs_roi_quality.csv"
 OUT_PDF = _HERE / "fig_coverage_vs_roi_quality.pdf"
+
+# Visual-only positive control: the 2022 Q1 recordings with the sine grating alone (30 s
+# moving / 30 s still, 1/60 Hz) and no magnet. Same suite2p segmentations as the 2022 Q1
+# magnetic recordings (same session_path), so P(iscell)/npix/masks are identical; only the
+# traces, and hence coverage, differ.
+VISUAL = "zebrafish visual only, 1/60 Hz (2022 Q1)"
+VISUAL_RECS = ["engert_20220221_visual", "engert_20220223_visual",
+               "engert_20220301_visual_a", "engert_20220301_visual_b"]
+SETS = BATCHES + [VISUAL]
+
+
+def recordings():
+    """(experiment name, set of recordings) for the Fig 2C magnetic pool plus the visual set."""
+    recs, _ = sv.pool()
+    return [(n, b) for n, b, _ in recs] + [(n, VISUAL) for n in VISUAL_RECS]
 
 
 def load_all(name, batch):
@@ -103,7 +118,7 @@ def figures(df):
     npix_norm = LogNorm(max(df["npix"].min(), 1), df["npix"].max())
     unit = Normalize(0, 1)
     with PdfPages(OUT_PDF) as pdf:
-        for b in BATCHES:
+        for b in SETS:
             d = df[df["batch"] == b]
             if d.empty:
                 continue
@@ -127,9 +142,8 @@ def figures(df):
 
 
 def main():
-    recs, _ = sv.pool()
     rows = []
-    for name, batch, _ in recs:
+    for name, batch in recordings():
         print(f"  {name}  [{batch}]", flush=True)
         rows.append(load_all(name, batch))
     df = pd.concat(rows, ignore_index=True)
