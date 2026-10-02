@@ -26,7 +26,10 @@ The summary counts ROIs per field of view, as the earlier outline tables did: a 
 a step if it passes that step in at least one of the field of view's recordings in the set.
 Every column requires npix above the current npix threshold (10 everywhere) and the ROI to be
 inside the outline; the columns then add, left to right, the P(iscell) threshold, flatline
-removal and a liberal coverage threshold (COVERAGE_MIN: active in at least one minute).
+removal and a coverage threshold (coverage >= COVERAGE_MIN). The total row sums the magnetic
+sets; the visual-only set is left out because its ROIs are the 2022 Q1 ones again.
+
+    python docs/nfc_finite_sample_bias/roi_retention.py --summary   # summary from the saved CSV
 
 Outputs (next to this script, gitignored): results_roi_retention.csv,
 results_roi_retention_summary.csv; the summary is also printed as a markdown table.
@@ -40,7 +43,7 @@ import pandas as pd
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
 from activity_coverage import activity  # noqa: E402
-from coverage_vs_roi_quality import SETS, recordings, segmentation_key  # noqa: E402
+from coverage_vs_roi_quality import SETS, VISUAL, recordings, segmentation_key  # noqa: E402
 import slow_variation as sv  # noqa: E402
 from slow_variation import schema  # noqa: E402
 from magpyneto2.engert_helpers import remove_flatlines  # noqa: E402
@@ -49,7 +52,7 @@ from pipeline import body_outline, nwb_io  # noqa: E402
 OUT_CSV = _HERE / "results_roi_retention.csv"
 OUT_SUMMARY = _HERE / "results_roi_retention_summary.csv"
 ISCELL_FLOOR = 0.5         # lowest P(iscell) threshold considered
-COVERAGE_MIN = 0.0         # liberal: coverage > 0, i.e. active in at least one 60 s window
+COVERAGE_MIN = 0.1         # active in at least 10% of the 60 s windows
 
 
 def load(name, batch):
@@ -84,16 +87,30 @@ def summary(df):
         "current P(iscell) + flatline (analysed now)": base & (df.p_iscell > df.iscell_threshold) & df.not_flat,
         f"P(iscell) > {ISCELL_FLOOR}": base & (df.p_iscell > ISCELL_FLOOR),
         f"P(iscell) > {ISCELL_FLOOR} + flatline": base & (df.p_iscell > ISCELL_FLOOR) & df.not_flat,
-        f"P(iscell) > {ISCELL_FLOOR} + flatline + coverage > {COVERAGE_MIN:g}":
-            base & (df.p_iscell > ISCELL_FLOOR) & df.not_flat & (df.coverage > COVERAGE_MIN),
+        f"P(iscell) > {ISCELL_FLOOR} + flatline + coverage >= {COVERAGE_MIN:g}":
+            base & (df.p_iscell > ISCELL_FLOOR) & df.not_flat & (df.coverage >= COVERAGE_MIN),
     }
     flags = df[["batch", "segmentation", "roi"]].assign(**steps)
     per_fov = flags.groupby(["batch", "segmentation", "roi"], sort=False)[list(steps)].any()
     out = per_fov.groupby("batch", sort=False).sum()
-    return out.reindex([b for b in SETS if b in out.index])
+    out = out.reindex([b for b in SETS if b in out.index])
+    out.loc["total (magnetic sets)"] = out.drop(index=VISUAL, errors="ignore").sum()
+    return out
+
+
+def print_summary(df):
+    s = summary(df)
+    s.to_csv(OUT_SUMMARY)
+    print("\n| set of recordings | " + " | ".join(s.columns) + " |")
+    print("|---" * (len(s.columns) + 1) + "|")
+    for b, r in s.iterrows():
+        print(f"| {b} | " + " | ".join(f"{v:,}" for v in r.values) + " |")
 
 
 def main():
+    if "--summary" in sys.argv:
+        print_summary(pd.read_csv(OUT_CSV))
+        return
     rows, check = [], []
     for name, batch in recordings():
         d, n_analysed = load(name, batch)
@@ -106,12 +123,7 @@ def main():
     bad = [c for c in check if c[1] != c[2]]
     print("analysed count matches the analysis stage for every recording" if not bad
           else f"MISMATCH with the analysis stage: {bad}")
-    s = summary(df)
-    s.to_csv(OUT_SUMMARY)
-    print("\n| set of recordings | " + " | ".join(s.columns) + " |")
-    print("|---" * (len(s.columns) + 1) + "|")
-    for b, r in s.iterrows():
-        print(f"| {b} | " + " | ".join(f"{v:,}" for v in r.values) + " |")
+    print_summary(df)
     print("\nwrote", OUT_CSV.name, OUT_SUMMARY.name)
 
 
