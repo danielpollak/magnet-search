@@ -36,3 +36,5 @@ docs/zebrafish_pvalue_excess/all_rois.csv
 docs/nfc_finite_sample_bias/slow_variation_cache.npz
 docs/nfc_finite_sample_bias/activity_coverage_cache.npz
 docs/nfc_finite_sample_bias/results_coverage_vs_roi_quality.csv
+docs/nfc_finite_sample_bias/fov_images.npz
+docs/nfc_finite_sample_bias/results_body_mask.csv
