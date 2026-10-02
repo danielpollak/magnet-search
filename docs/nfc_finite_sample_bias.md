@@ -762,7 +762,16 @@ therefore cannot create or remove a stimulus-locked response. The threshold is j
 **sham frequencies**: 16–21 log-spaced analysis frequencies per recording, from about 0.06 Hz
 up to just below Nyquist, skipping the stimulus window (the stimulus bin ± M bins), where
 nothing was presented. The window width stays at the production M bins. Each recording's
-range is in the Figure 23 legend. Their p-values should be uniform. The
+range is in the Figure 23 legend.
+
+*What a sham frequency is.* Every ROI in a recording received the same single stimulus (for
+example 0.1 Hz). A sham frequency is not a second stimulus. It is a different frequency at
+which the **same trace** is analysed: NFC and its p-value can be computed at any frequency,
+not just the stimulus one. At frequencies where nothing was presented, the null hypothesis
+is true by construction, so a correct null must give uniform p-values there. Analysing each
+trace at about 20 such frequencies gives about 20 independent checks of the null per trace.
+Any deviation from uniform at sham frequencies is therefore a defect of the null, not a
+response. The
 stimulus frequency is only read off afterwards.
 
 ### Distributions: how active are the ROIs?
