@@ -54,7 +54,7 @@ THR_RAMP = ["#b0b0b0", "#86b6ef", "#2a78d6", "#0d366b"]
 
 # ------------------------------------------------------------------ compute
 def analyse(name, batch, rec):
-    cfg, F, roi_idx = sv.load(name)
+    cfg, F, roi_idx = sv.load(name, outline=True)
     if name.startswith("medaka"):
         roi_idx = np.arange(len(F))
     T, f, Q_frac = cfg.sample_period, cfg.analysis.f, cfg.analysis.Q_frac
@@ -63,14 +63,24 @@ def analyse(name, batch, rec):
     a = activity(F, T)
     Y = np.fft.rfft(F - F.mean(axis=1, keepdims=True), axis=1)
     p_stim = sv.pvals(sv.nfc_from_fft(Y, f0, M), M)
-    k_sham = f0 + 2 * M + 1
-    if k_sham + M >= Y.shape[1] - 1:          # no room above: take the mirror bin below
-        k_sham = f0 - 2 * M - 1
-    p_sham = sv.pvals(sv.nfc_from_fft(Y, k_sham, M), M)
+    sham = {}
+    for side, k in (("above", f0 + 2 * M + 1), ("below", f0 - 2 * M - 1)):
+        fits = M + 1 <= k <= Y.shape[1] - 2 - M     # whole noise window between DC and Nyquist
+        sham[f"p_sham_{side}"] = (sv.pvals(sv.nfc_from_fft(Y, k, M), M) if fits
+                                  else np.full(len(F), np.nan))
+        sham[f"f_sham_{side}"] = k / (N * T) if fits else np.nan
     rows = pd.DataFrame(dict(experiment=name, rec=rec, batch=batch, id=roi_idx, **a,
-                             p_stim=p_stim, p_sham=p_sham, f_stim=f,
-                             f_sham=k_sham / (N * T)))
+                             p_stim=p_stim, f_stim=f, **sham))
     return rows, F, T
+
+
+P_COLS = ["p_sham_above", "p_sham_below", "p_stim"]
+KINDS = ["sham above", "sham below", "stimulus"]
+
+
+def _dev(p):
+    """ECDF(0.5) - 0.5, or NaN where this sham does not exist (no room for its window)."""
+    return float(np.mean(p <= 0.5) - 0.5) if np.isfinite(p).all() else np.nan
 
 
 def sweep(rois):
@@ -85,8 +95,7 @@ def sweep(rois):
                 out.append(dict(batch=b, threshold=thr, n=0))
                 continue
             out.append(dict(batch=b, threshold=thr, n=n, n_total=len(d),
-                            dev_sham=float(np.mean(d.loc[k, "p_sham"] <= 0.5) - 0.5),
-                            dev_stim=float(np.mean(d.loc[k, "p_stim"] <= 0.5) - 0.5)))
+                            **{f"dev_{c[2:]}": _dev(d.loc[k, c].values) for c in P_COLS}))
     return pd.DataFrame(out)
 
 
@@ -99,8 +108,10 @@ def curves(rois):
             k = (d["coverage"] >= thr).values
             if k.sum() == 0:
                 continue
-            for kind, p in (("sham", d.loc[k, "p_sham"].values),
-                            ("stimulus", d.loc[k, "p_stim"].values)):
+            for kind, col in zip(KINDS, P_COLS):
+                p = d.loc[k, col].values
+                if np.isnan(p).all():
+                    continue
                 out.append(dict(batch=b, threshold=thr, kind=kind, n_roi=int(k.sum()),
                                 **{f"c{i}": v for i, v in enumerate(ecdf_dev(p))}))
     return pd.DataFrame(out)
@@ -138,7 +149,8 @@ def fig_distributions(rois, out):
 def freq_hz(rois, b, kind):
     """'0.160 Hz' (or a range, where sample periods differ within the set) for the sham or
     stimulus frequency of one set of recordings."""
-    f = rois.loc[rois["batch"] == b, "f_sham" if kind == "sham" else "f_stim"]
+    col = {"sham above": "f_sham_above", "sham below": "f_sham_below", "stimulus": "f_stim"}[kind]
+    f = rois.loc[rois["batch"] == b, col]
     lo, hi = f.min(), f.max()
     lo, hi = f"{lo:.3f}", f"{hi:.3f}"
     return f"{lo} Hz" if lo == hi else f"{lo}-{hi} Hz"
@@ -152,8 +164,10 @@ def fig_sweep(sw, rois, out):
         ax = axes[0, c]
         se = 1.96 * np.sqrt(0.25 / d["n"])
         ax.fill_between(d["threshold"], -se, se, color="#d9d9d9", lw=0)
-        ax.plot(d["threshold"], d["dev_sham"], color=C_SET[b], lw=2, marker="o", ms=3,
-                label=f"sham frequency ({freq_hz(rois, b, 'sham')}, calibration)")
+        ax.plot(d["threshold"], d["dev_sham_above"], color=C_SET[b], lw=2, marker="o", ms=3,
+                label=f"sham above the stimulus ({freq_hz(rois, b, 'sham above')})")
+        ax.plot(d["threshold"], d["dev_sham_below"], color=C_SET[b], lw=1.5, ls=":", marker="s",
+                ms=3, label=f"sham below the stimulus ({freq_hz(rois, b, 'sham below')})")
         ax.plot(d["threshold"], d["dev_stim"], color=C_INK, lw=1, ls="--", marker="o", ms=2.5,
                 label=f"stimulus frequency ({freq_hz(rois, b, 'stimulus')}, read-out)")
         ax.axhline(0, color=C_INK, lw=0.6)
@@ -169,19 +183,26 @@ def fig_sweep(sw, rois, out):
             ax2.set_ylabel("ROI traces kept", fontsize=8)
         _style(ax2)
         ax.legend(fontsize=7, frameon=False)
-    fig.suptitle("Calibration vs coverage threshold, one sham frequency per recording. "
-                 "Gray: 95% binomial band for the ROIs kept", fontsize=9)
+    fig.suptitle("Calibration vs coverage threshold: two sham frequencies (calibration) and the "
+                 "stimulus frequency (read-out). Gray: 95% binomial band for the ROIs kept",
+                 fontsize=9)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     fig.savefig(out, dpi=150, facecolor="white")
     plt.close(fig)
 
 
 def fig_curves(cv, rois, out):
-    fig, axes = plt.subplots(2, len(BATCHES), figsize=(3.5 * len(BATCHES), 6.4), sharey=True)
+    fig, axes = plt.subplots(3, len(BATCHES), figsize=(3.5 * len(BATCHES), 9.4), sharey=True)
     for c, b in enumerate(BATCHES):
-        for r, kind in enumerate(("sham", "stimulus")):
+        for r, kind in enumerate(KINDS):
             ax = axes[r, c]
             d = cv[(cv["batch"] == b) & (cv["kind"] == kind)]
+            if d.empty:                              # no room for this sham's window
+                ax.text(0.5, 0.5, f"no {kind} frequency\n(window would pass Nyquist)",
+                        ha="center", va="center", transform=ax.transAxes, fontsize=7)
+                ax.set_title(f"{b}\n{kind}" if r == 0 else kind, fontsize=8)
+                _style(ax)
+                continue
             n_min = int(d["n_roi"].min())
             _band(ax, n_min)
             for i, (_, row) in enumerate(d.iterrows()):
@@ -189,13 +210,15 @@ def fig_curves(cv, rois, out):
                 ax.plot(P_GRID, y, color=THR_RAMP[i], lw=1.5,
                         label=f"coverage >= {row['threshold']:.2f} (n={int(row['n_roi'])})")
             ax.axhline(0, color=C_INK, lw=0.6)
-            label = f"{kind} frequency ({freq_hz(rois, b, kind)})"
+            label = {"sham above": "sham frequency above the stimulus",
+                     "sham below": "sham frequency below the stimulus",
+                     "stimulus": "stimulus frequency"}[kind] + f" ({freq_hz(rois, b, kind)})"
             ax.set_title(f"{b}\n{label}" if r == 0 else label, fontsize=8)
             if c == 0:
                 ax.set_ylabel("ECDF(p) - p", fontsize=8)
-            if r == 1:
+            if r == len(KINDS) - 1:
                 ax.set_xlabel("p", fontsize=8)
-            ax.legend(fontsize=5.5, frameon=False, loc="lower center")
+            ax.legend(fontsize=5.5, frameon=False, loc="best")
             _style(ax)
     fig.suptitle("ECDF deviation after excluding low-coverage ROIs. Gray: 95% binomial band for "
                  "the smallest subset shown", fontsize=9)
@@ -289,7 +312,8 @@ def main():
             traces[(name, roi)] = (F[i], T)
     rois = pd.concat(rows, ignore_index=True)
     sw, cv, gal = sweep(rois), curves(rois), _gallery(rois, traces)
-    print(rois.groupby("batch")[["f_stim", "f_sham"]].agg(["min", "max"]).round(3).to_string())
+    print(rois.groupby("batch")[["f_stim", "f_sham_above", "f_sham_below"]]
+          .agg(["min", "max"]).round(3).to_string())
     rois.to_csv(_HERE / "results_activity_rois.csv", index=False)
     sw.to_csv(_HERE / "results_activity_sweep.csv", index=False)
     cv.to_csv(_HERE / "results_activity_curves.csv", index=False)
