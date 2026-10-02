@@ -6,7 +6,8 @@ Companion to coverage_vs_roi_quality.py (reads its CSV; run that first). One pag
 suite2p segmentation (field of view), grouped by set of recordings. Each page is 3 x 3:
 rows are P(iscell), coverage and npix; columns are the low, middle and high tercile of that
 variable. Each panel draws the pixel masks of the ROIs in that tercile, filled with their
-value of the row variable, on top of every other ROI in faint gray.
+value of the row variable, on top of every other ROI in faint gray. Each panel has its
+own colour scale, spanning the values in that tercile.
 
 - All suite2p ROIs are used, not just those passing the production P(iscell)/npix cut.
 - Tercile edges are computed per set of recordings (pooling its fields of view), so the
@@ -28,6 +29,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.colors import LogNorm, Normalize
+from matplotlib.ticker import NullFormatter, ScalarFormatter
 
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
@@ -87,18 +89,31 @@ def page(pdf, b, title, d, masks, dims, edges, norms):
         for c in range(3):
             ax = axes[r, c]
             sel = t == c
-            ax.imshow(render(masks, dims, sel, v, norms[col], cmap), interpolation="nearest")
             lo = v.min() if c == 0 else edges[col][c - 1]
             hi = edges[col][c] if c < 2 else v.max()
+            # Each panel's colour scale spans its own tercile, so variation within it shows.
+            vlo, vhi = (v[sel].min(), v[sel].max()) if sel.any() else (lo, hi)
+            single = vhi <= vlo                  # every ROI in the tercile ties on one value
+            if single:
+                norm = Normalize(vlo - 1, vlo + 1)
+            elif col == "npix" and vhi / max(vlo, 1) > 10:
+                norm = LogNorm(max(vlo, 1), vhi)
+            else:
+                norm = Normalize(vlo, vhi)
+            ax.imshow(render(masks, dims, sel, v, norm, cmap), interpolation="nearest")
             rng = f"{'[' if c == 0 else '('}{lo:.3g}, {hi:.3g}]"
             ax.set_title(f"{label}, {TERCILES[c]} tercile {rng}: {sel.sum()} ROIs"
                          + ("" if sel.any() else " (empty: ties)"), fontsize=8)
             ax.set_xticks([])
             ax.set_yticks([])
-        sm = plt.cm.ScalarMappable(norm=norms[col], cmap=cmap)
-        cb = fig.colorbar(sm, ax=axes[r, :], shrink=0.8, pad=0.01)
-        cb.set_label(label, fontsize=8)
-        cb.ax.tick_params(labelsize=7)
+            cb = fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax,
+                              shrink=0.8, pad=0.01)
+            if single:
+                cb.set_ticks([vlo])
+            elif isinstance(norm, LogNorm):
+                cb.ax.yaxis.set_major_formatter(ScalarFormatter())
+                cb.ax.yaxis.set_minor_formatter(NullFormatter())
+            cb.ax.tick_params(labelsize=7)
     fig.suptitle(f"{b}: {title}\n{len(d)} suite2p ROIs (all, unfiltered). Coloured: ROIs in "
                  f"the tercile; gray: every other ROI", fontsize=10)
     pdf.savefig(fig, dpi=150)
