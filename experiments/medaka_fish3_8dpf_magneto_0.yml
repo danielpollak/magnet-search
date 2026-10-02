@@ -11,3 +11,11 @@ npix_threshold: 10
 analysis:
   f: 0.1
   Q_frac: 0.15
+
+# Outline of the fish in the mean image (docs/body_outline.md); set with body_outline_gui.ipynb
+body_outline:
+  sigma: 7.0
+  frac: 0.42
+  margin: 5
+  min_region: 0.1
+  polygon: [[229.6, 10.5], [322.2, 83.7], [474.8, 272.0], [472.5, 474.4], [87.2, 472.9], [130.0, 184.9]]
