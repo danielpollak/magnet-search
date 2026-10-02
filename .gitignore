@@ -38,3 +38,5 @@ docs/nfc_finite_sample_bias/activity_coverage_cache.npz
 docs/nfc_finite_sample_bias/results_coverage_vs_roi_quality.csv
 docs/nfc_finite_sample_bias/fov_images.npz
 docs/nfc_finite_sample_bias/results_body_mask.csv
+docs/nfc_finite_sample_bias/results_roi_retention.csv
+docs/nfc_finite_sample_bias/results_roi_retention_summary.csv
