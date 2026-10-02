@@ -769,7 +769,7 @@ example 0.1 Hz). A sham frequency is not a second stimulus. It is a different fr
 which the **same trace** is analysed: NFC and its p-value can be computed at any frequency,
 not just the stimulus one. At frequencies where nothing was presented, the null hypothesis
 is true by construction, so a correct null must give uniform p-values there. Analysing each
-trace at about 20 such frequencies gives about 20 independent checks of the null per trace.
+trace at about 20 such frequencies gives about 20 checks of the null per trace (not fully independent: their noise windows can overlap).
 Any deviation from uniform at sham frequencies is therefore a defect of the null, not a
 response. The
 stimulus frequency is only read off afterwards.
