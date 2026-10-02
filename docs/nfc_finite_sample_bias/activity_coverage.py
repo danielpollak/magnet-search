@@ -15,8 +15,11 @@ rest. This script measures, per ROI trace:
   coverage          share of WIN_S-second windows containing >= MIN_ACTIVE active frames
 
 and asks whether excluding low-coverage ROIs restores p-value calibration. Calibration is
-judged at SHAM frequencies (bins at least M away from the stimulus bin, where nothing was
-presented), so the threshold is not tuned on the magnetic result. Neither metric uses
+judged at ONE sham frequency per recording, where nothing was presented: the nearest bin
+whose noise window does not overlap the stimulus window (stimulus bin + 2M + 1, or - 2M - 1
+if that runs past Nyquist). One p-value per ROI at the sham frequency, as at the stimulus
+frequency, so the two are directly comparable. The threshold is not tuned on the magnetic
+result. Neither metric uses
 stimulus timing or power at any frequency, so excluding on them cannot create or remove a
 stimulus-locked response.
 
@@ -42,7 +45,6 @@ CACHE = _HERE / "activity_coverage_cache.npz"
 FLOOR_SHARE = 0.2
 WIN_S = 60.0
 MIN_ACTIVE = 3
-N_SHAM = 24                     # log-spaced sham bins per recording (stimulus +- M excluded)
 THRESHOLDS = np.round(np.arange(0, 1.0001, 0.05), 2)
 CURVE_THRESHOLDS = [0.0, 0.25, 0.5, 0.75]
 GALLERY_N = 8                   # traces per set of recordings in the gallery
@@ -78,45 +80,44 @@ def analyse(name, batch, rec):
     a = activity(F, T)
     Y = np.fft.rfft(F - F.mean(axis=1, keepdims=True), axis=1)
     p_stim = sv.pvals(sv.nfc_from_fft(Y, f0, M), M)
-    lo = int(np.ceil(2 * sv.HP_CUT_HZ * N * T)) + M
-    ks = np.unique(np.geomspace(lo, N // 2 - M - 2, N_SHAM).astype(int))
-    ks = ks[np.abs(ks - f0) > M]
-    P_sham = np.stack([sv.pvals(sv.nfc_from_fft(Y, k, M), M) for k in ks], axis=1)
+    k_sham = f0 + 2 * M + 1
+    if k_sham + M >= Y.shape[1] - 1:          # no room above: take the mirror bin below
+        k_sham = f0 - 2 * M - 1
+    p_sham = sv.pvals(sv.nfc_from_fft(Y, k_sham, M), M)
     rows = pd.DataFrame(dict(experiment=name, rec=rec, batch=batch, id=roi_idx, **a,
-                             p_stim=p_stim, sham_n=P_sham.shape[1],
-                             sham_le_half=(P_sham <= 0.5).sum(1)))
-    return rows, P_sham, F, T
+                             p_stim=p_stim, p_sham=p_sham, f_stim=f,
+                             f_sham=k_sham / (N * T)))
+    return rows, F, T
 
 
-def sweep(rois, P_sham):
+def sweep(rois):
     out = []
     for b in BATCHES:
         sel = (rois["batch"] == b).values
-        d, P = rois[sel], P_sham[sel]
+        d = rois[sel]
         for thr in THRESHOLDS:
             k = (d["coverage"] >= thr).values
             n = int(k.sum())
             if n == 0:
                 out.append(dict(batch=b, threshold=thr, n=0))
                 continue
-            ps = np.concatenate([row[~np.isnan(row)] for row in P[k]])
             out.append(dict(batch=b, threshold=thr, n=n, n_total=len(d),
-                            dev_sham=float(np.mean(ps <= 0.5) - 0.5),
+                            dev_sham=float(np.mean(d.loc[k, "p_sham"] <= 0.5) - 0.5),
                             dev_stim=float(np.mean(d.loc[k, "p_stim"] <= 0.5) - 0.5)))
     return pd.DataFrame(out)
 
 
-def curves(rois, P_sham):
+def curves(rois):
     out = []
     for b in BATCHES:
         sel = (rois["batch"] == b).values
-        d, P = rois[sel], P_sham[sel]
+        d = rois[sel]
         for thr in CURVE_THRESHOLDS:
             k = (d["coverage"] >= thr).values
             if k.sum() == 0:
                 continue
-            ps = np.concatenate([row[~np.isnan(row)] for row in P[k]])
-            for kind, p in (("sham", ps), ("stimulus", d.loc[k, "p_stim"].values)):
+            for kind, p in (("sham", d.loc[k, "p_sham"].values),
+                            ("stimulus", d.loc[k, "p_stim"].values)):
                 out.append(dict(batch=b, threshold=thr, kind=kind, n_roi=int(k.sum()),
                                 **{f"c{i}": v for i, v in enumerate(ecdf_dev(p))}))
     return pd.DataFrame(out)
@@ -160,7 +161,7 @@ def fig_sweep(sw, out):
         se = 1.96 * np.sqrt(0.25 / d["n"])
         ax.fill_between(d["threshold"], -se, se, color="#d9d9d9", lw=0)
         ax.plot(d["threshold"], d["dev_sham"], color=C_SET[b], lw=2, marker="o", ms=3,
-                label="sham frequencies (calibration)")
+                label="sham frequency (calibration)")
         ax.plot(d["threshold"], d["dev_stim"], color=C_INK, lw=1, ls="--", marker="o", ms=2.5,
                 label="stimulus frequency (read-out)")
         ax.axhline(0, color=C_INK, lw=0.6)
@@ -176,8 +177,8 @@ def fig_sweep(sw, out):
             ax2.set_ylabel("ROI traces kept", fontsize=8)
         _style(ax2)
     axes[0, 0].legend(fontsize=7, frameon=False)
-    fig.suptitle("Calibration vs coverage threshold. Gray: 95% binomial band for the ROIs kept "
-                 "(treating each ROI as one observation)", fontsize=9)
+    fig.suptitle("Calibration vs coverage threshold, one sham frequency per recording. "
+                 "Gray: 95% binomial band for the ROIs kept", fontsize=9)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     fig.savefig(out, dpi=150, facecolor="white")
     plt.close(fig)
@@ -196,7 +197,7 @@ def fig_curves(cv, out):
                 ax.plot(P_GRID, y, color=THR_RAMP[i], lw=1.5,
                         label=f"coverage >= {row['threshold']:.2f} (n={int(row['n_roi'])})")
             ax.axhline(0, color=C_INK, lw=0.6)
-            ax.set_title(f"{b}\n{kind} frequencies" if r == 0 else f"{kind} frequency", fontsize=8)
+            ax.set_title(f"{b}\n{kind} frequency" if r == 0 else f"{kind} frequency", fontsize=8)
             if c == 0:
                 ax.set_ylabel("ECDF(p) - p", fontsize=8)
             if r == 1:
@@ -286,19 +287,16 @@ def main():
                 pd.read_csv(_HERE / "results_activity_curves.csv"), _load_gallery())
         return
     recs, _ = sv.pool()
-    rows, Ps, traces = [], [], {}
+    rows, traces = [], {}
     for name, batch, rec in recs:
         print(f"  {name}  [{batch}]", flush=True)
-        r, P, F, T = analyse(name, batch, rec)
+        r, F, T = analyse(name, batch, rec)
         rows.append(r)
-        Ps.append(P)
         for i, roi in enumerate(r["id"]):
             traces[(name, roi)] = (F[i], T)
     rois = pd.concat(rows, ignore_index=True)
-    width = max(P.shape[1] for P in Ps)
-    P_sham = np.vstack([np.pad(P, ((0, 0), (0, width - P.shape[1])), constant_values=np.nan)
-                        for P in Ps])
-    sw, cv, gal = sweep(rois, P_sham), curves(rois, P_sham), _gallery(rois, traces)
+    sw, cv, gal = sweep(rois), curves(rois), _gallery(rois, traces)
+    print(rois.groupby("batch")[["f_stim", "f_sham"]].agg(["min", "max"]).round(3).to_string())
     rois.to_csv(_HERE / "results_activity_rois.csv", index=False)
     sw.to_csv(_HERE / "results_activity_sweep.csv", index=False)
     cv.to_csv(_HERE / "results_activity_curves.csv", index=False)
