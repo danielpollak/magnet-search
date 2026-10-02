@@ -40,8 +40,7 @@ small regions are dropped, holes filled and the margin added.
 Needs `ipympl` in the kernel's environment, `results_coverage_vs_roi_quality.csv` (from
 `coverage_vs_roi_quality.py`) and `fov_images.npz` (from `fov_images.py`)."""
 
-SETUP = r'''%matplotlib widget
-import sys
+SETUP = r'''import sys
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -58,6 +57,8 @@ import body_mask as bm
 import fov_images
 from coverage_vs_roi_quality import OUT_CSV, fields_of_view
 from roi_masks_by_tercile import read_masks
+%matplotlib widget
+# ^ after the imports: these scripts switch matplotlib to the non-interactive Agg backend
 
 images = fov_images.load()
 rois = fields_of_view(pd.read_csv(OUT_CSV)).drop_duplicates(["segmentation", "roi"])
