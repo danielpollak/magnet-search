@@ -13,7 +13,8 @@ plot_engert_diagnostics  — single multi-page PDF:
   Page 6: Cell mask FOV — excluded cells gray, included cells colored by NFC
   Page 7: P(iscell) x npix joint histogram with ECDF marginals
   Page 8: outline of the fish in the mean image (pipeline/body_outline.py, parameters from
-          the YAML's body_outline block): ROIs inside/outside it, and P(iscell)/NFC of each
+          the YAML's body_outline block): ROIs inside/outside it (outside ones are not
+          analysed), and P(iscell)/npix of each
 """
 from pathlib import Path
 
@@ -27,22 +28,6 @@ from matplotlib.backends.backend_pdf import PdfPages
 from magpyneto2.statistics import draw_hist, inset_hist, get_epsilon
 from pipeline.diagnostics.analysis import _subsample_units, _rasterize_ax
 from pipeline import body_outline
-
-
-def _pixels(mask_entries):
-    # NWB pixel_mask convention: (x, y, weight) triples -- but
-    # pynwb reads each ROI's mask back as a 1-D STRUCTURED
-    # (record) array with named fields (x, y, weight), not a
-    # plain (n_pixels, 3) array. Fancy column indexing
-    # (arr[:, 1]) raises "too many indices for array: array is
-    # 1-dimensional, but 2 were indexed" on that structured
-    # form -- confirmed on real data. Field-name indexing works
-    # for the structured form; fall back to column indexing in
-    # case a caller ever passes a plain 2D array instead.
-    arr = np.asarray(mask_entries)
-    if arr.dtype.names is not None:
-        return arr["y"].astype(int), arr["x"].astype(int)  # (ypix, xpix)
-    return arr[:, 1].astype(int), arr[:, 0].astype(int)  # (ypix, xpix)
 
 
 def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
@@ -240,7 +225,7 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
 
             # All excluded ROIs → dim gray
             for pixel_mask in roi_df.loc[~included_mask, "pixel_mask"]:
-                ypix, xpix = _pixels(pixel_mask)
+                ypix, xpix = body_outline.pixel_mask_yx(pixel_mask)
                 img[ypix, xpix, :] = 0.25
 
             # Included ROIs colored by NFC -- roi_df[included_mask]'s row
@@ -249,7 +234,7 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
             # and included_mask was built by composing the two the same way
             # the analysis stage itself did.
             for rank, pixel_mask in enumerate(roi_df.loc[included_mask, "pixel_mask"]):
-                ypix, xpix = _pixels(pixel_mask)
+                ypix, xpix = body_outline.pixel_mask_yx(pixel_mask)
                 color = np.array(cmap_cells(NFC_norm[rank])[:3], dtype=np.float32)
                 img[ypix, xpix, :] = color
 
@@ -327,17 +312,17 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
             plt.close(fig)
 
         # ── Page 8: outline of the fish; which ROIs lie outside it ──────────
-        # Diagnostic only: the outline is not (yet) applied to the analysed population.
+        # ROIs outside the outline are dropped by the analysis stage (_load_from_nwb).
         try:
             if mean_img is None:
                 raise ValueError("no mean image in the NWB file -- re-run processing to add it")
             if roi_df is None or included_mask is None:
                 raise ValueError("roi_df/included_mask not provided")
-            included = np.asarray(included_mask, dtype=bool)
             params = body_outline.params_for(cfg.body_outline)
-            body = body_outline.body(mean_img, params)
-            masks = [_pixels(m) for m in roi_df["pixel_mask"]]
-            inside = body_outline.inside_share(masks, body) >= 0.5
+            inside, body = body_outline.inside_rois(roi_df, mean_img, params)
+            masks = [body_outline.pixel_mask_yx(m) for m in roi_df["pixel_mask"]]
+            passing = ((roi_df["p_iscell"].values > cfg.iscell_threshold)
+                       & (roi_df["npix"].values > cfg.npix_threshold))
             if params.get("polygon"):
                 source = "hand-drawn polygon (YAML body_outline)"
             else:
@@ -351,7 +336,7 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
             show = body_outline.log_mean(mean_img)
             lo, hi = np.percentile(show, [1, 99.5])
             for k, (title, sel) in enumerate((("all ROIs", np.ones(len(roi_df), bool)),
-                                              ("analysed ROIs", included))):
+                                              ("passing iscell/npix", passing))):
                 ax = fig.add_subplot(gs[0, k])
                 ax.imshow(show, cmap="gray", vmin=lo, vmax=hi)
                 rgba = np.zeros((*body.shape, 4))
@@ -363,14 +348,12 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
                 ax.set_title(f"{title}: {(sel & inside).sum()} inside (blue), "
                              f"{(sel & ~inside).sum()} outside (orange)", fontsize=9)
                 ax.axis("off")
-            # One strip per variable: P(iscell) of every ROI, NFC of the analysed ones
-            # (NFC is in the same order as roi_df[included]).
+            # One strip per variable, every ROI: P(iscell) and npix.
             rng = np.random.default_rng(0)
-            for k, (vals, ins, label) in enumerate((
-                    (roi_df["p_iscell"].values, inside, "P(iscell), all ROIs"),
-                    (NFC, inside[included], "NFC, analysed ROIs"))):
+            for k, (vals, label) in enumerate(((roi_df["p_iscell"].values, "P(iscell), all ROIs"),
+                                               (roi_df["npix"].values, "npix, all ROIs"))):
                 ax = fig.add_subplot(gs[0, 2 + k])
-                for j, (m, c) in enumerate(((ins, c_in), (~ins, c_out))):
+                for j, (m, c) in enumerate(((inside, c_in), (~inside, c_out))):
                     x = j + rng.uniform(-0.3, 0.3, m.sum())
                     ax.scatter(x, vals[m], s=2, c=c, alpha=0.4, linewidths=0, rasterized=True)
                     if m.any():
@@ -382,9 +365,12 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
                 if k == 0:
                     ax.axhline(cfg.iscell_threshold, color="k", ls="--", lw=0.8)
                     ax.set_ylim(-0.03, 1.03)
-            fig.suptitle(f"{cfg.name}  |  yellow: outline of the fish in the mean image "
-                         f"(not applied to the analysis)  |  {source}\n"
-                         f"one dot per ROI; black bar: median; dashed: iscell_threshold",
+                else:
+                    ax.axhline(cfg.npix_threshold, color="k", ls="--", lw=0.8)
+                    ax.set_yscale("log")
+            fig.suptitle(f"{cfg.name}  |  yellow: outline of the fish in the mean image; "
+                         f"orange ROIs outside it are not analysed  |  {source}\n"
+                         f"one dot per ROI; black bar: median; dashed: iscell/npix thresholds",
                          fontsize=9)
             pdf.savefig(fig, dpi=110)
             plt.close(fig)
