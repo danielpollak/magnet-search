@@ -40,11 +40,9 @@ _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
 import slow_variation as sv  # noqa: E402
 from slow_variation import BATCHES, P_GRID, C_INK, C_MUTED, _band, _style, ecdf_dev  # noqa: E402
+from pipeline.roi_coverage import FLOOR_SHARE, MIN_ACTIVE, WIN_S, activity  # noqa: E402,F401
 
 CACHE = _HERE / "activity_coverage_cache.npz"
-FLOOR_SHARE = 0.2
-WIN_S = 60.0
-MIN_ACTIVE = 3
 THRESHOLDS = np.round(np.arange(0, 1.0001, 0.05), 2)
 CURVE_THRESHOLDS = [0.0, 0.25, 0.5, 0.75]
 GALLERY_N = 8                   # traces per set of recordings in the gallery
@@ -55,21 +53,6 @@ THR_RAMP = ["#b0b0b0", "#86b6ef", "#2a78d6", "#0d366b"]
 
 
 # ------------------------------------------------------------------ compute
-def activity(F, T):
-    N = F.shape[1]
-    floor = np.full(len(F), -np.inf)
-    for i, row in enumerate(F):
-        v, c = np.unique(row, return_counts=True)
-        if c.max() >= FLOOR_SHARE * N:
-            floor[i] = v[c.argmax()]
-    active = F > floor[:, None]
-    w = int(round(WIN_S / T))
-    nw = N // w
-    A = active[:, :nw * w].reshape(len(F), nw, w)
-    return dict(clipped=np.isfinite(floor), active_frac=active.mean(1),
-                coverage=(A.sum(2) >= MIN_ACTIVE).mean(1))
-
-
 def analyse(name, batch, rec):
     cfg, F, roi_idx = sv.load(name)
     if name.startswith("medaka"):
