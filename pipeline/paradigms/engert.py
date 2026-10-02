@@ -43,6 +43,7 @@ def run_processing(cfg):
         nwbfile, stat, iscell, ops, sampling_rate=1.0 / cfg.sample_period)
     nwb_io.write_roi_response_series(
         nwbfile, F_slice, ps, sampling_rate=1.0 / cfg.sample_period)
+    nwb_io.write_mean_image(nwbfile, ops["meanImg"])   # for the fish-outline diagnostics
     nwb_io.write_nwbfile(nwbfile, cfg.nwb_path())
     print(f"[engert] {cfg.name}: wrote {len(stat)} ROIs + "
           f"{F_slice.shape[1]}-frame trace -> {cfg.nwb_path()}")
