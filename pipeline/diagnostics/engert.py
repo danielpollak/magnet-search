@@ -8,7 +8,8 @@ plot_engert_diagnostics  — single multi-page PDF:
           pairing, and for 1F frequencies above half-Nyquist, where
           analysis_stages/engert.py skips 2F entirely)
   Page 4: 2F Fourier coefficient spectrum (same skip conditions as Page 3)
-  Page 5: Fluorescence heatmap (cells sorted by NFC descending, rasterized),
+  Page 5: Fluorescence heatmap (cells sorted by NFC descending, rasterized), and below it
+          the traces the coverage threshold drops (sorted by coverage),
           with a period-duration scale bar so cycles can be counted by eye
   Page 6: Cell mask FOV — excluded cells gray, included cells colored by NFC
   Page 7: P(iscell) x npix joint histogram with ECDF marginals
@@ -34,7 +35,8 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
                              onfreq_coef_l, offfreq_coef_l, save_dir,
                              roi_df=None, included_mask=None, imaging_dims=None,
                              freq_win_2f=None, onfreq_coef_2f=None,
-                             offfreq_coef_2f=None, Q_2f=None, mean_img=None):
+                             offfreq_coef_2f=None, Q_2f=None, mean_img=None,
+                             low_coverage=None):
     """Write a multi-page PDF of GCaMP analysis diagnostics.
 
     Parameters
@@ -75,6 +77,9 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
                      `onfreq_coef_2f` is None.
     mean_img       : np.ndarray (Ly, Lx), optional, from `nwb_io.read_mean_image` -- suite2p's
                      time-averaged image, for Page 8 (fish outline). Page 8 says so if None.
+    low_coverage   : (F, coverage), optional, from `roi_coverage.low_coverage_traces`: the
+                     traces the coverage threshold drops, shown under the analysed ones on
+                     Page 5.
     """
     save_dir = Path(save_dir)
     out_path = save_dir / f"{cfg.name}_analysis_diagnostics.pdf"
@@ -177,28 +182,39 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
             plt.close(fig)
 
         # ── Page 5: Fluorescence heatmap sorted by NFC ───────────────────────
-        sort_idx = np.argsort(NFC)[::-1]
-        F_sorted = F[sort_idx]
+        # Top: the analysed traces, by NFC. Bottom (if the YAML sets coverage_threshold): the
+        # traces the coverage threshold drops, by coverage, to judge whether it is high enough.
         N_frames = int(120 * (F.shape[1] // 60))
-        F_display = F_sorted[:, :N_frames]
 
-        # Normalize each row to [0, 1] for display
-        row_min = F_display.min(axis=1, keepdims=True)
-        row_max = F_display.max(axis=1, keepdims=True)
-        denom = np.where(row_max > row_min, row_max - row_min, 1)
-        F_norm = (F_display - row_min) / denom
+        def _rows01(X):
+            X = X[:, :N_frames]
+            lo, hi = X.min(axis=1, keepdims=True), X.max(axis=1, keepdims=True)
+            return (X - lo) / np.where(hi > lo, hi - lo, 1)
 
-        fig, ax = plt.subplots(figsize=(12, 6))
-        fig.suptitle(f"{cfg.name}  |  {freq} Hz  —  ΔF/F sorted by NFC (high → low)",
+        panels = [(_rows01(F[np.argsort(NFC)[::-1]]),
+                   f"analysed: {len(F)} traces, sorted by NFC (high → low)")]
+        F_low, cov_low = low_coverage if low_coverage is not None else (np.zeros((0, 1)), [])
+        if len(F_low):
+            order = np.argsort(cov_low)[::-1]
+            panels.append((_rows01(np.asarray(F_low)[order]),
+                           f"dropped for coverage < {cfg.coverage_threshold}: {len(F_low)} "
+                           f"traces passing P(iscell)/npix/outline, sorted by coverage "
+                           f"({cov_low[order[0]]:.2f} → {cov_low[order[-1]]:.2f})"))
+        heights = [max(len(x), 0.25 * len(F)) for x, _ in panels]
+        fig, axes = plt.subplots(len(panels), 1, figsize=(12, 6 if len(panels) == 1 else 9),
+                                 sharex=True, squeeze=False,
+                                 gridspec_kw=dict(height_ratios=heights))
+        fig.suptitle(f"{cfg.name}  |  {freq} Hz  —  ΔF/F, each row scaled to its own range",
                      fontsize=9)
-        im = ax.imshow(F_norm, aspect="auto", cmap="viridis",
-                       interpolation="none", rasterized=True)
-        ax.set_xlabel("Frame")
-        ax.set_ylabel(f"Cell (N={len(F_norm)}, sorted)")
-        ax.set_yticks([0, len(F_norm) - 1])
-        plt.colorbar(im, ax=ax, label="normalized ΔF/F", shrink=0.6)
-        _draw_period_scalebar(ax, freq, cfg.sample_period)
-        fig.tight_layout()
+        for ax, (X, title) in zip(axes[:, 0], panels):
+            im = ax.imshow(X, aspect="auto", cmap="viridis", vmin=0, vmax=1,
+                           interpolation="none", rasterized=True)
+            ax.set_title(title, fontsize=8)
+            ax.set_ylabel("trace")
+            ax.set_yticks([0, len(X) - 1])
+            _draw_period_scalebar(ax, freq, cfg.sample_period)
+        axes[-1, 0].set_xlabel("Frame")
+        plt.colorbar(im, ax=axes[:, 0].tolist(), label="normalized ΔF/F", shrink=0.6)
         pdf.savefig(fig, dpi=150)
         plt.close(fig)
 
