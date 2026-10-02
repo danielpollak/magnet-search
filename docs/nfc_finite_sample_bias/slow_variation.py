@@ -61,7 +61,7 @@ sys.path.insert(0, str(_REPO / "pipeline"))
 
 from magpyneto2 import statistics as st  # noqa: E402
 from magpyneto2.engert_helpers import fit_Fourier  # noqa: E402
-from pipeline import schema  # noqa: E402
+from pipeline import body_outline, schema  # noqa: E402
 from pipeline.analysis_stages import engert as engert_stage  # noqa: E402
 from pipeline.analysis_stages import medaka as medaka_stage  # noqa: E402
 
@@ -115,10 +115,15 @@ def pool():
     return out, im
 
 
-def load(name):
+def load(name, outline=False):
+    """(cfg, F, ROI indices) of the ROIs passing the YAML's iscell/npix thresholds and flatline
+    removal; with outline=True also the fish outline, as in production (but never the coverage
+    threshold, which activity_coverage.py sweeps)."""
     cfg = schema.load_experiment(str(_REPO / "experiments" / f"{name}.yml"))
     stage = medaka_stage if name.startswith("medaka") else engert_stage
-    F, _, kept, _ = stage._load_from_nwb(cfg.nwb_path(), cfg.iscell_threshold, cfg.npix_threshold)
+    F, _, kept, _ = stage._load_from_nwb(
+        cfg.nwb_path(), cfg.iscell_threshold, cfg.npix_threshold,
+        outline=body_outline.params_for(cfg.body_outline) if outline else None)
     # fit_Fourier analyses the first N frames; everything here uses the same N.
     N = min(int(120 * (F.shape[1] // 60)), F.shape[1])
     return cfg, F[:, :N].astype(float), np.where(kept)[0]
