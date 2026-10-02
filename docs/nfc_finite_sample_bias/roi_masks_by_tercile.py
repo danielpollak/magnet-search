@@ -9,9 +9,10 @@ variable. Each panel draws the pixel masks of the ROIs in that tercile, filled w
 value of the row variable, on top of every other ROI in faint gray. Each panel has its
 own colour scale, spanning the values in that tercile.
 
-- All suite2p ROIs are used, not just those passing the production P(iscell)/npix cut.
-- Tercile edges are computed per set of recordings (pooling its fields of view), so the
-  pages of one set share the same edges. A value equal to an edge goes to the lower
+- All suite2p ROIs with npix >= MIN_NPIX are used, not just those passing the production
+  P(iscell)/npix cut. Smaller ROIs are not drawn at all.
+- Tercile edges are computed within each field of view, never pooled across fish. A value
+  equal to an edge goes to the lower
   tercile; when many ROIs tie (coverage 0 or 1) a tercile can hold far more or fewer than a
   third, or be empty. Panel titles give the range and count.
 - Zebrafish repeat trials share one segmentation; a ROI's coverage on its page is the mean
@@ -35,7 +36,7 @@ _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
 import slow_variation as sv  # noqa: E402
 from slow_variation import schema  # noqa: E402
-from coverage_vs_roi_quality import OUT_CSV, SETS  # noqa: E402
+from coverage_vs_roi_quality import MIN_NPIX, OUT_CSV, SETS, fields_of_view  # noqa: E402
 from pipeline import nwb_io  # noqa: E402
 
 OUT_PDF = _HERE / "fig_roi_masks_by_tercile.pdf"
@@ -43,14 +44,6 @@ ROWS = [("p_iscell", "P(iscell)"), ("coverage", "coverage"), ("npix", "npix")]
 TERCILES = ["low", "middle", "high"]
 BACKGROUND = np.array([0.0, 0.0, 0.0])
 OTHER = np.array([0.28, 0.28, 0.28])
-
-
-def segmentation_key(name):
-    """Recordings sharing a suite2p segmentation share a key (engert: session_path)."""
-    if name.startswith("medaka"):
-        return name
-    cfg = schema.load_experiment(str(sv._REPO / "experiments" / f"{name}.yml"))
-    return cfg.session_path
 
 
 def read_masks(name):
@@ -80,11 +73,12 @@ def render(masks, dims, sel, values, norm, cmap):
     return img
 
 
-def page(pdf, b, title, d, masks, dims, edges, norms):
+def page(pdf, b, title, d, masks, dims):
     fig, axes = plt.subplots(3, 3, figsize=(12, 13), constrained_layout=True)
     cmap = plt.get_cmap("viridis")
     for r, (col, label) in enumerate(ROWS):
         v = d[col].values
+        edges = {col: np.quantile(v, [1 / 3, 2 / 3])}
         t = tercile(v, edges[col])
         for c in range(3):
             ax = axes[r, c]
@@ -114,8 +108,8 @@ def page(pdf, b, title, d, masks, dims, edges, norms):
                 cb.ax.yaxis.set_major_formatter(ScalarFormatter())
                 cb.ax.yaxis.set_minor_formatter(NullFormatter())
             cb.ax.tick_params(labelsize=7)
-    fig.suptitle(f"{b}: {title}\n{len(d)} suite2p ROIs (all, unfiltered). Coloured: ROIs in "
-                 f"the tercile; gray: every other ROI", fontsize=10)
+    fig.suptitle(f"{b}: {title}\n{len(d)} suite2p ROIs with npix >= {MIN_NPIX} (smaller ones not drawn). "
+                 f"Coloured: ROIs in the tercile; gray: every other ROI", fontsize=10)
     pdf.savefig(fig, dpi=150)
     plt.close(fig)
 
@@ -123,29 +117,16 @@ def page(pdf, b, title, d, masks, dims, edges, norms):
 def main():
     if not OUT_CSV.exists():
         sys.exit(f"{OUT_CSV.name} missing: run coverage_vs_roi_quality.py first")
-    df = pd.read_csv(OUT_CSV)
-    df["segmentation"] = [segmentation_key(n) for n in df["experiment"]]
-    # One row per ROI per segmentation; coverage averaged over that set's repeat trials.
-    rois = (df.groupby(["batch", "segmentation", "roi"], sort=False)
-              .agg(p_iscell=("p_iscell", "first"), npix=("npix", "first"),
-                   coverage=("coverage", "mean"), experiment=("experiment", "first"),
-                   recordings=("experiment", lambda s: ", ".join(sorted(set(s)))))
-              .reset_index())
+    rois = fields_of_view(pd.read_csv(OUT_CSV))
     with PdfPages(OUT_PDF) as pdf:
         for b in SETS:
-            sb = rois[rois["batch"] == b]
-            if sb.empty:
-                continue
-            edges = {col: np.quantile(sb[col], [1 / 3, 2 / 3]) for col, _ in ROWS}
-            norms = dict(p_iscell=Normalize(0, 1), coverage=Normalize(0, 1),
-                         npix=LogNorm(max(sb["npix"].min(), 1), sb["npix"].max()))
-            for seg, d in sb.groupby("segmentation", sort=False):
+            for _, d in rois[rois["batch"] == b].groupby("segmentation", sort=False):
                 d = d.sort_values("roi")
                 masks, dims = read_masks(d["experiment"].iloc[0])
-                assert len(masks) == len(d), (seg, len(masks), len(d))
+                masks = [masks[i] for i in d["roi"]]        # npix >= MIN_NPIX only
                 recs = d["recordings"].iloc[0].replace("engert_", "")
                 print(f"  [{b}] {recs}", flush=True)
-                page(pdf, b, recs, d, masks, dims, edges, norms)
+                page(pdf, b, recs, d, masks, dims)
     print("wrote", OUT_PDF)
 
 
