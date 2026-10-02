@@ -135,7 +135,16 @@ def fig_distributions(rois, out):
     plt.close(fig)
 
 
-def fig_sweep(sw, out):
+def freq_hz(rois, b, kind):
+    """'0.160 Hz' (or a range, where sample periods differ within the set) for the sham or
+    stimulus frequency of one set of recordings."""
+    f = rois.loc[rois["batch"] == b, "f_sham" if kind == "sham" else "f_stim"]
+    lo, hi = f.min(), f.max()
+    lo, hi = f"{lo:.3f}", f"{hi:.3f}"
+    return f"{lo} Hz" if lo == hi else f"{lo}-{hi} Hz"
+
+
+def fig_sweep(sw, rois, out):
     fig, axes = plt.subplots(2, len(CLIPPED), figsize=(3.8 * len(CLIPPED), 6.2), sharex=True,
                              gridspec_kw=dict(height_ratios=[2, 1]))
     for c, b in enumerate(CLIPPED):
@@ -144,9 +153,9 @@ def fig_sweep(sw, out):
         se = 1.96 * np.sqrt(0.25 / d["n"])
         ax.fill_between(d["threshold"], -se, se, color="#d9d9d9", lw=0)
         ax.plot(d["threshold"], d["dev_sham"], color=C_SET[b], lw=2, marker="o", ms=3,
-                label="sham frequency (calibration)")
+                label=f"sham frequency ({freq_hz(rois, b, 'sham')}, calibration)")
         ax.plot(d["threshold"], d["dev_stim"], color=C_INK, lw=1, ls="--", marker="o", ms=2.5,
-                label="stimulus frequency (read-out)")
+                label=f"stimulus frequency ({freq_hz(rois, b, 'stimulus')}, read-out)")
         ax.axhline(0, color=C_INK, lw=0.6)
         ax.set_title(b, fontsize=9)
         if c == 0:
@@ -159,7 +168,7 @@ def fig_sweep(sw, out):
         if c == 0:
             ax2.set_ylabel("ROI traces kept", fontsize=8)
         _style(ax2)
-    axes[0, 0].legend(fontsize=7, frameon=False)
+        ax.legend(fontsize=7, frameon=False)
     fig.suptitle("Calibration vs coverage threshold, one sham frequency per recording. "
                  "Gray: 95% binomial band for the ROIs kept", fontsize=9)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
@@ -167,7 +176,7 @@ def fig_sweep(sw, out):
     plt.close(fig)
 
 
-def fig_curves(cv, out):
+def fig_curves(cv, rois, out):
     fig, axes = plt.subplots(2, len(BATCHES), figsize=(3.5 * len(BATCHES), 6.4), sharey=True)
     for c, b in enumerate(BATCHES):
         for r, kind in enumerate(("sham", "stimulus")):
@@ -180,7 +189,8 @@ def fig_curves(cv, out):
                 ax.plot(P_GRID, y, color=THR_RAMP[i], lw=1.5,
                         label=f"coverage >= {row['threshold']:.2f} (n={int(row['n_roi'])})")
             ax.axhline(0, color=C_INK, lw=0.6)
-            ax.set_title(f"{b}\n{kind} frequency" if r == 0 else f"{kind} frequency", fontsize=8)
+            label = f"{kind} frequency ({freq_hz(rois, b, kind)})"
+            ax.set_title(f"{b}\n{label}" if r == 0 else label, fontsize=8)
             if c == 0:
                 ax.set_ylabel("ECDF(p) - p", fontsize=8)
             if r == 1:
@@ -258,8 +268,8 @@ def _load_gallery():
 def figures(rois, sw, cv, gal):
     fig_distributions(rois, _HERE / "fig_ac_distributions.png")
     fig_gallery(gal, _HERE / "fig_ac_gallery.png")
-    fig_sweep(sw, _HERE / "fig_ac_threshold_sweep.png")
-    fig_curves(cv, _HERE / "fig_ac_curves.png")
+    fig_sweep(sw, rois, _HERE / "fig_ac_threshold_sweep.png")
+    fig_curves(cv, rois, _HERE / "fig_ac_curves.png")
     print("  wrote fig_ac_*.png")
 
 
