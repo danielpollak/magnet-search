@@ -739,7 +739,14 @@ independence assumption that the Rayleigh/eps-corrected null rests on.
 
 ## Excluding ROIs with long dead time (imaging)
 
-**Date:** 2026-10-01. **Script:** `activity_coverage.py`.
+**Date:** 2026-10-01; re-run 2026-10-02. **Script:** `activity_coverage.py`.
+
+*Re-run, 2026-10-02.* Figures 20–23 and every number in this section now come from the
+current production population, before any coverage threshold: P(iscell) > 0.5, npix ≥ 10,
+inside the fish outline ([`body_outline.md`](body_outline.md)) and flatline removal. A second
+sham frequency, below the stimulus, was added. The 2026-10-01 version used the old P(iscell)
+thresholds (0.55–0.8), npix > 10, no outline and one sham frequency; its figures are kept
+(untracked) in `figs/paper/compare_2026-10-02/report_figs_20-23_old/`.
 
 **The question.** Figure 10 shows that many ROIs in the floor-clipped recordings are not
 usable cells. Some fire a handful of times in the whole recording. Others are "on" for a few
@@ -767,18 +774,19 @@ not just the stimulus one. Where nothing was presented the null is true by const
 a correct null must give uniform p-values there. Any deviation from uniform at a sham
 frequency is a defect of the null, not a response.
 
-The threshold is judged at **one sham frequency per recording**: the nearest frequency whose
-noise window (± M bins) does not overlap the stimulus's. That is the stimulus bin + 2M + 1,
-or − 2M − 1 when there is no room above. Each ROI contributes exactly one sham p-value, just
-as it contributes one stimulus p-value, so the two are directly comparable and have the same
-binomial uncertainty:
+The threshold is judged at **two sham frequencies per recording**, one on each side of the
+stimulus: the nearest frequencies whose noise windows (± M bins) do not overlap the
+stimulus's, i.e. the stimulus bin + 2M + 1 and − 2M − 1. A sham is skipped when its window
+would reach past Nyquist or down to DC. Each ROI contributes one p-value per sham frequency,
+just as it contributes one at the stimulus, so all three are directly comparable and have the
+same binomial uncertainty:
 
-| set of recordings | stimulus | sham frequency |
-|---|---|---|
-| 2022 Q1 zebrafish | 0.4 Hz | 0.279 Hz (below; no room above) |
-| 0.3 Hz zebrafish | 0.3 Hz | 0.391 Hz |
-| 0.1 Hz zebrafish | 0.1 Hz | 0.160 Hz |
-| medaka | 0.1 Hz | 0.131 Hz |
+| set of recordings | stimulus | sham above | sham below |
+|---|---|---|---|
+| 2022 Q1 zebrafish | 0.4 Hz | none (window would pass Nyquist) | 0.279 Hz |
+| 0.3 Hz zebrafish | 0.3 Hz | 0.391 Hz | 0.209 Hz |
+| 0.1 Hz zebrafish | 0.1 Hz | 0.160 Hz | 0.040 Hz |
+| medaka | 0.1 Hz | 0.131 Hz | 0.069 Hz |
 
 The stimulus frequency is only read off afterwards.
 
@@ -789,12 +797,12 @@ The stimulus frequency is only read off afterwards.
 <sub>**Figure 20. Activity per ROI trace, by set of recordings.** *Top:* fraction of frames above the floor. *Bottom:* coverage, the share of 60 s windows with ≥ 3 active frames. *Left:* histograms (density). *Right:* ECDFs. The 2022 Q1 traces are unclipped, so every frame counts as active and they all sit at 1 (gray spike). n (ROI traces) in the legend.</sub>
 
 - **Active fraction is low everywhere in the clipped recordings.** The median trace is above
-  the floor in only 2% (0.3 Hz), 6% (0.1 Hz) and 8% (medaka) of frames. This measures how
+  the floor in only 2% (0.3 Hz), 5% (0.1 Hz) and 8% (medaka) of frames. This measures how
   sparse the activity is, not whether it is spread over the recording, so it separates dead
   ROIs from live ones poorly. Coverage is the more useful quantity.
 - **Coverage is spread out, with a lump at the low end and a spike at 1.**
-  - 0.3 Hz zebrafish: mostly low (median 0.10; only 3% of traces have full coverage).
-  - 0.1 Hz zebrafish: median 0.39, with 22% at full coverage.
+  - 0.3 Hz zebrafish: mostly low (median 0.10; only 2% of traces have full coverage).
+  - 0.1 Hz zebrafish: median 0.33, with 20% at full coverage.
   - Medaka: mostly high (median 0.78, 25% at full coverage).
 - **There is no clean valley between "dead" and "alive".** The histograms are roughly flat
   between 0.2 and 0.9, so the distributions alone don't dictate a threshold. The calibration
@@ -816,73 +824,83 @@ The stimulus frequency is only read off afterwards.
 
 One caveat: ≥ 3 active frames per window is a lenient definition of "on". A trace with a long
 quiet stretch can still score well if a few single-frame blips fall in the quiet windows
-(`engert_20221002_fish2_magneto_2` ROI 9, coverage 0.83, is mostly silent for its first 500 s).
+(in the 2026-10-01 gallery, `engert_20221002_fish2_magneto_2` ROI 9, coverage 0.83, was mostly
+silent for its first 500 s). The reverse also happens: `engert_20221001_fish1_magneto_0` ROI 79
+in Figure 21 (coverage 0.28) bursts for 200 s and then goes silent.
 A stricter per-window criterion would catch it, at the cost of more ROIs.
 
 ### Does excluding them restore calibration?
 
 ![Threshold sweep](nfc_finite_sample_bias/fig_ac_threshold_sweep.png)
 
-<sub>**Figure 22. Calibration vs coverage threshold.** For each clipped set of recordings (columns), the deviation at p = 0.5 after keeping only ROI traces with coverage ≥ the threshold (x). *Top:* the sham frequency (coloured, the calibration target) and the stimulus frequency (black dashed, read-out only); each panel's legend gives both frequencies in Hz. Each ROI contributes one p-value to each line. Gray: 95% binomial band for the number of ROIs kept. *Bottom:* ROI traces kept.</sub>
+<sub>**Figure 22. Calibration vs coverage threshold.** For each clipped set of recordings (columns), the deviation at p = 0.5 (ECDF(0.5) − 0.5) after keeping only ROI traces with coverage ≥ the threshold (x). *Top:* the sham frequency above the stimulus (coloured solid, circles), the sham frequency below the stimulus (coloured dotted, squares), both calibration targets, and the stimulus frequency (black dashed, read-out only); each panel's legend gives the three frequencies in Hz. Each ROI contributes one p-value to each line. Gray: 95% binomial band for the number of ROIs kept. *Bottom:* ROI traces kept.</sub>
 
 ![ECDF curves after exclusion](nfc_finite_sample_bias/fig_ac_curves.png)
 
-<sub>**Figure 23. Whole ECDF-deviation curves after exclusion.** ECDF(p) − p at coverage thresholds 0, 0.25, 0.5 and 0.75 (light to dark), for each set of recordings (columns). *Top:* the sham frequency. *Bottom:* the stimulus frequency. Panel titles give each frequency in Hz. Gray: 95% binomial band for the smallest subset shown.</sub>
+<sub>**Figure 23. Whole ECDF-deviation curves after exclusion.** ECDF(p) − p at coverage thresholds 0, 0.25, 0.5 and 0.75 (light to dark), for each set of recordings (columns). *Top row:* the sham frequency above the stimulus (none for 2022 Q1). *Middle row:* the sham frequency below the stimulus. *Bottom row:* the stimulus frequency. Panel titles give each frequency in Hz. Gray: 95% binomial band for the smallest subset shown.</sub>
 
-| coverage ≥ | 0.3 Hz zebrafish: kept / sham / stimulus | 0.1 Hz zebrafish: kept / sham / stimulus | medaka: kept / sham / stimulus |
+Values of Figure 22's top row (deviation at p = 0.5) and bottom row (ROI traces kept):
+
+| coverage ≥ | 0.3 Hz zebrafish: kept / sham above / sham below / stimulus | 0.1 Hz zebrafish: kept / sham above / sham below / stimulus | medaka: kept / sham above / sham below / stimulus |
 |---|---|---|---|
-| 0 (everything) | 857 / +0.053 / +0.058 | 3528 / +0.038 / +0.043 | 578 / +0.035 / +0.088 |
-| 0.25 | 255 / −0.014 / −0.006 | 2115 / +0.022 / +0.027 | 498 / +0.028 / +0.084 |
-| 0.50 | 163 / −0.058 / +0.021 | 1643 / +0.012 / +0.030 | 422 / +0.021 / +0.085 |
-| 0.70 | 104 / −0.010 / +0.029 | 1246 / +0.002 / +0.032 | 325 / +0.008 / +0.097 |
-| binomial SE at 0.70 | 0.049 | 0.014 | 0.028 |
+| 0 (everything) | 1138 / +0.047 / +0.027 / +0.065 | 4295 / +0.045 / −0.070 / +0.046 | 825 / +0.032 / +0.081 / +0.084 |
+| 0.1 (production since 2026-10-02) | 508 / +0.016 / +0.010 / +0.024 | 3221 / +0.021 / −0.116 / +0.036 | 797 / +0.028 / +0.075 / +0.082 |
+| 0.25 | 296 / +0.000 / +0.007 / −0.017 | 2460 / +0.024 / −0.139 / +0.032 | 722 / +0.030 / +0.068 / +0.079 |
+| 0.50 | 181 / −0.052 / −0.014 / +0.019 | 1864 / +0.012 / −0.156 / +0.034 | 611 / +0.029 / +0.070 / +0.081 |
+| 0.70 | 116 / −0.017 / −0.069 / +0.026 | 1400 / +0.004 / −0.169 / +0.034 | 470 / +0.021 / +0.068 / +0.089 |
+| binomial SE at 0.70 | 0.046 | 0.013 | 0.023 |
 
-- **All three clipped sets improve at the sham frequency, at different rates:**
-  - 0.3 Hz zebrafish: the excess is gone at any threshold ≥ 0.05. With so few ROIs left the
-    line is noisy (SE 0.03–0.05), and its dips below zero are within the band.
-  - 0.1 Hz zebrafish: falls gradually, from +0.038 to about +0.012 at 0.5 and about 0 from
-    0.65–0.7 on.
-  - Medaka: falls gradually too, from +0.035 to about +0.01 from 0.65–0.7 on. With only 578
-    ROIs, though, its sham line is inside the band at every threshold (SE 0.021 with no
-    exclusion), so a single sham frequency cannot show medaka miscalibrated in the first place.
-    Its stimulus line, by contrast, is above the band at every threshold.
-- **A rational threshold is where the sham deviation reaches zero: about 0.65–0.7.** That
-  is the smallest threshold at which all three sets are calibrated at their sham frequency.
-  The cost is large. At 0.7 the rule keeps 104 of 857 ROI traces (12%, 0.3 Hz), 1246 of 3528
-  (35%, 0.1 Hz) and 325 of 578 (56%, medaka). A lower threshold (0.25–0.5) keeps more ROIs
-  but leaves +0.01 to +0.03 at the sham frequency in the 0.1 Hz recordings.
-- **One sham frequency is noisy.** The SE at the ROI counts kept is 0.014–0.049, so the exact
-  threshold is uncertain to about ±0.1–0.2. A second, independent sham frequency (the mirror
-  bin on the other side of the stimulus) would show whether the 0.65–0.7 estimate holds.
-- *Revision note:* an earlier version of this section pooled about 20 sham frequencies per
-  ROI. Pooling smooths the curve but counts each ROI about 20 times, and it put most of the
-  sham frequencies far from the stimulus. It suggested a threshold of 0.25 and that medaka
-  did not improve. Neither survives with one sham frequency per ROI near the stimulus.
+- **0.3 Hz zebrafish (Figure 22, column 1): both shams are calibrated from coverage ≈ 0.1
+  on.** At 0.1 they read +0.016 and +0.010 (SE 0.022), and above that they wander inside the
+  band. The stimulus line behaves the same way, so nothing stimulus-specific is left.
+- **0.1 Hz zebrafish (Figure 22, column 2): the two shams disagree, and no threshold
+  reconciles them.** The sham above (0.160 Hz) falls from +0.045 to about 0 at 0.7, as in the
+  2026-10-01 version. The sham below (0.040 Hz) is strongly *negative*, from −0.070 with
+  everything to −0.169 at 0.7 (13 SE), and the coverage threshold makes it worse. Figure 23,
+  middle row, column 3 shows the whole curve below zero: p-values pile up near 1, i.e. NFC is
+  too small at 0.04 Hz. The stimulus line (+0.03 to +0.04) sits between the two shams at every
+  threshold.
+- **Medaka (Figure 22, column 3): the sham below matches the stimulus.** The sham below
+  (0.069 Hz) reads +0.068 to +0.081 at every threshold, nearly as high as the stimulus
+  (+0.079 to +0.089) and far outside the band. The sham above (0.131 Hz) stays at +0.02 to
+  +0.03, inside the band. Figure 23, column 4 shows the same shape at the sham below (middle
+  row) as at the stimulus (bottom row): a hump centred on p ≈ 0.5.
+- **2022 Q1 (Figure 23, column 1): unclipped, so coverage changes nothing.** Its one sham
+  (below, 0.279 Hz) is calibrated (−0.006, SE 0.007); its stimulus deviation is +0.025.
 
-**The stimulus frequency, once the noise is cleaned up.** In both sets of 0.1 Hz recordings,
-the stimulus-frequency deviation stays well above the sham deviation once the sham is
-calibrated. At coverage ≥ 0.7:
-- 0.1 Hz zebrafish: +0.032 at the stimulus against +0.002 at the sham. The difference is
-  about 1.5 SE of the difference.
-- Medaka: +0.097 against +0.008, about 2.2 SE.
-
-Neither is significant on its own. But they have the same sign, they come from two species
-at the same 0.1 Hz frequency, and medaka's stimulus bin was already one of the two highest
-in Figure 12. One confound remains: in both sets the sham frequency is *above* the stimulus
-(0.13–0.16 Hz). If calibration worsens toward lower frequencies, a gap appears without any
-stimulus-locked component. The next check is a sham frequency *below* the stimulus (the
-mirror bin), on the same kept ROIs. This is flagged here, not concluded.
+**What the second sham changes.** The 2026-10-01 version flagged one confound: in both sets of
+0.1 Hz recordings the only sham frequency sat *above* the stimulus, so a calibration that
+changes with frequency could produce a stimulus-frequency gap on its own. The sham below
+settles it:
+- **Medaka's stimulus excess is not stimulus-specific.** The same excess appears at 0.069 Hz,
+  where nothing was presented. The miscalibration grows toward lower frequencies (sham above
+  +0.03, stimulus +0.08, sham below +0.07), so the stimulus bin's excess fits the trend.
+- **In the 0.1 Hz zebrafish, calibration depends strongly on frequency**, in the opposite
+  direction: far too few small p-values at 0.04 Hz, slightly too many at 0.16 Hz. The stimulus
+  value lies between them. With the null this frequency-dependent, a single sham cannot be
+  used as the reference, and these recordings cannot show a stimulus-locked response.
+- **Choosing the coverage threshold.** The earlier choice, the smallest threshold at which the
+  sham deviation reaches zero (0.65–0.7), rested on the sham above alone. With both shams,
+  only the 0.3 Hz recordings are calibrated at any threshold (from about 0.1). In the two
+  0.1 Hz sets no threshold calibrates both shams; raising the threshold fixes the sham above
+  and leaves (medaka) or worsens (zebrafish) the sham below. Production uses 0.1, which
+  removes the junk traces of Figure 21 (coverage below about 0.15) and calibrates the 0.3 Hz
+  recordings; a higher threshold costs ROIs without making the 0.1 Hz recordings usable.
+- *Why the 0.04 Hz sham can be negative.* The noise window there spans roughly 0.02–0.06 Hz,
+  where slow drift makes the power spectrum fall steeply with frequency. NFC compares the
+  centre bin with the mean power of its window; on a steep, convex spectrum the window mean
+  exceeds the centre value, so NFC is biased low and p-values are biased high. This is a
+  plausible mechanism, not one tested here.
 
 ### What this establishes
 
 | | finding |
 |---|---|
 | **Established** | Coverage (share of 60 s windows with ≥ 3 frames above the floor) separates junk ROIs from cell-like ones by eye (Figure 21), and it is blind to the stimulus. |
-| **Established** | Excluding low-coverage ROIs removes the sham-frequency miscalibration in all three floor-clipped sets of recordings. The deviation reaches about zero at coverage ≥ 0.65–0.7 (0.3 Hz: +0.053 → −0.010; 0.1 Hz: +0.038 → +0.002; medaka: +0.035 → +0.008). |
-| **Cost** | At 0.7, the rule keeps 12% (0.3 Hz), 35% (0.1 Hz) and 56% (medaka) of ROI traces. |
-| **Open** | With one sham frequency the threshold is uncertain to about ±0.1–0.2. A second sham frequency below the stimulus would pin it down. |
-| **Open** | In both sets of 0.1 Hz recordings, the stimulus-frequency deviation stays above the calibrated sham (gaps of 1.5–2.2 SE). The confound is that the sham frequency sits above the stimulus. |
-| **Decision needed** | Whether to adopt a coverage criterion in the production engert/medaka inclusion step (next to P(iscell) and npix), and at what threshold. The data point to about 0.65–0.7. |
+| **Established** | In the 0.3 Hz zebrafish recordings, excluding low-coverage ROIs calibrates both sham frequencies from coverage ≈ 0.1 on (Figure 22, column 1), and nothing stimulus-specific remains. |
+| **Established** | In the 0.1 Hz recordings, calibration depends on frequency, and no coverage threshold calibrates both shams (Figure 22, columns 2–3). Medaka's sham below the stimulus (0.069 Hz) shows the same excess as the stimulus, so medaka's stimulus excess is not stimulus-specific. In the 0.1 Hz zebrafish the sham below (0.040 Hz) is strongly negative, and the stimulus lies between the two shams. |
+| **Adopted** | Production keeps ROIs with coverage ≥ 0.1 (every engert/medaka YAML, 2026-10-02), alongside P(iscell) > 0.5, npix ≥ 10 and the fish outline. |
+| **Open** | Why the null depends so strongly on frequency in the 0.1 Hz recordings (the steep low-frequency spectrum is the candidate), and whether a frequency-local correction of the noise window would fix it. |
 
 ## Reconciling with the noise-floor report
 
