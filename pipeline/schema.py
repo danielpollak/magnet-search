@@ -137,6 +137,10 @@ class ExperimentConfig:
     # docs/nfc_finite_sample_bias/body_outline_gui.ipynb; empty = the defaults in
     # pipeline/body_outline.py. The engert/medaka analysis stages drop ROIs outside the outline.
     body_outline: dict = field(default_factory=dict)
+    # Keep ROIs whose trace is active (>= 3 frames above its floor) in at least this share of
+    # 60 s windows (pipeline/roi_coverage.py); inclusive (>=), unlike the strict `>` of
+    # iscell_threshold/npix_threshold. 0 = no coverage filter.
+    coverage_threshold: float = 0.0
     # subject/session metadata — historically medaka-only, promoted to a
     # universal field for the NWB replatform (NWBFile.session_start_time /
     # Subject.subject_id / Subject.species). Optional: create_nwbfile()
