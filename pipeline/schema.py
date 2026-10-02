@@ -134,8 +134,8 @@ class ExperimentConfig:
     # Outline of the fish in suite2p's mean image, for dropping ROIs outside the fish:
     # {sigma, frac, margin, min_region}, or a hand-drawn `polygon` of [x, y] pixel vertices that
     # replaces the automatic outline (docs/body_outline.md). Set per field of view with
-    # docs/nfc_finite_sample_bias/body_outline_gui.ipynb; empty = not set. Not yet applied
-    # by the analysis stage.
+    # docs/nfc_finite_sample_bias/body_outline_gui.ipynb; empty = the defaults in
+    # pipeline/body_outline.py. The engert/medaka analysis stages drop ROIs outside the outline.
     body_outline: dict = field(default_factory=dict)
     # subject/session metadata — historically medaka-only, promoted to a
     # universal field for the NWB replatform (NWBFile.session_start_time /
