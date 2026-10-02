@@ -759,8 +759,10 @@ guessed)? And does removing them restore calibration?
 
 Neither quantity uses stimulus timing or the power at any frequency. Excluding ROIs on them
 therefore cannot create or remove a stimulus-locked response. The threshold is judged on
-**sham frequencies**: about 20 log-spaced analysis frequencies per recording, all more than
-M bins from the stimulus, where nothing was presented. Their p-values should be uniform. The
+**sham frequencies**: 16–21 log-spaced analysis frequencies per recording, from about 0.06 Hz
+up to just below Nyquist, skipping the stimulus window (the stimulus bin ± M bins), where
+nothing was presented. The window width stays at the production M bins. Each recording's
+range is in the Figure 23 legend. Their p-values should be uniform. The
 stimulus frequency is only read off afterwards.
 
 ### Distributions: how active are the ROIs?
@@ -808,7 +810,7 @@ A stricter per-window criterion would catch it, at the cost of more ROIs.
 
 ![ECDF curves after exclusion](nfc_finite_sample_bias/fig_ac_curves.png)
 
-<sub>**Figure 23. Whole ECDF-deviation curves after exclusion.** ECDF(p) − p at coverage thresholds 0, 0.25, 0.5 and 0.75 (light to dark), for each set of recordings (columns). *Top:* sham frequencies pooled. *Bottom:* stimulus frequency. Gray: 95% binomial band for the smallest subset shown.</sub>
+<sub>**Figure 23. Whole ECDF-deviation curves after exclusion.** ECDF(p) − p at coverage thresholds 0, 0.25, 0.5 and 0.75 (light to dark), for each set of recordings (columns). *Top:* sham frequencies pooled: 16–21 per recording, log-spaced, excluding the stimulus window. They span 0.10–0.34 Hz (2022 Q1), 0.09–0.45 Hz (0.3 Hz zebrafish), 0.14–0.47 Hz (0.1 Hz zebrafish) and 0.06–0.48 Hz (medaka). *Bottom:* stimulus frequency. Gray: 95% binomial band for the smallest subset shown.</sub>
 
 | coverage ≥ | 0.3 Hz zebrafish: kept / sham dev / stimulus dev | 0.1 Hz zebrafish: kept / sham / stimulus | medaka: kept / sham / stimulus |
 |---|---|---|---|
@@ -840,7 +842,11 @@ Each gap is about 1.5–2 SE (binomial on the ROIs kept), so neither is signific
 But they have the same sign, they come from two species at the same 0.1 Hz frequency, and
 medaka's stimulus bin was already one of the two highest in Figure 12. This should be checked
 before Fig 2C is finalised, for example with the bin-by-bin view of Figure 12 restricted to
-the ROIs kept, and the sham pool as the reference. It is flagged here, not concluded.
+the ROIs kept, and the sham pool as the reference. It is flagged here, not concluded. One confound has to be ruled out first. In the 0.1 Hz
+zebrafish recordings every sham frequency lies *above* the stimulus (0.14–0.47 Hz), because
+lower bins are skipped to stay clear of the slow band. If calibration worsens toward low
+frequencies, a gap would appear without any stimulus-locked component. The near-stimulus
+check should therefore compare against bins on both sides of 0.1 Hz.
 
 ### What this establishes
 
