@@ -1309,6 +1309,37 @@ def _set_imaging_dims(nwbfile, Ly, Lx):
         )
 
 
+def write_mean_image(nwbfile, mean_img):
+    """suite2p's time-averaged image (`ops["meanImg"]`, shape (Ly, Lx), row-major like the
+    pixel masks' y/x) as a GrayscaleImage in an "ophys/SummaryImages" Images container --
+    what `pipeline/body_outline.py` outlines the fish on, for the diagnostics."""
+    from pynwb.base import Images
+    from pynwb.image import GrayscaleImage
+    images = Images(name="SummaryImages", description="suite2p summary images (ops.npy)")
+    images.add_image(GrayscaleImage(
+        name="meanImg", data=np.asarray(mean_img, dtype=np.float32),
+        description="suite2p time-averaged image, ops['meanImg'], shape (Ly, Lx)"))
+    nwbfile.processing["ophys"].add(images)
+
+
+def read_mean_image(nwbfile):
+    """The mean image written by `write_mean_image`, or None for files processed before it
+    existed (re-run processing to add it)."""
+    ophys = nwbfile.processing.get("ophys")
+    if ophys is None or "SummaryImages" not in ophys.data_interfaces:
+        return None
+    return np.asarray(ophys["SummaryImages"]["meanImg"].data)
+
+
+def load_mean_image(nwb_path):
+    """`read_mean_image` straight from a file path (opens and closes the file)."""
+    io, nwbfile = read_nwbfile(nwb_path)
+    try:
+        return read_mean_image(nwbfile)
+    finally:
+        io.close()
+
+
 def get_imaging_dims(nwbfile):
     if "imaging_dims" in nwbfile.scratch:
         arr = np.asarray(nwbfile.scratch["imaging_dims"].data)

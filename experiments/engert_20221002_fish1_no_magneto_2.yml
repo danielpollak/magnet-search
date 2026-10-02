@@ -9,9 +9,17 @@ session_path: "//datanas/family/data_aggregated/Engert/2022_10_02-fish1_cytoGCaM
 tiff_name: "no-magneto_2.tif"
 sample_period: 1.0
 
-iscell_threshold: 0.6
-npix_threshold: 10
+iscell_threshold: 0.5
+npix_threshold: 9  # strict >, i.e. npix >= 10
+coverage_threshold: 0.1  # inclusive >=: active in >= 10% of 60 s windows
 
 analysis:
   f: 0.1
   Q_frac: 0.30
+
+# Outline of the fish in the mean image (docs/body_outline.md); set with body_outline_gui.ipynb
+body_outline:
+  sigma: 6.0
+  frac: 0.12
+  margin: 4
+  min_region: 0.1

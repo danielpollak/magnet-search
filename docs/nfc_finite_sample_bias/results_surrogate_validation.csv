@@ -1,0 +1,4 @@
+generator,dev_at_half,p_below_01
+white noise itself,0.007249999999999979,0.0103
+smooth-spectrum Gaussian of white noise (this report),-0.007000000000000006,0.01225
+|Y| x complex Gaussian of white noise (imaging_surrogates.py gaussian_psd),-0.12745,0.0414

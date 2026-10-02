@@ -6,6 +6,7 @@ changed. Everything below is reproduced by `docs/nfc_finite_sample_bias/simulate
 **Related:** [`fig1_mag_noise_floor_correction.md`](fig1_mag_noise_floor_correction.md),
 which found the *opposite-signed* effect in a single recording — see
 [Reconciling with the noise-floor report](#reconciling-with-the-noise-floor-report).
+**Figures:** numbered Figure 1–23 in this report. "Fig 2C" always means the manuscript figure.
 
 ## Summary
 
@@ -32,7 +33,7 @@ Three things are established, one is ruled out, and one remains open:
 | **Established** | It **decreases with spikes per unit** (slope −0.0045/decade, p = 0.0002) |
 | **Established** | It does **not** decrease with number of units (slope +0.0008/decade, r² = 0.0004, p = 0.77) |
 | **Ruled out** | The eps correction, σ̂ scale error, spectral leakage, stimulus artifact |
-| **Established** | The imaging (GCaMP) deviation is a *different* effect — two large opposing terms, resolved in [Why imaging is different](#why-imaging-is-different) |
+| **Established** | The imaging (GCaMP) deviation is a *different* effect. In the 0.1 Hz and 0.3 Hz zebrafish recordings and the medaka recordings it comes from photon-starved, floor-clipped traces whose activity arrives in slow epochs; see [Slow variation and floor-clipped traces](#slow-variation-and-floor-clipped-traces-imaging). (The earlier "two opposing terms" decomposition was a surrogate artifact.) |
 
 ## The statistic
 
@@ -83,6 +84,8 @@ might trend.
 
 ![Bias vs number of units](nfc_finite_sample_bias/fig_units_sweep.png)
 
+<sub>**Figure 1. Finite-sample bias does not shrink with the number of units.** Homogeneous Poisson trains (150 spikes each, so the null is exactly true), 24 seeds per point. *Left:* dev@0.5 = ECDF(0.5) − 0.5 against the number of units simulated; mean ± SEM across seeds. The light horizontal line is the grand mean (+0.0038). *Right:* SD of dev@0.5 across seeds (blue) against the iid binomial expectation √(0.25/U) (dashed). Only the precision improves with more units.</sub>
+
 Poisson trains, 150 spikes each, 24 seeds per point:
 
 | units | dev@0.5 mean | SD across seeds | SEM |
@@ -117,6 +120,8 @@ offset to stand out, where at N = 200 it would be invisible.
 Yes.
 
 ![Bias vs spikes per unit](nfc_finite_sample_bias/fig_spikes_sweep.png)
+
+<sub>**Figure 2. Finite-sample bias decays with spikes per unit.** dev@0.5 for Poisson null populations at 50–4000 spikes/unit (4000 units, 12 seeds per point; mean ± SEM). Orange line: the real ephys magnetic population (+0.0070). Diamond: its median spike count (134).</sub>
 
 Poisson trains, 4000 units, 12 seeds per point:
 
@@ -153,6 +158,8 @@ overlaid (seed-averaged, 12 × 4000 units per curve), with the real ephys curve 
 
 ![ECDF deviation curves per spike count](nfc_finite_sample_bias/fig_spikes_curves.png)
 
+<sub>**Figure 3. Whole ECDF-deviation curves per spike count.** ECDF(p) − p for the Poisson null, seed-averaged over 12 × 4000 units, with one line per spike count (lighter = fewer spikes). *Left:* original sweep, 50–4000 spikes/unit. *Right:* widened sweep, 10–1000. Dashed orange: the real ephys magnetic population.</sub>
+
 - The simulated curves are small positive humps that go back to zero at both ends, and
   they get flatter as spike count rises. The 4000-spike curve dips slightly negative,
   matching its dev@0.5.
@@ -171,6 +178,8 @@ Same budget as the original sweep (9 spike counts × 12 seeds × 4000 units), lo
 over 10–1000 instead of 50–4000:
 
 ![Bias vs spikes per unit, widened range](nfc_finite_sample_bias/fig_spikes_sweep_wide.png)
+
+<sub>**Figure 4. Widened spike-count sweep.** As Figure 2, over 10–1000 spikes/unit (geometric spacing), with the same total simulation budget.</sub>
 
 | spikes/unit | dev@0.5 | SEM | P(p<0.01) |
 |---|---|---|---|
@@ -196,6 +205,8 @@ that inclusion filtering has already removed.
 ### Which regime do the real units sit in?
 
 ![Empirical spikes per unit](nfc_finite_sample_bias/fig_spk_count_distribution.png)
+
+<sub>**Figure 5. Empirical spikes per unit in the real ephys magnetic units.** *Left:* histogram over 4716 units (log x; minimum 51 spikes). The 25th/50th/75th percentiles are marked. Ticks below the axis mark the spike counts simulated in the original and widened sweeps (Figures 2 and 4). *Right:* ECDF per species (n in the legend); dashed = all ephys.</sub>
 
 Real magnetic ephys units (the same 4716-unit population as `results_real.csv`; per-unit
 counts in `results_real_spk_counts.csv`):
@@ -229,6 +240,8 @@ Pigeon is the lowest-firing species and contributes about half the ephys units (
 
 ![Pigeon spikes per unit by area](nfc_finite_sample_bias/fig_spk_count_distribution_pigeon.png)
 
+<sub>**Figure 6. Pigeon spikes per unit, by brain area.** As Figure 5, pigeon only (2319 units). *Right:* ECDF per area (HP, CB, pallium); dashed = all pigeon.</sub>
+
 | area | units | quartiles | 50–100 | 100–1000 | ≥ 1000 | mixture-predicted dev@0.5 |
 |---|---|---|---|---|---|---|
 | all pigeon | 2319 | 62 / 86 / 184 | 57.3% | 39.2% | 3.5% | +0.0065 |
@@ -253,6 +266,8 @@ Pigeon is the lowest-firing species and contributes about half the ephys units (
 
 ![Real vs simulated](nfc_finite_sample_bias/fig_real_vs_sim.png)
 
+<sub>**Figure 7. Observed vs predicted dev@0.5.** Orange: observed in the real magnetic population (all, ephys only, imaging only). Blue: predicted by finite-sample bias alone, interpolating the Poisson sweep (Figure 2) at the median spike count of 134. Imaging has frames, not spikes, so it has no prediction.</sub>
+
 | population | n units | median spikes | observed dev@0.5 | predicted by finite-sample bias |
 |---|---|---|---|---|
 | all magnetic | 9553 | 134 | +0.0163 | +0.0070 |
@@ -263,7 +278,7 @@ Pigeon is the lowest-firing species and contributes about half the ephys units (
 against +0.0070 predicted by interpolating the Poisson sweep at 134 spikes. The agreement
 to four decimals is fortuitous given SEM ≈ 0.002 on the prediction, but the match is not
 in doubt. (Weighting by the full spike-count distribution instead of the median gives
-+0.0059, still a match within noise. This holds at p = 0.5 only: the curve overlay above
++0.0059, still a match within noise. This holds at p = 0.5 only: the curve overlay in Figure 3
 shows the real curve's excess at p ≈ 0.6–0.9 is *not* reproduced.)
 
 **For imaging it does not.** GCaMP units have frames, not spikes, so the spike-count sweep
@@ -283,6 +298,8 @@ not hand-picked).
 
 ![Imaging surrogates](nfc_finite_sample_bias/fig_imaging_surrogates.png)
 
+<sub>**Figure 8. Imaging surrogate ladder (superseded; see Figure 9).** dev@0.5 for the 24 zebrafish imaging recordings in the Fig 2C pool: real traces and three surrogates. Bars are the mean across recordings ± SEM. The "Gaussian, matched spectrum" bar is an artifact of that surrogate (Figure 9).</sub>
+
 | surrogate | what it preserves | dev@0.5 |
 |---|---|---|
 | real traces | everything | **+0.0447** |
@@ -295,6 +312,20 @@ not hand-picked).
 surrogate that preserves them exactly cannot change NFC — which is also why the naive
 "phase randomization test" is not the right experiment here, despite being the obvious one
 to reach for.
+
+> **Correction (2026-10-01): the decomposition below is wrong.** The `gaussian_psd`
+> surrogate multiplies each ROI's *realised* periodogram by a fresh exponential draw, so
+> every ordinate becomes a product of two exponentials. Applied to pure white noise it gives
+> dev@0.5 = **−0.127** (Figure 9), so the −0.112 "spectral shape"
+> term and the +0.150 "non-Gaussianity" term are artifacts of the surrogate. A
+> smooth-spectrum Gaussian surrogate, which does not have this problem, puts the spectral-shape term at about
+> zero. What actually drives the imaging deviation is in
+> [Slow variation and floor-clipped traces](#slow-variation-and-floor-clipped-traces-imaging).
+> The text below is kept as the original record.
+
+![Surrogate validation](nfc_finite_sample_bias/fig_sv_surrogate_validation.png)
+
+<sub>**Figure 9. Surrogate generators applied to white noise.** ECDF(p) − p for 20,000 white-noise traces (N = 1080 frames, M = 32), shown as is (gray), after the smooth-spectrum Gaussian surrogate used in this report (blue), and after the old `gaussian_psd` surrogate of Figure 8 (orange). A valid surrogate should leave white noise at the white-noise floor, and the old one does not. Legend values are dev@0.5. Gray band: 95% binomial band.</sub>
 
 Reading the ladder as a decomposition:
 
@@ -316,7 +347,7 @@ So imaging is **two large opposing effects that nearly cancel**, not one small r
   **+0.150** the other way, overwhelming the spectral term and landing at +0.045.
 
 Non-Gaussianity dominates, which was the hypothesis; but it is much larger than the net
-deviation suggests, because the spectral term hides most of it. The per-frequency batches
+deviation suggests, because the spectral term hides most of it. The per-frequency sets of recordings
 agree: 0.1 Hz +0.0456, 0.3 Hz +0.0646, 0.4 Hz +0.0228 (real), against −0.1061 / −0.0856 /
 −0.1227 for the matched-spectrum surrogate.
 
@@ -335,6 +366,541 @@ They agree to 0.0007 on the like-for-like comparison. The +0.0254 quoted in the 
 above is the *deduped* figure — dropping repeat observations of the same neuron lowers it —
 and the harness additionally excludes medaka's 3 recordings (578 of 11,329 imaging rows),
 whose `rec` names are tif basenames rather than experiment names.
+
+## Slow variation and floor-clipped traces (imaging)
+
+**Date:** 2026-10-01. **Scripts:** `slow_variation.py` (real traces) and `slow_variation_sim.py`
+(simulation).
+
+**The problem.** For the magnetic stimulus we expect no response, so the p-values should be
+uniform. In the imaging recordings they are not: there are too many in the middle of the
+range (dev@0.5 > 0, the table below). Either something responds, or the null distribution
+the p-values are computed against is wrong for these traces. This section works out which,
+and why.
+
+**The hypothesis.** The advisor's hypothesis was that slow fluctuations, in firing rate or in
+noise level, make the traces nonstationary. NFC divides the on-frequency coefficient by σ̂, estimated from 2M
+neighbouring bins, and the null assumes those 2M+1 periodogram ordinates are independent.
+A slow change in a trace's amplitude scales a whole band of ordinates by a common factor.
+Neighbouring ordinates then move together, and σ̂ has fewer effective degrees of freedom than
+the null assumes. The tests below follow the order the advisor suggested: look at the data,
+take the slow variation out, put it into noise that doesn't have it, then simulate it.
+
+**Population.** These are the imaging recordings of the Fig 2C magnetic pool, at production
+thresholds, run through the production `fit_Fourier` / `corrected_pvalues`. The recomputed
+p-values match the parquet to 1e-6 on all 10,565 rows. There are two deliberate differences
+from Fig 2C:
+- `20221002_fish1` magneto_2/_3 are dropped, because they are byte-identical copies of
+  magneto_1.
+- There is no neuron dedup, because the question is about traces.
+
+**Four sets of recordings.** The recordings fall into four sets, each made with the same
+animal line and stimulus protocol in one block of experiment days. The report refers to each
+set by name ("the 0.1 Hz zebrafish recordings"); "the four sets of recordings" means all of
+them:
+
+| set of recordings | experiment days | animals | recordings analysed | stimulus |
+|---|---|---|---|---|
+| zebrafish 0.4 Hz (2022 Q1) | 2022-02-21, 02-23, 03-01 | 3 sessions | 6 (`magnet`, `visualmagnet`, `visualmagnet_a/_b`) | 0.4 Hz continuous sine (in `visualmagnet`, with a 1/60 Hz visual grating) |
+| zebrafish 0.3 Hz | 2022-09-14, 09-15 | 2 fish | 6 (3 trials per fish) | 0.3 Hz sine, with a 1/60 Hz visual grating running throughout |
+| zebrafish 0.1 Hz | 2022-10-01, 10-02 | 4 fish | 10 (3 trials per fish, one fish's duplicates dropped) | 2 Hz sine gated 5 s on / 5 s off (0.1 Hz), no visual stimulus |
+| medaka 0.1 Hz | 2023-01-06 | 1 fish | 3 trials | 0.1 Hz magnetic |
+
+A *recording* is one trial's movie (one tiff), analysed on its own. Recordings are never
+concatenated for the p-values. In the 0.3 Hz and 0.1 Hz zebrafish recordings a fish's trials share one suite2p
+segmentation; each medaka trial has its own. All four sets of recordings are pooled in Fig 2C.
+
+**"Miscalibrated"** means a set of recordings' p-values are not uniform where no response is expected:
+the null distribution the p-values are computed against does not match those traces. It has
+nothing to do with the P(iscell) or npix inclusion thresholds; the threshold grid
+(`docs/zebrafish_pvalue_excess/`) showed that changing them does not fix it. The deviation
+for each set of recordings:
+
+
+| set of recordings | ROI traces | binomial SE of dev@0.5 | dev@0.5 at the stimulus f |
+|---|---|---|---|
+| zebrafish 0.4 Hz (2022 Q1) | 5602 | 0.007 | +0.022 |
+| zebrafish 0.3 Hz | 857 | 0.017 | **+0.058** |
+| zebrafish 0.1 Hz | 3528 | 0.008 | **+0.043** |
+| medaka 0.1 Hz | 578 | 0.021 | **+0.088** |
+
+### 1. Raw traces: the recordings with the excess are floor-clipped
+
+**The question.** Before testing any mechanism, look at what the traces actually are. If slow
+variation is the culprit, it should be visible by eye. And if some sets of recordings show the excess
+and others do not, the traces should look different between them.
+
+![Raw traces](nfc_finite_sample_bias/fig_sv_traces.png)
+
+<sub>**Figure 10. Raw traces.** The first three ROIs (no selection on p) of one recording from each set of recordings (rows). Black: F. Blue: mean + 2 SD × the 60 s RMS envelope that "envelope-normalised" divides out. Panel titles give each ROI's p-value at the stimulus frequency.</sub>
+
+Figure 10 shows the first three ROIs of one recording from each set of recordings, with no selection on p. The 2022
+Q1 traces look like ordinary fluorescence: baseline about 5000, continuous noise, transients
+on top. The other three sets of recordings do not. The median ROI trace sits at **exactly 50.0** for
+91–98% of its frames, and has only 10–30 distinct values in the whole recording. What is
+left is a few transients, often confined to one stretch of the recording: ROI 4 of
+`20221001_fish1` is active only from 300 to 600 s, and the 0.3 Hz ROIs only in the last few
+hundred seconds. These look like photon-starved movies, with the baseline clipped at an
+offset of 50. That matches the medaka worktree's finding that those movies are
+photon-starved.
+
+| set of recordings | median fraction of frames at the trace minimum | ROIs with > 50% of frames at the minimum | median envelope CV (60 s) | median excess kurtosis |
+|---|---|---|---|---|
+| zebrafish 0.4 Hz | 0.001 | 0% | 0.37 | 1.7 |
+| zebrafish 0.3 Hz | 0.98 | 99% | 2.36 | 81 |
+| zebrafish 0.1 Hz | 0.94 | 89% | 1.67 | 53 |
+| medaka 0.1 Hz | 0.91 | 91% | 1.50 | 61 |
+
+Per recording, with links to each recording's 5-page analysis diagnostics PDF (page 5 is the
+P(iscell) × npix joint histogram).
+
+| set of recordings | recording (diagnostics PDF) | ROI traces | median fraction of frames at the trace minimum | dev@0.5 |
+|---|---|---|---|---|
+| zebrafish 0.3 Hz | [`engert_20220914_fish2_magneto_0`](../figs/analysis/engert_20220914_fish2_magneto_0_analysis_diagnostics.pdf) | 150 | 0.98 | +0.040 |
+| zebrafish 0.3 Hz | [`engert_20220914_fish2_magneto_1`](../figs/analysis/engert_20220914_fish2_magneto_1_analysis_diagnostics.pdf) | 223 | 0.97 | +0.128 |
+| zebrafish 0.3 Hz | [`engert_20220914_fish2_magneto_2`](../figs/analysis/engert_20220914_fish2_magneto_2_analysis_diagnostics.pdf) | 240 | 0.98 | +0.008 |
+| zebrafish 0.3 Hz | [`engert_20220915_fish1_magneto_0`](../figs/analysis/engert_20220915_fish1_magneto_0_analysis_diagnostics.pdf) | 57 | 0.99 | +0.061 |
+| zebrafish 0.3 Hz | [`engert_20220915_fish1_magneto_1`](../figs/analysis/engert_20220915_fish1_magneto_1_analysis_diagnostics.pdf) | 92 | 0.99 | +0.043 |
+| zebrafish 0.3 Hz | [`engert_20220915_fish1_magneto_2`](../figs/analysis/engert_20220915_fish1_magneto_2_analysis_diagnostics.pdf) | 95 | 0.98 | +0.058 |
+| zebrafish 0.1 Hz | [`engert_20221001_fish1_magneto_0`](../figs/analysis/engert_20221001_fish1_magneto_0_analysis_diagnostics.pdf) | 378 | 0.98 | +0.016 |
+| zebrafish 0.1 Hz | [`engert_20221001_fish1_magneto_1`](../figs/analysis/engert_20221001_fish1_magneto_1_analysis_diagnostics.pdf) | 424 | 0.95 | +0.080 |
+| zebrafish 0.1 Hz | [`engert_20221001_fish1_magneto_2`](../figs/analysis/engert_20221001_fish1_magneto_2_analysis_diagnostics.pdf) | 418 | 0.96 | -0.002 |
+| zebrafish 0.1 Hz | [`engert_20221001_fish2_magneto_0`](../figs/analysis/engert_20221001_fish2_magneto_0_analysis_diagnostics.pdf) | 250 | 0.97 | +0.060 |
+| zebrafish 0.1 Hz | [`engert_20221001_fish2_magneto_1`](../figs/analysis/engert_20221001_fish2_magneto_1_analysis_diagnostics.pdf) | 275 | 0.95 | +0.027 |
+| zebrafish 0.1 Hz | [`engert_20221001_fish2_magneto_2`](../figs/analysis/engert_20221001_fish2_magneto_2_analysis_diagnostics.pdf) | 259 | 0.95 | +0.068 |
+| zebrafish 0.1 Hz | [`engert_20221002_fish1_magneto_1`](../figs/analysis/engert_20221002_fish1_magneto_1_analysis_diagnostics.pdf) | 382 | 0.28 | +0.031 |
+| zebrafish 0.1 Hz | [`engert_20221002_fish2_magneto_0`](../figs/analysis/engert_20221002_fish2_magneto_0_analysis_diagnostics.pdf) | 345 | 0.97 | +0.048 |
+| zebrafish 0.1 Hz | [`engert_20221002_fish2_magneto_1`](../figs/analysis/engert_20221002_fish2_magneto_1_analysis_diagnostics.pdf) | 404 | 0.89 | +0.052 |
+| zebrafish 0.1 Hz | [`engert_20221002_fish2_magneto_2`](../figs/analysis/engert_20221002_fish2_magneto_2_analysis_diagnostics.pdf) | 393 | 0.91 | +0.062 |
+| medaka 0.1 Hz | [`medaka_fish3_8dpf_magneto_0`](../figs/analysis/medaka_fish3_8dpf_magneto_0_analysis_diagnostics.pdf) | 166 | 0.91 | +0.090 |
+| medaka 0.1 Hz | [`medaka_fish3_8dpf_magneto_1`](../figs/analysis/medaka_fish3_8dpf_magneto_1_analysis_diagnostics.pdf) | 199 | 0.91 | +0.088 |
+| medaka 0.1 Hz | [`medaka_fish3_8dpf_magneto_2`](../figs/analysis/medaka_fish3_8dpf_magneto_2_analysis_diagnostics.pdf) | 213 | 0.90 | +0.087 |
+
+`engert_20221002_fish1_magneto_1` is the one less-clipped recording (median 0.28) and has one
+of the smaller deviations. For contrast, a 2022 Q1 recording is
+[`engert_20220221_magnet`](../figs/analysis/engert_20220221_magnet_analysis_diagnostics.pdf).
+The PDFs live in `figs/analysis/`, which is gitignored, so these links work in a local
+checkout after `pipeline/analysis.py` has been run, but not on GitHub.
+
+So the split already found between sets of recordings in the threshold grid (Q1's sham-frequency p-values uniform, 0.1/0.3 Hz not)
+is the same as the split between ordinary traces and floor-clipped ones.
+
+### 2. Is the excess tied to the stimulus frequency? No
+
+**The question.** Is the excess something the stimulus does, or something the traces do? A
+response, or a stimulus artifact, would push p-values down only at the stimulus frequency. A
+problem with the null itself would show up at *any* frequency we choose to analyse, including
+ones where nothing was presented. So the test is to repeat the whole p-value calculation at
+many analysis frequencies and see whether the stimulus frequency stands out.
+
+![Frequency scan](nfc_finite_sample_bias/fig_sv_freq_scan.png)
+
+<sub>**Figure 11. dev@0.5 across analysis frequencies.** Columns: the four sets of recordings. Each point pools every ROI trace in that set at one analysis frequency (log-spaced bins), with the window fixed at each recording's production M bins. Orange: real traces. Green: detrended and envelope-normalised. Gray: white noise of the same shape. Shading: 95% binomial band. Vertical lines: stimulus f (solid) and 2f (dashed).</sub>
+
+Figure 11 recomputes dev@0.5 at about 50 analysis frequencies from 0.07 Hz to Nyquist.
+The window width is held at each recording's production M bins, so only the spectral
+neighbourhood changes. In the three floor-clipped sets of recordings the real-trace curve (orange) sits
+at **+0.04 to +0.05 at every frequency**. Averaged over the whole scan it is +0.051 (0.3 Hz),
++0.037 (0.1 Hz) and +0.040 (medaka); white noise gives +0.004. Nothing at 0.1, 0.3 or 0.2 Hz
+stands out. The excess is a property of the traces at every frequency, not something the
+stimulus does.
+
+![Near the stimulus bin](nfc_finite_sample_bias/fig_sv_near_stimulus.png)
+
+<sub>**Figure 12. The stimulus bin vs its neighbours.** dev@0.5 at the stimulus bin (offset 0, large dot) and at every bin within ±30 bins of it, with the window fixed at M bins. Gray: individual recordings. Orange: all recordings in the set pooled, with its 95% binomial band.</sub>
+
+Figure 12 does the same check bin by bin, within ±30 bins of the stimulus:
+- **Zebrafish 0.1 Hz and 0.3 Hz:** the stimulus bin is an ordinary member of a flat band.
+- **Medaka:** the stimulus bin is one of the two highest of the 61 points, +0.088
+  against roughly +0.04 for the rest of the band. That is about 2 SE above the band, which
+  the maximum of 61 noisy points can easily reach, so it is not evidence of a response.
+- **2022 Q1 (0.4 Hz):** these recordings are different. It sits at about 0 everywhere *except* in a
+  bump from about −10 to +3 bins around the stimulus. Its +0.022 at the stimulus bin comes
+  from `20220301_visualmagnet_a/_b` (+0.027 and +0.066) and is local to the stimulus. That
+  is a stimulus-locked component (a response, a coil artifact, or a harmonic of the 1/60 Hz
+  visual grating: 0.4 Hz is its 24th harmonic), not a null-model problem. It is flagged
+  here and not pursued.
+
+### 3. Neighbouring ordinates move together, and the slow envelope is why
+
+**The question.** Does the null's key assumption hold? NFC compares the power at the stimulus
+frequency with the average power in 2M neighbouring frequency bins (σ̂). The null distribution
+assumes those 2M+1 values ("ordinates" of the periodogram) are statistically independent, so
+that σ̂ averages 2M independent numbers. If a trace's overall activity level drifts slowly up
+and down, every bin in the window rises and falls together. Neighbouring ordinates are then
+correlated, σ̂ is an average of fewer effectively independent numbers than the null assumes,
+and the NFC distribution is no longer the one we compare it against. The test is to measure
+that correlation directly.
+
+![Bin coupling](nfc_finite_sample_bias/fig_sv_bin_coupling.png)
+
+<sub>**Figure 13. Coupling between neighbouring periodogram ordinates.** Within-ROI Pearson correlation of window ordinates I_k and I_k+lag, averaged over ROIs (each recording weighted by its ROI count), for real traces and each surrogate. Under the null the ordinates are independent and the curve is ≈ 0 at every lag, as it is for white noise (light gray).</sub>
+
+Figure 13 takes each ROI's 2M+1 periodogram ordinates in the analysis window and correlates
+ordinate k with ordinate k+lag. Independent ordinates, which the null assumes, give about 0
+at every lag; the white-noise line shows that baseline.
+
+| lag-1 ordinate correlation | 0.4 Hz | 0.3 Hz | 0.1 Hz | medaka |
+|---|---|---|---|---|
+| real | 0.009 | **0.380** | **0.250** | **0.069** |
+| detrended (cubic) | 0.009 | 0.380 | 0.250 | 0.069 |
+| detrended + envelope-normalised | −0.003 | 0.148 | 0.047 | −0.039 |
+| white noise × the ROI's own envelope | 0.019 | 0.485 | 0.325 | 0.129 |
+| white | −0.004 | −0.009 | −0.015 | −0.034 |
+
+- **Q1 shows no coupling.** In the floor-clipped recordings neighbouring ordinates are strongly
+  correlated, and the correlation decays over about 8–10 bins.
+- **The cause is multiplicative, not additive.** Detrending, which removes bleaching, drift
+  and the end-point jump (the only route by which purely additive slow variation reaches the
+  window), changes nothing.
+- **The 60 s envelope accounts for the coupling.** Dividing each trace by its own 60 s RMS
+  envelope removes most of it. Multiplying white noise by that same envelope recreates it,
+  slightly overshooting.
+
+### 4. Taking slow variation out, and putting it in
+
+**The idea.** Section 3 shows that slow variation and the broken independence go together, but
+not that slow variation *causes* the p-value excess. Surrogates test causation from both
+directions:
+
+- **Take it out.** Remove the slow variation from the real traces and recompute the
+  p-values. If slow variation causes the excess, the excess should shrink or vanish.
+- **Put it in.** Take noise that is well-behaved by construction (stationary, so its
+  ordinates are independent and its p-values are uniform) and add the real traces' slow
+  variation to it. If slow variation causes the excess, the excess should appear.
+
+"Slow variation" comes in two kinds, removed in two steps (the envelope is drawn on the traces in
+Figure 10):
+
+| kind | example | how it is removed | how it is added back |
+|---|---|---|---|
+| **additive** | baseline drift, bleaching | **detrend:** subtract a per-trace cubic fit | — (detrending turned out to change nothing, so there was nothing to add back) |
+| **multiplicative** | the trace's amplitude or activity level changing over minutes | **envelope-normalise:** divide the trace by its own 60 s running RMS, the "envelope" (blue in Figure 10) | multiply stationary noise by that ROI's envelope |
+
+The stationary noise comes in two flavours: plain white noise, and Gaussian noise with the
+ROI's own (smoothed) power spectrum. The second checks that any effect isn't simply due to
+the spectrum's shape.
+
+**How to read Figure 14.** Each line is ECDF(p) − p for one version of the traces. A
+perfectly calibrated null gives a flat line at 0, inside the gray band. The real traces
+(thick orange) bulge upward in the middle. If "take it out" works, the green line drops
+toward 0. If "put it in" works, the noise-times-envelope lines rise away from 0.
+
+![Surrogates](nfc_finite_sample_bias/fig_sv_surrogates.png)
+
+<sub>**Figure 14. Surrogates at the stimulus frequency.** ECDF(p) − p for each set of recordings, for the real traces, the same traces with slow variation removed (detrended; detrended + envelope-normalised), and stationary noise with and without each ROI's own envelope imposed. Stochastic surrogates are averaged over 3 draws. Legend: dev@0.5. Gray: 95% binomial band.</sub>
+
+| dev@0.5 at the stimulus f | 0.4 Hz | 0.3 Hz | 0.1 Hz | medaka |
+|---|---|---|---|---|
+| real | +0.023 | +0.058 | +0.043 | +0.088 |
+| detrended | +0.022 | +0.055 | +0.043 | +0.081 |
+| detrended + envelope-normalised | +0.021 | +0.053 | **+0.027** | **+0.028** |
+| Gaussian, smooth spectrum | +0.004 | −0.012 | −0.012 | −0.010 |
+| Gaussian, smooth spectrum × envelope | +0.003 | −0.001 | +0.001 | +0.012 |
+| white × envelope | +0.003 | +0.020 | +0.023 | +0.022 |
+| white | +0.003 | −0.006 | +0.006 | −0.012 |
+
+- **Spectral shape is not the cause.** A stationary Gaussian with each ROI's smoothed
+  spectrum sits at about −0.01. On white noise the same generator gives −0.007, so the
+  spectral-shape effect is essentially zero, not the −0.11 the earlier surrogate claimed.
+  The raw window periodograms agree: across all four sets of recordings the median normalised
+  ordinate is flat from −M to +M (Figure 15).
+
+  ![Window periodograms](nfc_finite_sample_bias/fig_sv_window_spectra.png)
+
+  <sub>**Figure 15. Every ROI's periodogram across the analysis window.** *Top:* each row is one ROI trace's window periodogram (ordinate / 2σ̂², log colour scale). x is the bin offset divided by M (0 = the analysis frequency), and rows are sorted by p (smallest at the top). *Bottom:* median (line) and IQR (shading) across ROIs. Dashed and dotted lines: median and IQR of independent Exp(1) ordinates.</sub>
+
+- **Taking the envelope out removes part of the excess:**
+  - two thirds in medaka (+0.088 → +0.028);
+  - a third at 0.1 Hz (+0.043 → +0.027);
+  - almost nothing at 0.3 Hz (+0.058 → +0.053), where the envelope-normalised traces
+    still have a lag-1 coupling of 0.15.
+
+  In the frequency scan, envelope normalisation (green) roughly halves the excess at every
+  frequency.
+- **Putting the envelope into noise adds about +0.02.** Imposing each ROI's envelope on white
+  noise gives +0.020 to +0.023 in the floor-clipped recordings and nothing in the 2022 Q1 recordings. That is
+  roughly half the real excess, from the envelope alone.
+
+The envelope is therefore a real contributor, but it is not all of it. A 60 s RMS envelope
+cannot follow activity that switches on and off within a few seconds against a clipped
+baseline, and whatever it misses survives the division.
+
+![Metrics by quartile](nfc_finite_sample_bias/fig_sv_metrics_quartiles.png)
+
+<sub>**Figure 16. ECDF deviation by quartile of each per-ROI metric.** Rows: window tilt; lag-1 ordinate coupling; slow-power fraction (< 0.02 Hz); envelope CV (60 s); excess kurtosis; fraction of frames at the trace minimum. Columns: the four sets of recordings. Within each set, ROI traces are ranked by that row's metric and split into four equal-sized groups; each line is the ECDF deviation of one group's p-values. Q1 (lightest) is the lowest quartile. Legend: dev@0.5 per quartile. Gray: 95% binomial band for one quartile. The metrics are defined in the table below.</sub>
+
+
+Per-ROI metrics in Figures 16–17, all computed on the same N frames that `fit_Fourier` analyses:
+
+| metric | definition | what it is meant to catch |
+|---|---|---|
+| window tilt | slope of a straight-line fit of log10 periodogram power against bin offset across the 2M off-frequency bins, with offset scaled so −M → −1 and +M → +1. Units are log10 power per half-window, positive if power rises toward higher frequency | a sloped noise floor across the window (a pure linear tilt leaves σ̂ unbiased on average; curvature would not) |
+| lag-1 ordinate coupling | Pearson correlation, across the window, of each ordinate with its neighbour (I_k vs I_k+1) | the dependence between neighbouring ordinates shown in Figure 13, per ROI |
+| slow-power fraction | power below 0.02 Hz divided by total power (DC excluded) | how much of the trace is slow variation |
+| envelope CV (60 s) | coefficient of variation over time of the squared 60 s RMS envelope of the trace, high-passed at 0.02 Hz | slow modulation of the trace's amplitude |
+| excess kurtosis | kurtosis − 3 of the high-passed trace | sparse, transient-dominated traces |
+| fraction of frames at the trace minimum | share of frames equal to the trace's own minimum | floor clipping (Figure 10) |
+
+Per ROI (Figure 16), the excess concentrates in the most nonstationary and most clipped traces. Within
+the 0.3 Hz zebrafish recordings the top quartile of envelope CV, kurtosis or floor fraction sits at
++0.14 to +0.15, while the other quartiles sit at 0 to +0.05. The 0.1 Hz zebrafish recordings are similar
+(+0.09 to +0.10 in the top quartile).
+
+![Metrics vs p, one dot per ROI](nfc_finite_sample_bias/fig_sv_metrics_scatter.png)
+
+<sub>**Figure 17. Per-ROI metrics against p-value.** Same metrics and layout as Figure 16, one dot per ROI trace. Panel titles give Spearman ρ.</sub>
+
+In the one-dot-per-ROI scatters (Figure 17), no metric correlates monotonically with p, which is what a
+pile-up in the *middle* of the p range predicts. The ECDF curves show that shape directly:
+a dip below zero near p ≈ 0.1 and a peak near p ≈ 0.6. NFC is under-dispersed, with too few
+small p-values *and* too few near 1, not inflated.
+
+### 5. Simulation: which kind of slow variation does this?
+
+**The question.** Sections 3–4 point at slow amplitude variation, but in the real data that is
+mixed up with everything else about these traces, in particular the floor clipping found in
+section 1. Simulation separates them. Synthetic GCaMP traces are generated with no
+stimulus-locked component at all, so the null is true by construction. One ingredient is
+switched on at a time: the advisor's slowly varying firing rate, slowly varying noise level,
+additive drift, floor clipping, and clipping combined with slow rate changes. Whichever
+ingredient reproduces the real excess, its shape and its bin coupling is the mechanism.
+
+![Imaging simulation](nfc_finite_sample_bias/fig_sv_sim_imaging.png)
+
+<sub>**Figure 18. Simulated imaging traces under each kind of slow variation.** Columns: the f, frame count and Q_frac of the three zebrafish sets of recordings. Rows 1–6 show ECDF(p) − p for: a stationary event-rate sweep; rate × OU; noise SD × OU; additive OU drift; floor-clipped with rate × OU; and floor-clipped with the log-rate SD swept at τ = 100 s. Legends give the swept parameter, dev@0.5 and, for clipped traces, the fraction of frames at the floor. 16,000 traces per condition. Gray: 95% binomial band. Bottom row: neighbouring-ordinate coupling, as in Figure 13.</sub>
+
+**Setup (Figure 18).** The simulated traces are synthetic GCaMP:
+- Poisson events at 0.1/s, 2 s decay, Gaussian noise;
+- 16,000 traces per condition, so the binomial SE is 0.004;
+- the f, frame count and Q_frac of each zebrafish set of recordings.
+
+Every condition is a valid null, because nothing is locked to the analysis frequency.
+
+| condition | 0.4 Hz config | 0.3 Hz config | 0.1 Hz config | lag-1 coupling |
+|---|---|---|---|---|
+| stationary, 3–300 events/trace | −0.001 to +0.010 | −0.001 to +0.006 | −0.002 to +0.005 | ≈ 0 |
+| **rate × OU (advisor's model)**, τ 3–300 s, log-rate SD 1 | −0.004 to +0.006 | −0.006 to +0.001 | −0.006 to +0.004 | ≤ 0.02 |
+| noise SD × OU, τ 3–300 s | −0.003 to +0.013 | +0.003 to +0.012 | −0.003 to +0.004 | up to 0.17 |
+| + large additive OU drift | −0.004 to +0.003 | −0.007 to +0.004 | **−0.023 to −0.001** | ≤ 0.05 |
+| floor-clipped (88% of frames at floor), stationary | +0.007 | +0.001 | +0.011 | ≈ 0 |
+| floor-clipped, rate × OU, τ 3–300 s, SD 1 | −0.002 to +0.011 | +0.004 to +0.012 | +0.013 to +0.020 | up to 0.19 |
+| **floor-clipped, τ 100 s, log-rate SD 2** | +0.017 | +0.012 | **+0.043** | 0.31–0.36 |
+| **floor-clipped, τ 100 s, log-rate SD 3** | +0.028 | +0.033 | **+0.054** | 0.31–0.35 |
+
+- **The advisor's model alone does nothing to imaging.** A slowly rate-modulated Poisson
+  process with the events visible above continuous noise stays within ±0.006 at every
+  timescale. The rate changes, but a trace with continuous noise keeps the periodogram's
+  ordinates nearly independent (coupling ≤ 0.02).
+- **Additive drift does nothing, or pushes the other way.** This matches the detrending
+  result.
+- **Noise-level modulation couples the ordinates but barely moves the ECDF.** Coupling
+  reaches 0.17, yet dev@0.5 stays at or below +0.013.
+- **Clipping plus deep slow modulation reproduces the data.** With a floor, the trace is
+  silent outside the epochs, and the epochs carry all the power.
+  - At log-rate SD 2–3 (activity confined to epochs), the simulated 0.1 Hz config gives
+    **+0.043 to +0.054**, against **+0.043** real.
+  - The lag-1 coupling of 0.31–0.36 matches the real 0.25–0.38.
+  - The curve has the real one's shape: a dip near p = 0.1 and a peak near 0.6.
+  - The depth is not a free fit. Simulated envelope CV is 2.1–2.4 and kurtosis 55–97 at
+    SD 2–3, against real 1.5–2.4 and 52–81.
+
+![Ephys simulation](nfc_finite_sample_bias/fig_sv_sim_ephys.png)
+
+<sub>**Figure 19. Simulated ephys with slow rate modulation (the advisor's test).** ECDF(p) − p for 16,000 Poisson units (3 Hz, T = 300 s, Q = 27, ≈ 134 spikes/unit), either homogeneous (gray) or with OU log-rate modulation (SD 1) at τ = 3–300 s. Legend: dev@0.5. Gray band: 95% binomial band.</sub>
+
+**Ephys** (Figure 19; the advisor's literal test, in `simulate.py`'s 3 Hz / T = 300 s / Q = 27 setup,
+about 134 spikes per unit, 16,000 units):
+
+| | homogeneous Poisson | τ = 3 s | τ = 10 s | τ = 30 s | τ = 100 s | τ = 300 s |
+|---|---|---|---|---|---|---|
+| dev@0.5 | +0.0076 | +0.0076 | +0.0055 | +0.0108 | +0.0116 | +0.0040 |
+
+Slow rate modulation adds at most +0.004 over the finite-sample baseline at τ = 30–100 s,
+which is about one SE. The ephys conclusion above therefore stands: finite-sample bias alone
+accounts for the ephys deviation.
+
+### What this establishes
+
+| | finding |
+|---|---|
+| **Established** | The 0.1/0.3 Hz zebrafish and medaka traces are floor-clipped (median 91–98% of frames at exactly 50.0), with activity in slow epochs. The calibrated 2022 Q1 recordings are not clipped. |
+| **Established** | Their excess is the same at every analysis frequency (+0.04 to +0.05), so it is a property of the traces, not of the stimulus. |
+| **Established** | Neighbouring periodogram ordinates are correlated (lag-1 up to 0.38), which breaks the null's independence assumption. A 60 s amplitude envelope accounts for most of the correlation. |
+| **Established** | Simulated floor-clipped traces with deep slow rate modulation reproduce the magnitude, the shape and the coupling. Neither clipping alone nor slow modulation alone does. |
+| **Ruled out** | Spectral shape across the window; additive drift or bleaching; slow rate modulation of unclipped traces (the advisor's model as stated); slow modulation as an ephys mechanism. |
+| **Open** | The 2022 Q1 recordings' +0.022 is local to the stimulus bin in `20220301`: a stimulus-locked component. |
+| **Open** | Envelope normalisation recovers only part of the excess. A null that respects the coupling (for example, σ̂ from a block bootstrap over time, or an effective-dof correction from the measured coupling) has not been tried. |
+
+**Implication for Fig 2C.** For these recordings the imaging excess is a null-model
+violation caused by data quality, not a hint of a magnetic response. It sits at every
+frequency, with the stimulus bin in the middle of the pack. The traces fail the
+independence assumption that the Rayleigh/eps-corrected null rests on.
+
+## Excluding ROIs with long dead time (imaging)
+
+**Date:** 2026-10-01; re-run 2026-10-02. **Script:** `activity_coverage.py`.
+
+*Re-run, 2026-10-02.* Figures 20–23 and every number in this section now come from the
+current production population, before any coverage threshold: P(iscell) > 0.5, npix ≥ 10,
+inside the fish outline ([`body_outline.md`](body_outline.md)) and flatline removal. A second
+sham frequency, below the stimulus, was added. The 2026-10-01 version used the old P(iscell)
+thresholds (0.55–0.8), npix > 10, no outline and one sham frequency; its figures are kept
+(untracked) in `figs/paper/compare_2026-10-02/report_figs_20-23_old/`.
+
+**The question.** Figure 10 shows that many ROIs in the floor-clipped recordings are not
+usable cells. Some fire a handful of times in the whole recording. Others are "on" for a few
+minutes and sit at the floor for the rest. The previous section found that this kind of trace
+is what breaks the null. Can such ROIs be removed by a rule that is reliable (it keeps the
+traces that look like cells) and rational (its threshold is chosen from the data, not
+guessed)? And does removing them restore calibration?
+
+**What is measured.** Per ROI trace, on the frames `fit_Fourier` analyses:
+
+| quantity | definition |
+|---|---|
+| floor | the trace's most common value, if it holds ≥ 20% of frames. Below that the trace counts as unclipped (no floor). The minimum is not used, because a single outlier frame below the floor (the bottom-right medaka trace in Figure 10 has one) would make every floor frame count as active. |
+| active frame | a frame above the floor. Every frame of an unclipped trace is active. |
+| active fraction | share of frames that are active |
+| coverage | share of 60 s windows that contain ≥ 3 active frames: is the ROI "on" throughout the recording, or only part of it? |
+
+Neither quantity uses stimulus timing or the power at any frequency. Excluding ROIs on them
+therefore cannot create or remove a stimulus-locked response.
+
+*What a sham frequency is.* Every ROI in a recording received the same single stimulus (for
+example 0.1 Hz). A sham frequency is not a second stimulus. It is a different frequency at
+which the **same trace** is analysed: NFC and its p-value can be computed at any frequency,
+not just the stimulus one. Where nothing was presented the null is true by construction, so
+a correct null must give uniform p-values there. Any deviation from uniform at a sham
+frequency is a defect of the null, not a response.
+
+The threshold is judged at **two sham frequencies per recording**, one on each side of the
+stimulus: the nearest frequencies whose noise windows (± M bins) do not overlap the
+stimulus's, i.e. the stimulus bin + 2M + 1 and − 2M − 1. A sham is skipped when its window
+would reach past Nyquist or down to DC. Each ROI contributes one p-value per sham frequency,
+just as it contributes one at the stimulus, so all three are directly comparable and have the
+same binomial uncertainty:
+
+| set of recordings | stimulus | sham above | sham below |
+|---|---|---|---|
+| 2022 Q1 zebrafish | 0.4 Hz | none (window would pass Nyquist) | 0.279 Hz |
+| 0.3 Hz zebrafish | 0.3 Hz | 0.391 Hz | 0.209 Hz |
+| 0.1 Hz zebrafish | 0.1 Hz | 0.160 Hz | 0.040 Hz |
+| medaka | 0.1 Hz | 0.131 Hz | 0.069 Hz |
+
+The stimulus frequency is only read off afterwards.
+
+### Distributions: how active are the ROIs?
+
+![Activity distributions](nfc_finite_sample_bias/fig_ac_distributions.png)
+
+<sub>**Figure 20. Activity per ROI trace, by set of recordings.** *Top:* fraction of frames above the floor. *Bottom:* coverage, the share of 60 s windows with ≥ 3 active frames. *Left:* histograms (density). *Right:* ECDFs. The 2022 Q1 traces are unclipped, so every frame counts as active and they all sit at 1 (gray spike). n (ROI traces) in the legend.</sub>
+
+- **Active fraction is low everywhere in the clipped recordings.** The median trace is above
+  the floor in only 2% (0.3 Hz), 5% (0.1 Hz) and 8% (medaka) of frames. This measures how
+  sparse the activity is, not whether it is spread over the recording, so it separates dead
+  ROIs from live ones poorly. Coverage is the more useful quantity.
+- **Coverage is spread out, with a lump at the low end and a spike at 1.**
+  - 0.3 Hz zebrafish: mostly low (median 0.10; only 2% of traces have full coverage).
+  - 0.1 Hz zebrafish: median 0.33, with 20% at full coverage.
+  - Medaka: mostly high (median 0.78, 25% at full coverage).
+- **There is no clean valley between "dead" and "alive".** The histograms are roughly flat
+  between 0.2 and 0.9, so the distributions alone don't dictate a threshold. The calibration
+  sweep (Figure 22) has to.
+- **A few traces in these recordings are unclipped.** About 4% in the 0.1 Hz zebrafish
+  recordings, mostly `engert_20221002_fish1_magneto_1`, whose baseline is about 12,800 (see
+  the per-recording table in section 1). They have coverage 1 and pass any threshold.
+
+### Do low-coverage ROIs look like junk, and high-coverage ones like cells?
+
+![Gallery](nfc_finite_sample_bias/fig_ac_gallery.png)
+
+<sub>**Figure 21. Raw traces at evenly spaced coverage quantiles.** For each clipped set of recordings (columns), 8 ROI traces picked at evenly spaced quantiles of coverage, from the lowest (top) to the highest (bottom). There is no selection on p. Titles give the recording, ROI, coverage and active fraction.</sub>
+
+- **Coverage below about 0.15 is junk:** two to a dozen isolated spikes, or one burst and then
+  nothing.
+- **Around 0.3** the traces fire throughout, but sparsely.
+- **From about 0.5 up** they look like cells.
+
+One caveat: ≥ 3 active frames per window is a lenient definition of "on". A trace with a long
+quiet stretch can still score well if a few single-frame blips fall in the quiet windows
+(in the 2026-10-01 gallery, `engert_20221002_fish2_magneto_2` ROI 9, coverage 0.83, was mostly
+silent for its first 500 s). The reverse also happens: `engert_20221001_fish1_magneto_0` ROI 79
+in Figure 21 (coverage 0.28) bursts for 200 s and then goes silent.
+A stricter per-window criterion would catch it, at the cost of more ROIs.
+
+### Does excluding them restore calibration?
+
+![Threshold sweep](nfc_finite_sample_bias/fig_ac_threshold_sweep.png)
+
+<sub>**Figure 22. Calibration vs coverage threshold.** For each clipped set of recordings (columns), the deviation at p = 0.5 (ECDF(0.5) − 0.5) after keeping only ROI traces with coverage ≥ the threshold (x). *Top:* the sham frequency above the stimulus (coloured solid, circles), the sham frequency below the stimulus (coloured dotted, squares), both calibration targets, and the stimulus frequency (black dashed, read-out only); each panel's legend gives the three frequencies in Hz. Each ROI contributes one p-value to each line. Gray: 95% binomial band for the number of ROIs kept. *Bottom:* ROI traces kept.</sub>
+
+![ECDF curves after exclusion](nfc_finite_sample_bias/fig_ac_curves.png)
+
+<sub>**Figure 23. Whole ECDF-deviation curves after exclusion.** ECDF(p) − p at coverage thresholds 0, 0.25, 0.5 and 0.75 (light to dark), for each set of recordings (columns). *Top row:* the sham frequency above the stimulus (none for 2022 Q1). *Middle row:* the sham frequency below the stimulus. *Bottom row:* the stimulus frequency. Panel titles give each frequency in Hz. Gray: 95% binomial band for the smallest subset shown.</sub>
+
+Values of Figure 22's top row (deviation at p = 0.5) and bottom row (ROI traces kept):
+
+| coverage ≥ | 0.3 Hz zebrafish: kept / sham above / sham below / stimulus | 0.1 Hz zebrafish: kept / sham above / sham below / stimulus | medaka: kept / sham above / sham below / stimulus |
+|---|---|---|---|
+| 0 (everything) | 1138 / +0.047 / +0.027 / +0.065 | 4295 / +0.045 / −0.070 / +0.046 | 825 / +0.032 / +0.081 / +0.084 |
+| 0.1 (production since 2026-10-02) | 508 / +0.016 / +0.010 / +0.024 | 3221 / +0.021 / −0.116 / +0.036 | 797 / +0.028 / +0.075 / +0.082 |
+| 0.25 | 296 / +0.000 / +0.007 / −0.017 | 2460 / +0.024 / −0.139 / +0.032 | 722 / +0.030 / +0.068 / +0.079 |
+| 0.50 | 181 / −0.052 / −0.014 / +0.019 | 1864 / +0.012 / −0.156 / +0.034 | 611 / +0.029 / +0.070 / +0.081 |
+| 0.70 | 116 / −0.017 / −0.069 / +0.026 | 1400 / +0.004 / −0.169 / +0.034 | 470 / +0.021 / +0.068 / +0.089 |
+| binomial SE at 0.70 | 0.046 | 0.013 | 0.023 |
+
+- **0.3 Hz zebrafish (Figure 22, column 1): both shams are calibrated from coverage ≈ 0.1
+  on.** At 0.1 they read +0.016 and +0.010 (SE 0.022), and above that they wander inside the
+  band. The stimulus line behaves the same way, so nothing stimulus-specific is left.
+- **0.1 Hz zebrafish (Figure 22, column 2): the two shams disagree, and no threshold
+  reconciles them.** The sham above (0.160 Hz) falls from +0.045 to about 0 at 0.7, as in the
+  2026-10-01 version. The sham below (0.040 Hz) is strongly *negative*, from −0.070 with
+  everything to −0.169 at 0.7 (13 SE), and the coverage threshold makes it worse. Figure 23,
+  middle row, column 3 shows the whole curve below zero: p-values pile up near 1, i.e. NFC is
+  too small at 0.04 Hz. The stimulus line (+0.03 to +0.04) sits between the two shams at every
+  threshold.
+- **Medaka (Figure 22, column 3): the sham below matches the stimulus.** The sham below
+  (0.069 Hz) reads +0.068 to +0.081 at every threshold, nearly as high as the stimulus
+  (+0.079 to +0.089) and far outside the band. The sham above (0.131 Hz) stays at +0.02 to
+  +0.03, inside the band. Figure 23, column 4 shows the same shape at the sham below (middle
+  row) as at the stimulus (bottom row): a hump centred on p ≈ 0.5.
+- **2022 Q1 (Figure 23, column 1): unclipped, so coverage changes nothing.** Its one sham
+  (below, 0.279 Hz) is calibrated (−0.006, SE 0.007); its stimulus deviation is +0.025.
+
+**What the second sham changes.** The 2026-10-01 version flagged one confound: in both sets of
+0.1 Hz recordings the only sham frequency sat *above* the stimulus, so a calibration that
+changes with frequency could produce a stimulus-frequency gap on its own. The sham below
+settles it:
+- **Medaka's stimulus excess is not stimulus-specific.** The same excess appears at 0.069 Hz,
+  where nothing was presented. The miscalibration grows toward lower frequencies (sham above
+  +0.03, stimulus +0.08, sham below +0.07), so the stimulus bin's excess fits the trend.
+- **In the 0.1 Hz zebrafish, calibration depends strongly on frequency**, in the opposite
+  direction: far too few small p-values at 0.04 Hz, slightly too many at 0.16 Hz. The stimulus
+  value lies between them. With the null this frequency-dependent, a single sham cannot be
+  used as the reference, and these recordings cannot show a stimulus-locked response.
+- **Choosing the coverage threshold.** The earlier choice, the smallest threshold at which the
+  sham deviation reaches zero (0.65–0.7), rested on the sham above alone. With both shams,
+  only the 0.3 Hz recordings are calibrated at any threshold (from about 0.1). In the two
+  0.1 Hz sets no threshold calibrates both shams; raising the threshold fixes the sham above
+  and leaves (medaka) or worsens (zebrafish) the sham below. Production uses 0.1, which
+  removes the junk traces of Figure 21 (coverage below about 0.15) and calibrates the 0.3 Hz
+  recordings; a higher threshold costs ROIs without making the 0.1 Hz recordings usable.
+- *Why the 0.04 Hz sham can be negative.* The noise window there spans roughly 0.02–0.06 Hz,
+  where slow drift makes the power spectrum fall steeply with frequency. NFC compares the
+  centre bin with the mean power of its window; on a steep, convex spectrum the window mean
+  exceeds the centre value, so NFC is biased low and p-values are biased high. This is a
+  plausible mechanism, not one tested here.
+
+### What this establishes
+
+| | finding |
+|---|---|
+| **Established** | Coverage (share of 60 s windows with ≥ 3 frames above the floor) separates junk ROIs from cell-like ones by eye (Figure 21), and it is blind to the stimulus. |
+| **Established** | In the 0.3 Hz zebrafish recordings, excluding low-coverage ROIs calibrates both sham frequencies from coverage ≈ 0.1 on (Figure 22, column 1), and nothing stimulus-specific remains. |
+| **Established** | In the 0.1 Hz recordings, calibration depends on frequency, and no coverage threshold calibrates both shams (Figure 22, columns 2–3). Medaka's sham below the stimulus (0.069 Hz) shows the same excess as the stimulus, so medaka's stimulus excess is not stimulus-specific. In the 0.1 Hz zebrafish the sham below (0.040 Hz) is strongly negative, and the stimulus lies between the two shams. |
+| **Adopted** | Production keeps ROIs with coverage ≥ 0.1 (every engert/medaka YAML, 2026-10-02), alongside P(iscell) > 0.5, npix ≥ 10 and the fish outline. |
+| **Open** | Why the null depends so strongly on frequency in the 0.1 Hz recordings (the steep low-frequency spectrum is the candidate), and whether a frequency-local correction of the noise window would fix it. |
 
 ## Reconciling with the noise-floor report
 
@@ -382,9 +948,10 @@ not as a signal.
 4. **The pooled Fig2 C number is imaging-dominated.** Quoting ephys and imaging separately
    is more honest than quoting +0.0163 — they have entirely different causes.
 5. **The two modalities are not the same phenomenon.** Ephys is finite-sample bias in an
-   asymptotic null. Imaging is non-Gaussian trace structure partly cancelled by a
-   mis-estimated noise floor. A single "the null is slightly off" sentence covering both
-   would be wrong.
+   asymptotic null. In the 0.1/0.3 Hz zebrafish and medaka recordings, imaging is
+   floor-clipped traces with slow activity epochs, which correlate neighbouring periodogram
+   ordinates and break the null's independence assumption. A single "the null is slightly
+   off" sentence covering both would be wrong.
 
 ## Reproducing
 
@@ -396,9 +963,29 @@ python docs/nfc_finite_sample_bias/simulate.py --figures-only   # replot from sa
 # Imaging: surrogate decomposition (reads the engert NWB files)
 python docs/nfc_finite_sample_bias/imaging_surrogates.py                 # ~10 min
 python docs/nfc_finite_sample_bias/imaging_surrogates.py --figures-only  # replot
+
+# Imaging: slow variation (reads the engert + medaka NWB files)
+python docs/nfc_finite_sample_bias/slow_variation.py                     # ~5 min
+python docs/nfc_finite_sample_bias/slow_variation.py --figures-only      # replot (needs the local cache)
+python docs/nfc_finite_sample_bias/slow_variation_sim.py                 # ~25 min
+python docs/nfc_finite_sample_bias/slow_variation_sim.py --figures-only
+
+# Imaging: excluding ROIs with long dead time
+python docs/nfc_finite_sample_bias/activity_coverage.py                  # ~5 min
+python docs/nfc_finite_sample_bias/activity_coverage.py --figures-only   # replot (needs the local cache)
 ```
 
-`docs/nfc_finite_sample_bias/` contains both scripts, the eight figures embedded above, and
+`slow_variation.py` asserts that its recomputed production p-values match the parquet
+(max |dp| 1.1e-06 over 10,565 rows), and that its own FFT path reproduces `fit_Fourier`
+exactly at the stimulus frequency. It writes `results_slow_variation_{rois,curves,coupling,scan}.csv`,
+`results_surrogate_validation.csv` and the `fig_sv_*.png` figures. Its `--figures-only` mode
+also needs `slow_variation_cache.npz` (window periodograms and example traces), which is
+gitignored and regenerated by a full run. `slow_variation_sim.py` writes
+`results_sv_sim_{curves,coupling}.csv` and `fig_sv_sim_*.png`.
+`activity_coverage.py` writes `results_activity_{rois,sweep,curves}.csv` and `fig_ac_*.png`.
+Its gallery cache `activity_coverage_cache.npz` is gitignored.
+
+`docs/nfc_finite_sample_bias/` contains the scripts, the figures embedded above (Figures 1–23), and
 `results_units.csv` / `results_spikes.csv` / `results_spikes_wide.csv` /
 `results_curves.csv` / `results_real.csv` / `results_real_spk_counts.csv` /
 `results_imaging_surrogates.csv` holding every observation behind the tables.
