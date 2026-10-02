@@ -132,7 +132,8 @@ class ExperimentConfig:
     iscell_threshold: float = 0.7
     npix_threshold: int = 20
     # Outline of the fish in suite2p's mean image, for dropping ROIs outside the fish:
-    # {sigma, frac, margin, min_region} (docs/body_outline.md). Set per field of view with
+    # {sigma, frac, margin, min_region}, or a hand-drawn `polygon` of [x, y] pixel vertices that
+    # replaces the automatic outline (docs/body_outline.md). Set per field of view with
     # docs/nfc_finite_sample_bias/body_outline_gui.ipynb; empty = not set. Not yet applied
     # by the analysis stage.
     body_outline: dict = field(default_factory=dict)
