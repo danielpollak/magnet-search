@@ -823,11 +823,11 @@ A stricter per-window criterion would catch it, at the cost of more ROIs.
 
 ![Threshold sweep](nfc_finite_sample_bias/fig_ac_threshold_sweep.png)
 
-<sub>**Figure 22. Calibration vs coverage threshold.** For each clipped set of recordings (columns), the deviation at p = 0.5 after keeping only ROI traces with coverage ≥ the threshold (x). *Top:* the sham frequency (coloured, the calibration target) and the stimulus frequency (black dashed, read-out only). Each ROI contributes one p-value to each line. Gray: 95% binomial band for the number of ROIs kept. *Bottom:* ROI traces kept.</sub>
+<sub>**Figure 22. Calibration vs coverage threshold.** For each clipped set of recordings (columns), the deviation at p = 0.5 after keeping only ROI traces with coverage ≥ the threshold (x). *Top:* the sham frequency (coloured, the calibration target) and the stimulus frequency (black dashed, read-out only); each panel's legend gives both frequencies in Hz. Each ROI contributes one p-value to each line. Gray: 95% binomial band for the number of ROIs kept. *Bottom:* ROI traces kept.</sub>
 
 ![ECDF curves after exclusion](nfc_finite_sample_bias/fig_ac_curves.png)
 
-<sub>**Figure 23. Whole ECDF-deviation curves after exclusion.** ECDF(p) − p at coverage thresholds 0, 0.25, 0.5 and 0.75 (light to dark), for each set of recordings (columns). *Top:* the sham frequency. *Bottom:* the stimulus frequency. Gray: 95% binomial band for the smallest subset shown.</sub>
+<sub>**Figure 23. Whole ECDF-deviation curves after exclusion.** ECDF(p) − p at coverage thresholds 0, 0.25, 0.5 and 0.75 (light to dark), for each set of recordings (columns). *Top:* the sham frequency. *Bottom:* the stimulus frequency. Panel titles give each frequency in Hz. Gray: 95% binomial band for the smallest subset shown.</sub>
 
 | coverage ≥ | 0.3 Hz zebrafish: kept / sham / stimulus | 0.1 Hz zebrafish: kept / sham / stimulus | medaka: kept / sham / stimulus |
 |---|---|---|---|
