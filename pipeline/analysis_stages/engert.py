@@ -29,7 +29,7 @@ import pandas as pd
 from magpyneto2.engert_helpers import fit_Fourier, remove_flatlines
 from magpyneto2.statistics import corrected_pvalues
 from pipeline import body_outline, nwb_io
-from pipeline.roi_coverage import activity
+from pipeline.roi_coverage import activity, low_coverage_traces
 
 
 def _load_from_nwb(nwb_path, iscell_thres, npix_thres, outline=None, coverage_min=0.0,
@@ -304,4 +304,5 @@ def run_analysis(cfg):
         roi_df=roi_df, included_mask=included_mask, imaging_dims=imaging_dims,
         freq_win_2f=freq_win_2f, onfreq_coef_2f=onfreq_coef_2f_l,
         offfreq_coef_2f=offfreq_coef_2f_l, Q_2f=Q_2f,
-        mean_img=nwb_io.load_mean_image(cfg.nwb_path()))
+        mean_img=nwb_io.load_mean_image(cfg.nwb_path()),
+        low_coverage=low_coverage_traces(cfg))
