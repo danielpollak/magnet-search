@@ -1,6 +1,7 @@
 # Outlining the fish to remove ROIs that lie outside it
 
-**Date:** 2026-10-02. **Scripts:** `docs/nfc_finite_sample_bias/body_mask.py` (the method),
+**Date:** 2026-10-02. **Scripts:** `pipeline/body_outline.py` (the method),
+`docs/nfc_finite_sample_bias/body_mask.py` (every field of view),
 `docs/body_outline/body_outline_figures.py` (this report's figures),
 `docs/nfc_finite_sample_bias/body_outline_gui.ipynb` (slider and polygon GUI).
 
@@ -196,6 +197,24 @@ stage; once the outlines are set, it can be applied at analysis time alongside
   above).
 - **Medaka's outside ROIs** are mostly the column of small ROIs along the left edge of the
   frame (an edge artifact), with zero coverage.
+
+## Results with the settings saved in the GUI (2026-10-02)
+
+Settings were then chosen by eye in the GUI and saved to the YAMLs: different thresholds and
+smoothing for most zebrafish fields of view, and a hand-drawn polygon for medaka fish 3 trial 0.
+`2022_02_21` and medaka trials 1 and 2 kept the defaults.
+
+| set of recordings | ROIs (npix ≥ 10) | outside | of those passing the production cut, outside | median P(iscell) outside / inside |
+|---|---|---|---|---|
+| 2022 Q1 zebrafish | 6,968 | 619 | 25 of 2,876 | 0.06 / 0.46 |
+| 0.3 Hz zebrafish | 1,431 | 2 | 0 of 496 | 0.31 / 0.43 |
+| 0.1 Hz zebrafish | 4,427 | 129 | 17 of 1,629 | 0.23 / 0.48 |
+| medaka | 1,469 | 186 | 16 of 585 | 0.59 / 0.75 |
+
+The same outline, with the ROIs inside and outside it, is now the last page of every
+zebrafish and medaka diagnostic PDF in `figs/analysis/` (`pipeline/body_outline.py`, reading
+the mean image the processing stage stores in the NWB file). It is shown there, not yet
+applied: the analysed population is still set by P(iscell), npix and flatline removal only.
 
 ## Limitations
 
