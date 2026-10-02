@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-02. **Scripts:** `docs/nfc_finite_sample_bias/body_mask.py` (the method),
 `docs/body_outline/body_outline_figures.py` (this report's figures),
-`docs/nfc_finite_sample_bias/body_outline_gui.ipynb` (slider GUI).
+`docs/nfc_finite_sample_bias/body_outline_gui.ipynb` (slider and polygon GUI).
 
 ## The question
 
@@ -163,13 +163,17 @@ production P(iscell)/npix cut sit there (`fig_body_mask.pdf`, page 4). That fiel
 needs a lower threshold. This is why the parameters can be set per field of view.
 
 **The GUI.** `docs/nfc_finite_sample_bias/body_outline_gui.ipynb` shows one field of view at
-a time with four sliders (threshold, smoothing, margin, min region). Open it in VS Code,
-select the magneto2 environment as the kernel, and run all cells. When you move a slider and
-then switch to another field of view, the settings are saved as a `body_outline:` block in
-every experiment YAML that uses the field of view you left (all repeat trials of a fish; for
-2022 Q1 also the visual, visualmagnet and nostim recordings). **Save** accepts the settings
-without moving a slider. A progress line lists the fields of view still without settings.
-`body_mask.py` reads the YAML blocks; recordings without one use the defaults. The
+a time, opening with its saved settings or the defaults, with four sliders (threshold,
+smoothing, margin, min region). Where no slider setting fits, **Draw polygon** lets you click
+the outline of the fish by hand; the polygon replaces the automatic outline exactly (no margin
+is added). Open the notebook in VS Code, select the magneto2 environment (which needs
+`ipympl`) as the kernel, and run all cells. When you change something and then switch to
+another field of view, the settings are saved as a `body_outline:` block in every experiment
+YAML that uses the field of view you left (all repeat trials of a fish; for 2022 Q1 also the
+visual, visualmagnet and nostim recordings); a polygon is saved as `polygon: [[x, y], ...]` in
+pixels. **Save** saves without switching; **Reset to defaults** restores the default sliders
+and clears the polygon. Fields of view you don't touch are not written to. `body_mask.py` reads
+the YAML blocks; recordings without one use the defaults. The
 `body_outline` field is in the experiment schema but is not yet applied by the analysis
 stage; once the outlines are set, it can be applied at analysis time alongside
 `iscell_threshold` and `npix_threshold`.
