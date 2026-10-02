@@ -164,4 +164,5 @@ def run_analysis(cfg):
     plot_engert_diagnostics(
         cfg, F, fourier_df_b, freq_win_b,
         onfreq_coef_b, offfreq_coef_b, diag_dir,
-        roi_df=roi_df, included_mask=included_mask, imaging_dims=imaging_dims)
+        roi_df=roi_df, included_mask=included_mask, imaging_dims=imaging_dims,
+        mean_img=nwb_io.load_mean_image(cfg.nwb_path()))
