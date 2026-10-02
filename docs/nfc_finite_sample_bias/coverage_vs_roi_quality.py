@@ -3,9 +3,15 @@
     python docs/nfc_finite_sample_bias/coverage_vs_roi_quality.py     # ~2 min
 
 Companion to activity_coverage.py. For EVERY ROI in each imaging recording of the Fig 2C
-magnetic pool, plus the visual-only 2022 Q1 recordings (VISUAL) -- not just those passing the production P(iscell)/npix cut -- computes
-coverage (activity_coverage.activity, on the same first-N frames fit_Fourier analyses) and
-plots it against P(iscell) and npix. One page per set of recordings, three panels:
+magnetic pool, plus the visual-only 2022 Q1 recordings (VISUAL) -- not just those passing
+the production P(iscell)/npix cut -- computes coverage (activity_coverage.activity, on the
+same first-N frames fit_Fourier analyses) and plots it against P(iscell) and npix.
+
+One page per field of view (suite2p segmentation), grouped by set of recordings, so
+different fish are never pooled. Zebrafish repeat trials share one segmentation; each ROI is
+one dot, with its coverage averaged over those trials. ROIs below MIN_NPIX pixels are left
+out of the plots (they are mostly tiny fragments and dominated the dot clouds); the CSV keeps
+every ROI and recording. Three panels per row:
 
     npix vs coverage        colour = P(iscell)
     P(iscell) vs coverage   colour = npix (log)
@@ -16,8 +22,7 @@ window) and npix is an integer, so both are jittered by less than half a step fo
 only (the CSV holds the exact values). Bottom row: the same axes binned (hexagons), coloured
 by the MEDIAN of the third variable over the ROIs in each bin (bins with >= 5 ROIs), which
 stays readable where the dots overlap. Dashed lines mark the production thresholds (strict >,
-as in _load_from_nwb). One dot per ROI trace per recording: zebrafish repeat trials share one segmentation, so the same ROI
-appears once per trial with that trial's coverage.
+as in _load_from_nwb).
 
 Outputs (next to this script): results_coverage_vs_roi_quality.csv (11 MB, gitignored),
 fig_coverage_vs_roi_quality.pdf.
@@ -51,6 +56,31 @@ VISUAL = "zebrafish visual only, 1/60 Hz (2022 Q1)"
 VISUAL_RECS = ["engert_20220221_visual", "engert_20220223_visual",
                "engert_20220301_visual_a", "engert_20220301_visual_b"]
 SETS = BATCHES + [VISUAL]
+MIN_NPIX = 10                   # ROIs with fewer pixels are left out of the plots
+
+
+def segmentation_key(name):
+    """Recordings sharing a suite2p segmentation share a key (engert: session_path)."""
+    if name.startswith("medaka"):
+        return name
+    cfg = schema.load_experiment(str(sv._REPO / "experiments" / f"{name}.yml"))
+    return cfg.session_path
+
+
+def fields_of_view(df):
+    """One row per ROI per field of view (ROIs with npix >= MIN_NPIX); coverage averaged over
+    the repeat trials sharing that segmentation within a set of recordings."""
+    df = df[df["npix"] >= MIN_NPIX].copy()
+    keys = {n: segmentation_key(n) for n in df["experiment"].unique()}
+    df["segmentation"] = df["experiment"].map(keys)
+    return (df.groupby(["batch", "segmentation", "roi"], sort=False)
+              .agg(p_iscell=("p_iscell", "first"), npix=("npix", "first"),
+                   coverage=("coverage", "mean"), n_windows=("n_windows", "first"),
+                   iscell_threshold=("iscell_threshold", "first"),
+                   npix_threshold=("npix_threshold", "first"),
+                   experiment=("experiment", "first"),
+                   recordings=("experiment", lambda s: ", ".join(sorted(set(s)))))
+              .reset_index())
 
 
 def recordings():
@@ -115,13 +145,12 @@ def panel(ax, d, x, y, c, norm, cmap, label_c, binned):
 
 
 def figures(df):
-    npix_norm = LogNorm(max(df["npix"].min(), 1), df["npix"].max())
     unit = Normalize(0, 1)
+    fov = fields_of_view(df)
     with PdfPages(OUT_PDF) as pdf:
-        for b in SETS:
-            d = df[df["batch"] == b]
-            if d.empty:
-                continue
+        for (b, _), d in sorted(fov.groupby(["batch", "segmentation"], sort=False),
+                                key=lambda kv: SETS.index(kv[0][0])):
+            npix_norm = LogNorm(d["npix"].min(), d["npix"].max())
             fig, axes = plt.subplots(2, 3, figsize=(15, 8.6), constrained_layout=True)
             for r, binned in enumerate((False, True)):
                 panel(axes[r, 0], d, "npix", "coverage", "p_iscell", unit, "viridis", "P(iscell)", binned)
@@ -134,8 +163,9 @@ def figures(df):
             thr = ", ".join(f"P(iscell) > {i:g}, npix > {n:g}" for i, n in
                             d[["iscell_threshold", "npix_threshold"]].drop_duplicates().values)
             kept = ((d["p_iscell"] > d["iscell_threshold"]) & (d["npix"] > d["npix_threshold"])).sum()
-            fig.suptitle(f"{b}: {d['experiment'].nunique()} recordings, {len(d)} ROI traces "
-                         f"(all suite2p ROIs), {kept} pass production cut ({thr}; dashed)",
+            recs = d["recordings"].iloc[0].replace("engert_", "")
+            fig.suptitle(f"{b}: {recs}\n{len(d)} ROIs with npix >= {MIN_NPIX} (coverage averaged "
+                         f"over repeat trials); {kept} pass production cut ({thr}; dashed)",
                          fontsize=10)
             pdf.savefig(fig, dpi=200)
             plt.close(fig)
@@ -149,7 +179,12 @@ def main():
     df = pd.concat(rows, ignore_index=True)
     df.to_csv(OUT_CSV, index=False)
     figures(df)
-    print(df.groupby("batch")[["p_iscell", "npix", "coverage"]].corr(method="spearman").round(2))
+    fov = fields_of_view(df)
+    rho = fov.groupby(["batch", "segmentation"], sort=False).apply(lambda g: pd.Series(dict(
+        n=len(g), cov_npix=g["coverage"].corr(g["npix"], method="spearman"),
+        cov_iscell=g["coverage"].corr(g["p_iscell"], method="spearman"),
+        iscell_npix=g["p_iscell"].corr(g["npix"], method="spearman"))))
+    print(rho.round(2).to_string())
     print("wrote", OUT_PDF)
 
 
