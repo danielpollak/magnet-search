@@ -3,7 +3,8 @@
 Reads Suite2p F/ROI data back from this experiment's NWB file (written by
 the processing stage — see pipeline/paradigms/engert.py), applies the
 iscell_threshold/npix_threshold mask, the fish outline (ROIs outside the fish
-in the mean image are dropped; `body_outline` YAML block, pipeline/body_outline.py)
+in the mean image are dropped; `body_outline` YAML block, pipeline/body_outline.py),
+the activity-coverage threshold (`coverage_threshold`, pipeline/roi_coverage.py)
 and flatline removal (all deferred to analysis time so editing thresholds or
 the outline in the YAML only requires re-running analysis, not reprocessing), runs fit_Fourier at 1F
 and 2F (skipping 2F when above Nyquist), builds fourier_df, writes Fourier
@@ -28,9 +29,11 @@ import pandas as pd
 from magpyneto2.engert_helpers import fit_Fourier, remove_flatlines
 from magpyneto2.statistics import corrected_pvalues
 from pipeline import body_outline, nwb_io
+from pipeline.roi_coverage import activity
 
 
-def _load_from_nwb(nwb_path, iscell_thres, npix_thres, outline=None):
+def _load_from_nwb(nwb_path, iscell_thres, npix_thres, outline=None, coverage_min=0.0,
+                   sample_period=1.0):
     """Load (F, roi_df, included_mask, imaging_dims) from the processing
     stage's NWB file, applying the iscell/npix mask (STRICT `>`, matching
     the pre-NWB `_load_suite2p_sliced`'s own convention) and flatline
@@ -40,7 +43,10 @@ def _load_from_nwb(nwb_path, iscell_thres, npix_thres, outline=None):
     `outline`: fish-outline parameters (`body_outline.params_for(cfg.body_outline)`); when
     given, ROIs outside the outline of the fish in the mean image are dropped along with the
     iscell/npix mask (see pipeline/body_outline.py). None = no outline (for callers that want
-    the iscell/npix population alone)."""
+    the iscell/npix population alone).
+
+    `coverage_min`: keep ROIs whose trace has coverage >= this (pipeline/roi_coverage.py, on
+    the whole stored trace, sample period `sample_period` s); 0 = no coverage filter."""
     if not os.path.exists(nwb_path):
         raise FileNotFoundError(
             f"{nwb_path} not found -- run `python pipeline/processing.py "
@@ -61,6 +67,8 @@ def _load_from_nwb(nwb_path, iscell_thres, npix_thres, outline=None):
                 f"`python pipeline/processing.py --experiment <name>`.")
         inside, _ = body_outline.inside_rois(roi_df, mean_img, outline)
         mask &= inside
+    if coverage_min > 0:
+        mask &= activity(F_all.astype(float), sample_period)["coverage"] >= coverage_min
     F_masked = F_all[mask]
 
     F_final, _, _, inclusion_inds = remove_flatlines(F_masked)
@@ -111,9 +119,10 @@ def compute_fourier_results(cfg, verbose=True):
     _p(f"[engert] {cfg.name}: loading Suite2p from {cfg.nwb_path()}")
     F, roi_df, included_mask, imaging_dims = _load_from_nwb(
         cfg.nwb_path(), cfg.iscell_threshold, cfg.npix_threshold,
-        outline=body_outline.params_for(cfg.body_outline))
-    _p(f"[engert] {cfg.name}: {len(F)} cells after iscell/npix filter, fish outline and "
-       f"flatline removal")
+        outline=body_outline.params_for(cfg.body_outline),
+        coverage_min=cfg.coverage_threshold, sample_period=cfg.sample_period)
+    _p(f"[engert] {cfg.name}: {len(F)} cells after iscell/npix filter, fish outline, "
+       f"coverage >= {cfg.coverage_threshold} and flatline removal")
 
     # ── Fourier harmonics: 1F always, 2F only if below Nyquist ─────────────
     # Both harmonics go through the identical fit_Fourier -> NFC/p_value/sens
