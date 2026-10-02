@@ -23,7 +23,8 @@ docs/body_outline.md.
 
 The four parameters can be set per field of view as a `body_outline:` block in the
 experiment YAMLs (written by the slider GUI, body_outline_gui.ipynb, to every YAML that shares
-the field of view); recordings without one use the defaults below.
+the field of view); recordings without one use the defaults below. The block can instead hold
+a hand-drawn `polygon`, which replaces the automatic outline.
 
 Outputs (next to this script): results_body_mask.csv (one row per ROI per field of view,
 ROIs with npix >= MIN_NPIX), fig_body_mask.pdf.
@@ -92,6 +93,22 @@ def outline(mean_img, **params):
     return outline_steps(mean_img, **params)["body"]
 
 
+def polygon_mask(polygon, shape):
+    """Pixels whose centres lie inside a hand-drawn polygon of [x (column), y (row)] vertices."""
+    from matplotlib.path import Path as Polygon
+    yy, xx = np.mgrid[:shape[0], :shape[1]]
+    inside = Polygon(polygon).contains_points(np.c_[xx.ravel(), yy.ravel()])
+    return inside.reshape(shape)
+
+
+def body(mean_img, params):
+    """The outline for one field of view: a hand-drawn polygon if the parameters have one (it
+    replaces the automatic outline, with no margin added), else the automatic outline."""
+    if params.get("polygon"):
+        return polygon_mask(params["polygon"], mean_img.shape)
+    return outline(mean_img, **{k: params[k] for k in DEFAULTS})
+
+
 _YAMLS = {}
 
 
@@ -126,10 +143,14 @@ BLOCK_COMMENT = "# Outline of the fish in the mean image (docs/body_outline.md);
 
 def save_fov_params(seg, params):
     """Write `body_outline:` into every YAML of this field of view, replacing any existing
-    block. Text-level edit, so the rest of each file (comments, order) is untouched."""
+    block. Text-level edit, so the rest of each file (comments, order) is untouched. A
+    hand-drawn polygon, if any, goes on one line as [[x, y], ...] in pixels."""
     block = [BLOCK_COMMENT, "body_outline:"] + [
         f"  {k}: {round(float(params[k]), 4) if k != 'margin' else int(params[k])}"
         for k in DEFAULTS]
+    if params.get("polygon"):
+        block.append("  polygon: [" + ", ".join(f"[{x:.1f}, {y:.1f}]"
+                                               for x, y in params["polygon"]) + "]")
     for path in fov_yamls(seg):
         raw = path.read_bytes().decode("utf-8")
         eol = "\r\n" if "\r\n" in raw else "\n"           # keep the file's own line endings
@@ -213,14 +234,17 @@ def main():
                 masks, _ = read_masks(d["experiment"].iloc[0])
                 masks = [masks[i] for i in d["roi"]]
                 mean_img = images[seg]["meanImg"]
-                body = outline(mean_img, **fov_params(seg)[0])
-                d["inside_share"] = inside_share(masks, body)
+                params = fov_params(seg)[0]
+                body_ = body(mean_img, params)
+                d["inside_share"] = inside_share(masks, body_)
                 d["inside"] = d["inside_share"] >= 0.5
                 recs = d["recordings"].iloc[0].replace("engert_", "")
                 print(f"  [{b}] {recs}: {(~d['inside']).sum()} of {len(d)} outside; "
                       f"{(d['kept'] & ~d['inside']).sum()} of {d['kept'].sum()} kept outside",
                       flush=True)
-                page(pdf, b, recs, d, masks, mean_img, body)
+                if params.get("polygon"):
+                    recs += " (hand-drawn outline)"
+                page(pdf, b, recs, d, masks, mean_img, body_)
                 rows.append(d)
     out = pd.concat(rows, ignore_index=True)
     out.drop(columns=["n_windows"]).to_csv(OUT_ROIS, index=False)
