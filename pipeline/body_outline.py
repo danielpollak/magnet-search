@@ -8,8 +8,9 @@ time-averaged image (ops["meanImg"], stored in the NWB file by the processing st
      the 2nd and 98th percentiles of the smoothed image;
   3. keep every connected region at least `min_region` of the largest, fill holes, and widen
      it by `margin` pixels so cells on the edge of the brain are not cut.
-A ROI is inside if at least half of its pixels are inside the outline. The method is written up
-step by step in docs/body_outline.md.
+A ROI is inside if at least half of its pixels are inside the outline. The engert and medaka
+analysis stages analyse only inside ROIs (alongside the iscell/npix thresholds). The method is
+written up step by step in docs/body_outline.md.
 
 The parameters are set per field of view in the experiment YAML's `body_outline:` block
 (written by docs/nfc_finite_sample_bias/body_outline_gui.ipynb); a hand-drawn `polygon` of
@@ -23,6 +24,7 @@ DEFAULTS = dict(sigma=10.0,      # smoothing, pixels
                 frac=0.15,       # threshold, fraction of the way from background to tissue
                 margin=5,        # widening of the outline, pixels
                 min_region=0.1)  # keep every region at least this fraction of the largest
+INSIDE_SHARE = 0.5               # a ROI is inside if at least this share of its pixels is
 
 
 def log_mean(a):
@@ -85,3 +87,21 @@ def body(mean_img, params):
 def inside_share(masks, body_):
     """Share of each ROI's pixels inside the outline; masks are (ypix, xpix) pairs."""
     return np.array([body_[yy, xx].mean() for yy, xx in masks])
+
+
+def pixel_mask_yx(mask_entries):
+    """(ypix, xpix) of one ROI from its NWB pixel_mask. NWB's convention is (x, y, weight)
+    triples, which pynwb reads back as a 1-D structured array with fields x/y/weight (column
+    indexing fails on that form); a plain (n_pixels, 3) array is accepted too."""
+    arr = np.asarray(mask_entries)
+    if arr.dtype.names is not None:
+        return arr["y"].astype(int), arr["x"].astype(int)
+    return arr[:, 1].astype(int), arr[:, 0].astype(int)
+
+
+def inside_rois(roi_df, mean_img, params):
+    """(inside, body): whether each ROI of `roi_df` (nwb_io.read_roi_data) has at least
+    INSIDE_SHARE of its pixels inside the outline, and the outline itself."""
+    body_ = body(mean_img, params)
+    share = inside_share([pixel_mask_yx(m) for m in roi_df["pixel_mask"]], body_)
+    return share >= INSIDE_SHARE, body_
