@@ -174,10 +174,8 @@ YAML that uses the field of view you left (all repeat trials of a fish; for 2022
 visual, visualmagnet and nostim recordings); a polygon is saved as `polygon: [[x, y], ...]` in
 pixels. **Save** saves without switching; **Reset to defaults** restores the default sliders
 and clears the polygon. Fields of view you don't touch are not written to. `body_mask.py` reads
-the YAML blocks; recordings without one use the defaults. The
-`body_outline` field is in the experiment schema but is not yet applied by the analysis
-stage; once the outlines are set, it can be applied at analysis time alongside
-`iscell_threshold` and `npix_threshold`.
+the YAML blocks; recordings without one use the defaults. The analysis stage applies the
+same outline (see the end of the results below).
 
 ## Results with the defaults, all fields of view
 
@@ -213,8 +211,14 @@ smoothing for most zebrafish fields of view, and a hand-drawn polygon for medaka
 
 The same outline, with the ROIs inside and outside it, is now the last page of every
 zebrafish and medaka diagnostic PDF in `figs/analysis/` (`pipeline/body_outline.py`, reading
-the mean image the processing stage stores in the NWB file). It is shown there, not yet
-applied: the analysed population is still set by P(iscell), npix and flatline removal only.
+the mean image the processing stage stores in the NWB file).
+
+**The analysis stage now drops ROIs outside the outline**, in addition to the P(iscell) and
+npix thresholds and flatline removal, for every zebrafish and medaka recording (fields of view
+without saved settings use the defaults). After re-running analysis and aggregation, the
+zebrafish rows in `all_fourier_df.parquet` went from 27,320 to 27,114 and the medaka rows from
+2,586 to 2,550; the share of rows with p < 0.05 barely moved (zebrafish 0.216 → 0.218, medaka
+0.109 → 0.111). Rows for the other species are unchanged.
 
 ## Limitations
 
