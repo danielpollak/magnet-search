@@ -14,7 +14,7 @@ import pandas as pd
 
 from magpyneto2.engert_helpers import fit_Fourier, remove_flatlines
 from magpyneto2.statistics import corrected_pvalues
-from pipeline import nwb_io
+from pipeline import body_outline, nwb_io
 
 _VISUAL_FREQ = 1 / 60
 # 0.10/0.20/0.25 (earlier fresh-default choices) all yield too few bins for
@@ -28,9 +28,9 @@ _VISUAL_FREQ = 1 / 60
 _VISUAL_Q_FRAC = 0.50
 
 
-def _load_from_nwb(nwb_path, iscell_thres, npix_thres):
+def _load_from_nwb(nwb_path, iscell_thres, npix_thres, outline=None):
     """Same contract as engert's _load_from_nwb — see that module's
-    docstring for the included_mask semantics."""
+    docstring for the included_mask and `outline` semantics."""
     if not os.path.exists(nwb_path):
         raise FileNotFoundError(
             f"{nwb_path} not found -- run `python pipeline/processing.py "
@@ -40,9 +40,17 @@ def _load_from_nwb(nwb_path, iscell_thres, npix_thres):
     io_r, nwbfile = nwb_io.read_nwbfile(nwb_path)
     F_all, roi_df = nwb_io.read_roi_data(nwbfile)
     Ly, Lx = nwb_io.get_imaging_dims(nwbfile)
+    mean_img = nwb_io.read_mean_image(nwbfile)
     io_r.close()
 
     mask = (roi_df["p_iscell"].values > iscell_thres) & (roi_df["npix"].values > npix_thres)
+    if outline is not None:
+        if mean_img is None:
+            raise ValueError(
+                f"{nwb_path} has no mean image for the fish outline -- re-run "
+                f"`python pipeline/processing.py --experiment <name>`.")
+        inside, _ = body_outline.inside_rois(roi_df, mean_img, outline)
+        mask &= inside
     F_masked = F_all[mask]
 
     F_final, _, _, inclusion_inds = remove_flatlines(F_masked)
@@ -69,8 +77,10 @@ def compute_fourier_results(cfg, verbose=True):
 
     _p(f"[medaka] {cfg.name}: loading Suite2p from {cfg.nwb_path()}")
     F, roi_df, included_mask, imaging_dims = _load_from_nwb(
-        cfg.nwb_path(), cfg.iscell_threshold, cfg.npix_threshold)
-    _p(f"[medaka] {cfg.name}: {len(F)} cells after iscell/npix filter + flatline removal")
+        cfg.nwb_path(), cfg.iscell_threshold, cfg.npix_threshold,
+        outline=body_outline.params_for(cfg.body_outline))
+    _p(f"[medaka] {cfg.name}: {len(F)} cells after iscell/npix filter + fish outline + "
+       f"flatline removal")
 
     # Magnetic frequency (keep intermediates for diagnostics)
     NFC_b, onfreq_coef_b, offfreq_coef_b, freq_win_b, M_b, avg_signal_b = fit_Fourier(F, T=T, f=f_b, Q_frac=Q_frac_b)
