@@ -15,7 +15,7 @@ import pandas as pd
 from magpyneto2.engert_helpers import fit_Fourier, remove_flatlines
 from magpyneto2.statistics import corrected_pvalues
 from pipeline import body_outline, nwb_io
-from pipeline.roi_coverage import activity
+from pipeline.roi_coverage import activity, low_coverage_traces
 
 _VISUAL_FREQ = 1 / 60
 # 0.10/0.20/0.25 (earlier fresh-default choices) all yield too few bins for
@@ -180,4 +180,5 @@ def run_analysis(cfg):
         cfg, F, fourier_df_b, freq_win_b,
         onfreq_coef_b, offfreq_coef_b, diag_dir,
         roi_df=roi_df, included_mask=included_mask, imaging_dims=imaging_dims,
-        mean_img=nwb_io.load_mean_image(cfg.nwb_path()))
+        mean_img=nwb_io.load_mean_image(cfg.nwb_path()),
+        low_coverage=low_coverage_traces(cfg))
