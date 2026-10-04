@@ -186,21 +186,22 @@ def draw_row(axes, x, T, f0, M, res, color, title, show_titles):
     ax.axhline(0, color=C_INK, lw=0.6)
     ax.set_ylim(-1, 1)
 
-    ax = axes[4]
-    ax.scatter(den, num, s=4, color=color, alpha=0.5, lw=0)
-    ax.plot([0, 5], [0, 5], color=C_INK, lw=0.6)
-    ax.set_xlim(0, 2.5)
-    ax.set_ylim(0, 5)
+    if len(axes) > 4:     # the per-bin panels; fig_real leaves them out (see its docstring)
+        ax = axes[4]
+        ax.scatter(den, num, s=4, color=color, alpha=0.5, lw=0)
+        ax.plot([0, 5], [0, 5], color=C_INK, lw=0.6)
+        ax.set_xlim(0, 2.5)
+        ax.set_ylim(0, 5)
 
-    ax = axes[5]
-    edges = np.linspace(0, R_MAX, 49)
-    ax.hist(np.clip(R, 0, R_MAX - 1e-9), bins=edges, density=True, color=color, alpha=0.8)
-    r = np.linspace(0, R_MAX, 300)
-    ax.plot(r, null_density(r, M), color=C_INK, lw=1.2)
-    ax.set_xlim(0, R_MAX)
-    ax.text(0.98, 0.95, f"p < 0.05: {np.mean(p < 0.05):.1%}\n0.2 < p < 0.8: "
-            f"{np.mean((p > 0.2) & (p < 0.8)):.0%} (null 60%)",
-            transform=ax.transAxes, ha="right", va="top", fontsize=6.5)
+        ax = axes[5]
+        edges = np.linspace(0, R_MAX, 49)
+        ax.hist(np.clip(R, 0, R_MAX - 1e-9), bins=edges, density=True, color=color, alpha=0.8)
+        r = np.linspace(0, R_MAX, 300)
+        ax.plot(r, null_density(r, M), color=C_INK, lw=1.2)
+        ax.set_xlim(0, R_MAX)
+        ax.text(0.98, 0.95, f"p < 0.05: {np.mean(p < 0.05):.1%}\n0.2 < p < 0.8: "
+                f"{np.mean((p > 0.2) & (p < 0.8)):.0%} (null 60%)",
+                transform=ax.transAxes, ha="right", va="top", fontsize=6.5)
 
     for ax in axes:
         _style(ax)
@@ -218,6 +219,8 @@ def label_axes(axes, f_label):
     axes[2].set_xlabel("real / noise SD", fontsize=7)
     axes[2].set_ylabel("imaginary / noise SD", fontsize=7)
     axes[3].set_xlabel("L (bins)", fontsize=7)
+    if len(axes) <= 4:
+        return
     axes[4].set_xlabel("noise power (/ local level)", fontsize=7)
     axes[4].set_ylabel("analysis power (/ local level)", fontsize=7)
     axes[5].set_xlabel("R = analysis power / noise power", fontsize=7)
@@ -244,6 +247,10 @@ def fig_toy(out):
 
 
 def fig_real(out):
+    """Ten ROIs, trace to bin correlation (Figure 1 rows A-D). Figure 1's per-bin panels E-F
+    are left out: one ROI has only ~420 analysis bins, so its share of p-values in any range
+    is uncertain by about as much as the whole effect (~2.5%), and its R histogram looks like
+    the null whether or not the ROI is miscalibrated. fig_pooled shows them pooled instead."""
     cfg, F, _ = sv.load(REC, outline=True)
     T, N = cfg.sample_period, F.shape[1]
     f0, M = sv.window_bins(N, T, cfg.analysis.f, cfg.analysis.Q_frac)
@@ -256,8 +263,8 @@ def fig_real(out):
           f"{len(bad)} with {BAD_RANGE[0]} <= coverage < {BAD_RANGE[1]}")
     pick = [(i, C_GOOD) for i in np.sort(rng.choice(good, N_EACH, replace=False))] + \
            [(i, C_BAD) for i in np.sort(rng.choice(bad, N_EACH, replace=False))]
-    fig, axes = plt.subplots(len(pick), N_PANELS, figsize=(23, 2.3 * len(pick)),
-                             gridspec_kw=dict(width_ratios=[2.2, 1.6, 0.9, 1, 1, 1.2]))
+    fig, axes = plt.subplots(len(pick), 4, figsize=(17, 2.3 * len(pick)),
+                             gridspec_kw=dict(width_ratios=[2.2, 1.6, 0.9, 1.1]))
     for r, (i, c) in enumerate(pick):
         group = "high coverage" if c == C_GOOD else "low-medium coverage"
         p0 = stats.f.sf(ratios(spectrum(F[i]), np.array([f0]), M)[2], 2, 4 * M)[0]
