@@ -30,27 +30,34 @@ does that change the power ratio R?
 
 ![Synthetic traces](guard_band_null/fig_gb_ripples_toy.png)
 
-<sub>**Figure 1. Synthetic traces followed through each step.** Columns: one event; two events 100 s apart; eight events within one 300 s stretch; continuous activity with no floor (like the 2022 Q1 traces). The first three use the GCaMP model of `slow_variation_sim.py` (2 s decay) with the baseline clipped, so nothing but the events rises above the floor. 1080 frames at 1 s and M = 32, as in the 0.1 Hz zebrafish recordings. *A:* trace. *B:* spectrum within ±60 bins of 0.1 Hz, divided by the mean of the noise bins (gray); dot: analysis bin. *C:* correlation between ordinates L bins apart, over the whole spectrum above 0.05 Hz. *D:* at every analysis bin above 0.05 Hz, the analysis-bin power against the mean power of its noise bins, both divided by the local spectrum level (a 201-bin running mean). Points on the diagonal have R = 1. *E:* histogram of R over the same bins; black: its null, F(2, 4M). The text gives the share of p < 0.05 (null 5%) and of 0.2 < p < 0.8 (null 60%).</sub>
+<sub>**Figure 1. Synthetic traces followed through each step.** Columns: one event; two events 100 s apart; eight events within one 300 s stretch; continuous activity with no floor (like the 2022 Q1 traces). The first three use the GCaMP model of `slow_variation_sim.py` (2 s decay) with the baseline clipped, so nothing but the events rises above the floor. 1080 frames at 1 s and M = 32, as in the 0.1 Hz zebrafish recordings. *A:* trace. *B:* Fourier coefficients within ±60 bins of 0.1 Hz, real part (black) and imaginary part (gray) on one axis, the same format as the "Fourier spectrum" page of the ephys diagnostics but for one trace. Each coefficient is divided by σ̂, the noise SD estimated from the analysis bin's noise bins (light shading), so under the null each part is N(0, 1) (darker band: ±1.96) and the magnitude at the analysis bin (dotted line) is its NFC. *C:* the same noise-bin coefficients (gray) and the analysis-bin coefficient (dot) in the complex plane. Dotted circle: radius √2, the typical magnitude under the null; dashed circle: the magnitude needed for p = 0.05. *D:* correlation between ordinates (powers) L bins apart, over the whole spectrum above 0.05 Hz. *E:* at every analysis bin above 0.05 Hz, the analysis-bin power against the mean power of its noise bins, both divided by the local spectrum level (a 201-bin running mean). Points on the diagonal have R = 1. *F:* histogram of R over the same bins; black: its null, F(2, 4M). The text gives the share of p < 0.05 (null 5%) and of 0.2 < p < 0.8 (null 60%).</sub>
 
-- **One event (column 1).** A single transient's spectrum is smooth: every bin has about the
-  same power as its neighbours (B, CV² = 0.00). Neighbouring bins are almost perfectly
-  correlated (C). In D every bin sits at the same point, analysis power = noise power, so
-  **R ≈ 1 at every frequency** and every p-value is about 0.37 (E). The p-values are never
-  small and never close to 1.
-- **Two events Δ = 100 s apart (column 2).** The two transients interfere and produce the
-  ripples: power oscillates between 0 and twice the mean, one ripple every 1/Δ = 0.01 Hz,
-  which is 10.8 bins here (B). The correlation of ordinates oscillates with the same period
-  (C). The noise estimate averages over several ripples and stays near the local level (D,
-  x ≈ 1), but the analysis bin can only fall somewhere between 0 and 2. **R can never exceed
-  about 2**, so no p-value is below 0.14 (E: 0% below 0.05).
-- **Eight events within 300 s (column 3).** More events give a less regular ripple pattern
-  (B). The correlation now lasts only about 3 bins, roughly 1/(300 s) (C). R is close to its
-  null (E). Eight events are already far better than two, which is why the problem is
-  concentrated in the ROIs with the fewest events.
-- **Continuous activity (column 4).** This is what the null assumes: no correlation (C),
-  CV² ≈ 1, R following F(2, 4M) (E).
+In B the real and imaginary parts flip sign from bin to bin. That is only the phase of the
+events turning with frequency (an event at time t turns its coefficient by 2π·t/1080 s per
+bin). The informative part is how far the coefficients reach, which C shows directly.
 
-**Over- or underestimated?** Neither, on average. In D the noise estimate (x) stays close to
+- **One event (column 1).** A single transient's coefficient has the same magnitude at every
+  frequency; only its phase turns. In B the coefficients never leave ±√2, and in C every
+  noise bin, and the analysis bin, sits on the circle of radius √2 (CV² = 0.00). Neighbouring
+  powers are almost perfectly correlated (D). In E every bin sits at analysis power = noise
+  power, so **R ≈ 1 at every frequency** and every p-value is about 0.37 (F). The p-values
+  are never small and never close to 1.
+- **Two events Δ = 100 s apart (column 2).** The two transients' coefficients add, and as
+  their relative phase turns they alternately reinforce and cancel: the magnitude swings
+  between 0 and twice that of one event, one swing every 1/Δ = 0.01 Hz, which is 10.8 bins
+  here. In C the coefficients fill a disk but never leave it: no bin, analysis bin included,
+  can reach the p = 0.05 circle. The correlation of powers oscillates with the 10.8-bin period
+  (D). The noise estimate averages over several swings and stays near the local level (E,
+  x ≈ 1). **R can never exceed about 2**, so no p-value is below 0.14 (F: 0% below 0.05).
+- **Eight events within 300 s (column 3).** More events give a less regular pattern, and the
+  coefficients start to spill past the p = 0.05 circle (C). The correlation now lasts only
+  about 3 bins, roughly 1/(300 s) (D). R is close to its null (F). Eight events are already
+  far better than two, which is why the problem is concentrated in the ROIs with the fewest
+  events.
+- **Continuous activity (column 4).** This is what the null assumes: a Gaussian cloud in C,
+  no correlation (D), CV² ≈ 1, R following F(2, 4M) (F).
+
+**Over- or underestimated?** Neither, on average. In E the noise estimate (x) stays close to
 the local level in every column, because it averages 2M = 64 bins. What changes is the power
 at the analysis bin (y). With few events it cannot wander as far from the local level as Gaussian noise does. NFC is
 therefore not biased up or down. Its spread is too narrow: it is too rarely very large (too
@@ -64,19 +71,21 @@ does it depend on how active the ROI is?
 
 ![Real traces](guard_band_null/fig_gb_ripples_real.png)
 
-<sub>**Figure 2. Ten ROIs of `engert_20221001_fish2_magneto_0` (0.1 Hz zebrafish).** Blue: five ROIs drawn at random from the 29 with coverage ≥ 0.8. Orange: five drawn at random from the 102 with 0.1 ≤ coverage < 0.4. All ten pass production's thresholds (P(iscell) > 0.5, npix ≥ 10, inside the fish outline, coverage ≥ 0.1); none was selected on p. Columns as in Figure 1: trace; spectrum near 0.1 Hz with CV²; correlation of ordinates; analysis vs noise power; R against its null. Row titles give the ROI's coverage and its p at 0.1 Hz.</sub>
+<sub>**Figure 2. Ten ROIs of `engert_20221001_fish2_magneto_0` (0.1 Hz zebrafish).** Blue: five ROIs drawn at random from the 29 with coverage ≥ 0.8. Orange: five drawn at random from the 102 with 0.1 ≤ coverage < 0.4. All ten pass production's thresholds (P(iscell) > 0.5, npix ≥ 10, inside the fish outline, coverage ≥ 0.1); none was selected on p. Columns are Figure 1's rows A–F: trace; real and imaginary coefficients near 0.1 Hz, divided by σ̂, with CV²; complex plane; correlation of powers; analysis vs noise power; R against its null. Row titles give the ROI's coverage and its p at 0.1 Hz.</sub>
 
 - **Traces.** The high-coverage ROIs (blue) are active through much of the recording. The
   low-coverage ROIs (orange) are flat at 50.0 except for a few small transients, often
   confined to one stretch (ROI 154: only the first 350 s).
-- **Spectra.** The low-coverage spectra (orange, column 2) have the broad, regular ripples of
-  Figure 1 columns 2–3. Their CV² is 0.72–0.88, against 0.89–1.02 for the high-coverage ROIs.
+- **Coefficients.** In ROI 154 the coefficients drift slowly up and down over several bins
+  instead of jumping independently from bin to bin, like Figure 1 column 2. The other
+  low-coverage ROIs look much like the high-coverage ones by eye. CV² separates them: 0.72–0.88
+  for low coverage, 0.89–1.02 for high coverage.
 - **Correlation.** Low-coverage ROIs have lag-1 correlations up to 0.8, and in some it comes
-  back at longer lags (ROI 154 at L ≈ 27, ROI 198 every few bins): the ripple period of a
+  back at longer lags (ROI 154 at L ≈ 27, ROI 198 every few bins): the swing period of a
   few dominant events. High-coverage ROIs are mostly below 0.3.
-- **R for one ROI.** One ROI's few hundred analysis bins cannot show a shift of a few
-  percent: every R histogram in column 5 looks close to the null. The effect becomes visible
-  only when ROIs are pooled (Figure 3).
+- **One ROI is not enough.** One ROI's few hundred analysis bins cannot show a shift of a few
+  percent: every complex-plane cloud and R histogram looks close to the null. The effect
+  becomes visible only when ROIs are pooled (Figure 3).
 
 ## 3. Pooled over the recording
 
@@ -98,7 +107,7 @@ departure from the null?
 - **C.** For the less active ROIs, large R is rarer than the null says and R between 1 and 2
   is too common. R above 4.6 (p < 0.01) occurs at half the null rate in the kept
   low-coverage ROIs and at a twentieth of it in the dropped ones. That is the narrow spread
-  of Figure 1D in real data: R too rarely large and, for the dropped ROIs, also too rarely
+  of Figure 1E in real data: R too rarely large and, for the dropped ROIs, also too rarely
   near 0 (R < 0.1 at 0.69 of the null rate).
 - **D.** The result is the familiar hump in the middle of the p range. It is negligible for
   the high-coverage ROIs. The coverage threshold removes the worst group (+0.093), but the
