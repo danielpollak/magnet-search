@@ -116,15 +116,36 @@ def null_density(r, M):
     return stats.f.pdf(r, 2, 4 * M)
 
 
+C_RE, C_IM = "#1b1b1b", "#a0a0a0"
+HEADS = ["trace",
+         "Fourier coefficients near the stimulus frequency\n(black: real, gray: imaginary; "
+         "shading: noise bins)",
+         "complex plane" + chr(10) + "(gray: noise bins; dot: analysis bin)",
+         "correlation of ordinates L bins apart",
+         "power at the analysis bin vs\nmean power of its noise bins",
+         "power ratio R at every analysis bin\n(black: null, F(2, 4M))"]
+N_PANELS = len(HEADS)
+
+
+def coefficients(x):
+    return np.fft.rfft(x - x.mean())
+
+
 def draw_row(axes, x, T, f0, M, res, color, title, show_titles):
-    """trace | spectrum | ordinate correlation | analysis vs noise power | R histogram."""
+    """trace | coefficient spectrum | complex plane | ordinate correlation |
+    analysis vs noise power | R histogram."""
     N = len(x)
-    I = spectrum(x)
+    Y = coefficients(x)
+    I = np.abs(Y) ** 2
     lo = max(int(np.ceil(F_MIN / res)) - MED_WIN, 1)
     ks = analysis_bins(len(I), res, M, f0)
     num, den, R = ratios(I, ks, M)
     rho = ordinate_corr(I, lo)
     p = stats.f.sf(R, 2, 4 * M)
+    noise = np.r_[f0 - M:f0, f0 + 1:f0 + M + 1]
+    # Coefficients divided by sigma-hat at the stimulus bin, the same normalisation as NFC:
+    # under the null each component is N(0, 1) and |c| at the stimulus bin is its NFC.
+    c = Y / np.sqrt(0.5 * I[noise].mean())
 
     ax = axes[0]
     ax.plot(np.arange(N) * T, x, color=color, lw=0.6)
@@ -133,30 +154,45 @@ def draw_row(axes, x, T, f0, M, res, color, title, show_titles):
     ax.set_ylabel("F", fontsize=7)
 
     ax = axes[1]
-    off = np.arange(-SHOW_BINS, SHOW_BINS + 1)
-    seg = I[f0 + off]
-    ref = np.r_[I[f0 - M:f0], I[f0 + 1:f0 + M + 1]].mean()
-    ax.axvspan(-M, M, color="#ececec", lw=0)
-    ax.plot(off, seg / ref, color=color, lw=0.9)
-    ax.plot(0, I[f0] / ref, "o", color=C_INK, ms=4)
-    ax.axhline(1, color=C_MUTED, lw=0.6, ls=":")
-    ax.set_xlim(-SHOW_BINS, SHOW_BINS)
-    ax.set_ylim(0, max(4.0, np.percentile(seg / ref, 99) * 1.1))
+    k = np.arange(f0 - SHOW_BINS, f0 + SHOW_BINS + 1)
+    fz = k * res
+    ax.axvspan((f0 - M) * res, (f0 + M) * res, color="#ececec", lw=0)
+    ax.axhspan(-1.96, 1.96, color="#dcdcdc", alpha=0.5, lw=0)
+    for part, col in ((np.real, C_RE), (np.imag, C_IM)):
+        ax.plot(fz, part(c[k]), color=col, lw=0.4, alpha=0.6)
+        ax.plot(fz, part(c[k]), ".", color=col, ms=2.5)
+    ax.axvline(f0 * res, color=color, lw=0.8, ls=":")
+    ax.axhline(0, color=C_INK, lw=0.4)
+    lim = max(3.5, 1.1 * np.abs(np.r_[c[k].real, c[k].imag]).max())
+    ax.set_ylim(-lim, lim)
+    ax.set_xlim(fz[0], fz[-1])
     ax.text(0.98, 0.95, f"CV$^2$ = {cv2(I, lo):.2f}", transform=ax.transAxes, ha="right",
             va="top", fontsize=7)
 
     ax = axes[2]
+    t = np.linspace(0, 2 * np.pi, 200)
+    r05 = np.sqrt(2 * stats.f.isf(0.05, 2, 4 * M))     # NFC at p = 0.05
+    ax.plot(np.sqrt(2) * np.cos(t), np.sqrt(2) * np.sin(t), color=C_MUTED, lw=0.6, ls=":")
+    ax.plot(r05 * np.cos(t), r05 * np.sin(t), color=C_MUTED, lw=0.6, ls="--")
+    ax.plot(c[noise].real, c[noise].imag, ".", color=C_IM, ms=3)
+    ax.plot(c[f0].real, c[f0].imag, "o", color=color, ms=5, mec=C_INK, mew=0.6)
+    lim = max(3.5, 1.1 * np.abs(np.r_[c[noise].real, c[noise].imag]).max())
+    ax.set_xlim(-lim, lim)
+    ax.set_ylim(-lim, lim)
+    ax.set_aspect("equal")
+
+    ax = axes[3]
     ax.bar(np.arange(1, MAX_LAG + 1), rho, color=color, width=0.8)
     ax.axhline(0, color=C_INK, lw=0.6)
     ax.set_ylim(-1, 1)
 
-    ax = axes[3]
+    ax = axes[4]
     ax.scatter(den, num, s=4, color=color, alpha=0.5, lw=0)
     ax.plot([0, 5], [0, 5], color=C_INK, lw=0.6)
     ax.set_xlim(0, 2.5)
     ax.set_ylim(0, 5)
 
-    ax = axes[4]
+    ax = axes[5]
     edges = np.linspace(0, R_MAX, 49)
     ax.hist(np.clip(R, 0, R_MAX - 1e-9), bins=edges, density=True, color=color, alpha=0.8)
     r = np.linspace(0, R_MAX, 300)
@@ -170,24 +206,21 @@ def draw_row(axes, x, T, f0, M, res, color, title, show_titles):
         _style(ax)
         ax.tick_params(labelsize=6.5)
     if show_titles:
-        heads = ["trace", "spectrum near the stimulus bin\n(gray: the 2M noise bins)",
-                 "correlation of ordinates L bins apart",
-                 "power at the analysis bin vs\nmean power of its noise bins",
-                 "power ratio R at every analysis bin\n(black: null, F(2, 4M))"]
-        for ax, h in zip(axes, heads):
+        for ax, h in zip(axes, HEADS):
             old = ax.get_title(loc="left")
-            ax.set_title(h + ("\n\n" + old if old else ""), fontsize=8,
-                         loc="left")
+            ax.set_title(h + ("\n\n" + old if old else ""), fontsize=8, loc="left")
 
 
-def label_bottom(axes, res):
+def label_axes(axes, f_label):
     axes[0].set_xlabel("time (s)", fontsize=7)
-    axes[1].set_xlabel(f"bins from the stimulus bin (1 bin = {res * 1000:.2f} mHz)", fontsize=7)
-    axes[1].set_ylabel("power / noise mean", fontsize=7)
-    axes[2].set_xlabel("L (bins)", fontsize=7)
-    axes[3].set_xlabel("noise power (/ local level)", fontsize=7)
-    axes[3].set_ylabel("analysis power (/ local level)", fontsize=7)
-    axes[4].set_xlabel("R = analysis power / noise power", fontsize=7)
+    axes[1].set_xlabel(f"frequency (Hz); dotted: {f_label}", fontsize=7)
+    axes[1].set_ylabel("coefficient / noise SD", fontsize=7)
+    axes[2].set_xlabel("real / noise SD", fontsize=7)
+    axes[2].set_ylabel("imaginary / noise SD", fontsize=7)
+    axes[3].set_xlabel("L (bins)", fontsize=7)
+    axes[4].set_xlabel("noise power (/ local level)", fontsize=7)
+    axes[4].set_ylabel("analysis power (/ local level)", fontsize=7)
+    axes[5].set_xlabel("R = analysis power / noise power", fontsize=7)
 
 
 def fig_toy(out):
@@ -196,28 +229,16 @@ def fig_toy(out):
     f0, M = sv.window_bins(N, T, f, Q_frac)
     res = 1.0 / (N * T)
     traces = toy_traces(N, T, rng)
-    fig, axes = plt.subplots(5, len(traces), figsize=(4.0 * len(traces), 14))
+    fig, axes = plt.subplots(N_PANELS, len(traces), figsize=(4.0 * len(traces), 2.9 * N_PANELS))
     for j, (name, x) in enumerate(traces):
-        col = axes[:, j]
-        draw_row(col, x, T, f0, M, res, C_BAD if j < 3 else C_GOOD, name, show_titles=False)
-    heads = ["A. trace", "B. spectrum near 0.1 Hz (gray: the 2M noise bins; dot: analysis bin)",
-             "C. correlation of ordinates L bins apart", "D. analysis power vs noise power",
-             "E. power ratio R at every analysis bin (black: null)"]
-    for i, h in enumerate(heads):
-        axes[i, 0].annotate(h, (0, 1.12 if i else 1.25), xycoords="axes fraction",
-                            fontsize=8.5, weight="bold")
-    for j in range(len(traces)):
-        col = axes[:, j]
-        col[0].set_xlabel("time (s)", fontsize=7)
-        col[1].set_xlabel("bins from 0.1 Hz", fontsize=7)
-        col[2].set_xlabel("L (bins)", fontsize=7)
-        col[3].set_xlabel("noise power (/ local level)", fontsize=7)
-        col[4].set_xlabel("R", fontsize=7)
-    axes[1, 0].set_ylabel("power / noise mean", fontsize=7)
-    axes[2, 0].set_ylabel("correlation", fontsize=7)
-    axes[3, 0].set_ylabel("analysis power (/ local level)", fontsize=7)
-    axes[4, 0].set_ylabel("density", fontsize=7)
-    fig.tight_layout(h_pad=2.5)
+        draw_row(axes[:, j], x, T, f0, M, res, C_BAD if j < 3 else C_GOOD, name,
+                 show_titles=False)
+        label_axes(axes[:, j], "0.1 Hz")
+    for i, h in enumerate(HEADS):
+        axes[i, 0].annotate(f"{'ABCDEF'[i]}. " + h.replace("\n", " "),
+                            (0, 1.12 if i else 1.25), xycoords="axes fraction",
+                            fontsize=8.5, weight="bold").set_in_layout(False)
+    fig.tight_layout(h_pad=3.5, rect=(0, 0, 1, 0.985))
     fig.savefig(out, dpi=150, facecolor="white")
     plt.close(fig)
 
@@ -235,17 +256,17 @@ def fig_real(out):
           f"{len(bad)} with {BAD_RANGE[0]} <= coverage < {BAD_RANGE[1]}")
     pick = [(i, C_GOOD) for i in np.sort(rng.choice(good, N_EACH, replace=False))] + \
            [(i, C_BAD) for i in np.sort(rng.choice(bad, N_EACH, replace=False))]
-    fig, axes = plt.subplots(len(pick), 5, figsize=(19, 2.15 * len(pick)),
-                             gridspec_kw=dict(width_ratios=[2.2, 1.4, 1, 1, 1.2]))
+    fig, axes = plt.subplots(len(pick), N_PANELS, figsize=(23, 2.3 * len(pick)),
+                             gridspec_kw=dict(width_ratios=[2.2, 1.6, 0.9, 1, 1, 1.2]))
     for r, (i, c) in enumerate(pick):
         group = "high coverage" if c == C_GOOD else "low-medium coverage"
         p0 = stats.f.sf(ratios(spectrum(F[i]), np.array([f0]), M)[2], 2, 4 * M)[0]
         draw_row(axes[r], F[i], T, f0, M, res, c,
                  f"ROI {i}, {group}: coverage {cov[i]:.2f}; p at 0.1 Hz = {p0:.2f}",
                  show_titles=(r == 0))
+    label_axes(axes[-1], "0.1 Hz")
     for r in range(len(pick)):
-        label_bottom(axes[r], res) if r == len(pick) - 1 else None
-        axes[r, 1].set_ylabel("power / noise mean", fontsize=7)
+        axes[r, 1].set_ylabel("coefficient / noise SD", fontsize=7)
     fig.tight_layout(h_pad=1.2)
     fig.savefig(out, dpi=150, facecolor="white")
     plt.close(fig)
