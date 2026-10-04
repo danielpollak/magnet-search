@@ -6,8 +6,17 @@ species: "medaka"
 area: "WB"
 session_path: "//datanas/family/data_aggregated/Engert/Medaka Experiments/fish3_8dpf_gcamp_good/fish3_8dpf_magneto_0"
 sample_period: 1.0
-iscell_threshold: 0.7
-npix_threshold: 10
+iscell_threshold: 0.5
+npix_threshold: 9  # strict >, i.e. npix >= 10
+coverage_threshold: 0.1  # inclusive >=: active in >= 10% of 60 s windows
 analysis:
   f: 0.1
   Q_frac: 0.15
+
+# Outline of the fish in the mean image (docs/body_outline.md); set with body_outline_gui.ipynb
+body_outline:
+  sigma: 7.0
+  frac: 0.42
+  margin: 5
+  min_region: 0.1
+  polygon: [[229.6, 10.5], [322.2, 83.7], [474.8, 272.0], [472.5, 474.4], [87.2, 472.9], [130.0, 184.9]]

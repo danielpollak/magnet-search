@@ -8,10 +8,14 @@ plot_engert_diagnostics  — single multi-page PDF:
           pairing, and for 1F frequencies above half-Nyquist, where
           analysis_stages/engert.py skips 2F entirely)
   Page 4: 2F Fourier coefficient spectrum (same skip conditions as Page 3)
-  Page 5: Fluorescence heatmap (cells sorted by NFC descending, rasterized),
+  Page 5: Fluorescence heatmap (cells sorted by NFC descending, rasterized), and below it
+          the traces the coverage threshold drops (sorted by coverage),
           with a period-duration scale bar so cycles can be counted by eye
   Page 6: Cell mask FOV — excluded cells gray, included cells colored by NFC
   Page 7: P(iscell) x npix joint histogram with ECDF marginals
+  Page 8: outline of the fish in the mean image (pipeline/body_outline.py, parameters from
+          the YAML's body_outline block): ROIs inside/outside it (outside ones are not
+          analysed), and P(iscell)/npix of each
 """
 from pathlib import Path
 
@@ -24,13 +28,15 @@ from matplotlib.backends.backend_pdf import PdfPages
 
 from magpyneto2.statistics import draw_hist, inset_hist, get_epsilon
 from pipeline.diagnostics.analysis import _subsample_units, _rasterize_ax
+from pipeline import body_outline
 
 
 def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
                              onfreq_coef_l, offfreq_coef_l, save_dir,
                              roi_df=None, included_mask=None, imaging_dims=None,
                              freq_win_2f=None, onfreq_coef_2f=None,
-                             offfreq_coef_2f=None, Q_2f=None):
+                             offfreq_coef_2f=None, Q_2f=None, mean_img=None,
+                             low_coverage=None):
     """Write a multi-page PDF of GCaMP analysis diagnostics.
 
     Parameters
@@ -69,6 +75,11 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
                      harmonics of each other, so its caller never passes
                      these). Page 3 (2F diagnostics) is skipped if
                      `onfreq_coef_2f` is None.
+    mean_img       : np.ndarray (Ly, Lx), optional, from `nwb_io.read_mean_image` -- suite2p's
+                     time-averaged image, for Page 8 (fish outline). Page 8 says so if None.
+    low_coverage   : (F, coverage), optional, from `roi_coverage.low_coverage_traces`: the
+                     traces the coverage threshold drops, shown under the analysed ones on
+                     Page 5.
     """
     save_dir = Path(save_dir)
     out_path = save_dir / f"{cfg.name}_analysis_diagnostics.pdf"
@@ -171,28 +182,39 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
             plt.close(fig)
 
         # ── Page 5: Fluorescence heatmap sorted by NFC ───────────────────────
-        sort_idx = np.argsort(NFC)[::-1]
-        F_sorted = F[sort_idx]
+        # Top: the analysed traces, by NFC. Bottom (if the YAML sets coverage_threshold): the
+        # traces the coverage threshold drops, by coverage, to judge whether it is high enough.
         N_frames = int(120 * (F.shape[1] // 60))
-        F_display = F_sorted[:, :N_frames]
 
-        # Normalize each row to [0, 1] for display
-        row_min = F_display.min(axis=1, keepdims=True)
-        row_max = F_display.max(axis=1, keepdims=True)
-        denom = np.where(row_max > row_min, row_max - row_min, 1)
-        F_norm = (F_display - row_min) / denom
+        def _rows01(X):
+            X = X[:, :N_frames]
+            lo, hi = X.min(axis=1, keepdims=True), X.max(axis=1, keepdims=True)
+            return (X - lo) / np.where(hi > lo, hi - lo, 1)
 
-        fig, ax = plt.subplots(figsize=(12, 6))
-        fig.suptitle(f"{cfg.name}  |  {freq} Hz  —  ΔF/F sorted by NFC (high → low)",
+        panels = [(_rows01(F[np.argsort(NFC)[::-1]]),
+                   f"analysed: {len(F)} traces, sorted by NFC (high → low)")]
+        F_low, cov_low = low_coverage if low_coverage is not None else (np.zeros((0, 1)), [])
+        if len(F_low):
+            order = np.argsort(cov_low)[::-1]
+            panels.append((_rows01(np.asarray(F_low)[order]),
+                           f"dropped for coverage < {cfg.coverage_threshold}: {len(F_low)} "
+                           f"traces passing P(iscell)/npix/outline, sorted by coverage "
+                           f"({cov_low[order[0]]:.2f} → {cov_low[order[-1]]:.2f})"))
+        heights = [max(len(x), 0.25 * len(F)) for x, _ in panels]
+        fig, axes = plt.subplots(len(panels), 1, figsize=(12, 6 if len(panels) == 1 else 9),
+                                 sharex=True, squeeze=False,
+                                 gridspec_kw=dict(height_ratios=heights))
+        fig.suptitle(f"{cfg.name}  |  {freq} Hz  —  ΔF/F, each row scaled to its own range",
                      fontsize=9)
-        im = ax.imshow(F_norm, aspect="auto", cmap="viridis",
-                       interpolation="none", rasterized=True)
-        ax.set_xlabel("Frame")
-        ax.set_ylabel(f"Cell (N={len(F_norm)}, sorted)")
-        ax.set_yticks([0, len(F_norm) - 1])
-        plt.colorbar(im, ax=ax, label="normalized ΔF/F", shrink=0.6)
-        _draw_period_scalebar(ax, freq, cfg.sample_period)
-        fig.tight_layout()
+        for ax, (X, title) in zip(axes[:, 0], panels):
+            im = ax.imshow(X, aspect="auto", cmap="viridis", vmin=0, vmax=1,
+                           interpolation="none", rasterized=True)
+            ax.set_title(title, fontsize=8)
+            ax.set_ylabel("trace")
+            ax.set_yticks([0, len(X) - 1])
+            _draw_period_scalebar(ax, freq, cfg.sample_period)
+        axes[-1, 0].set_xlabel("Frame")
+        plt.colorbar(im, ax=axes[:, 0].tolist(), label="normalized ΔF/F", shrink=0.6)
         pdf.savefig(fig, dpi=150)
         plt.close(fig)
 
@@ -217,24 +239,9 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
 
             img = np.zeros((Ly, Lx, 3), dtype=np.float32)
 
-            def _pixels(mask_entries):
-                # NWB pixel_mask convention: (x, y, weight) triples -- but
-                # pynwb reads each ROI's mask back as a 1-D STRUCTURED
-                # (record) array with named fields (x, y, weight), not a
-                # plain (n_pixels, 3) array. Fancy column indexing
-                # (arr[:, 1]) raises "too many indices for array: array is
-                # 1-dimensional, but 2 were indexed" on that structured
-                # form -- confirmed on real data. Field-name indexing works
-                # for the structured form; fall back to column indexing in
-                # case a caller ever passes a plain 2D array instead.
-                arr = np.asarray(mask_entries)
-                if arr.dtype.names is not None:
-                    return arr["y"].astype(int), arr["x"].astype(int)  # (ypix, xpix)
-                return arr[:, 1].astype(int), arr[:, 0].astype(int)  # (ypix, xpix)
-
             # All excluded ROIs → dim gray
             for pixel_mask in roi_df.loc[~included_mask, "pixel_mask"]:
-                ypix, xpix = _pixels(pixel_mask)
+                ypix, xpix = body_outline.pixel_mask_yx(pixel_mask)
                 img[ypix, xpix, :] = 0.25
 
             # Included ROIs colored by NFC -- roi_df[included_mask]'s row
@@ -243,7 +250,7 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
             # and included_mask was built by composing the two the same way
             # the analysis stage itself did.
             for rank, pixel_mask in enumerate(roi_df.loc[included_mask, "pixel_mask"]):
-                ypix, xpix = _pixels(pixel_mask)
+                ypix, xpix = body_outline.pixel_mask_yx(pixel_mask)
                 color = np.array(cmap_cells(NFC_norm[rank])[:3], dtype=np.float32)
                 img[ypix, xpix, :] = color
 
@@ -316,6 +323,76 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
         except Exception as exc:
             fig, ax = plt.subplots(figsize=(6, 4))
             ax.text(0.5, 0.5, f"cell mask / iscell error:\n{exc}",
+                    ha="center", va="center", transform=ax.transAxes, fontsize=7)
+            pdf.savefig(fig, dpi=150)
+            plt.close(fig)
+
+        # ── Page 8: outline of the fish; which ROIs lie outside it ──────────
+        # ROIs outside the outline are dropped by the analysis stage (_load_from_nwb).
+        try:
+            if mean_img is None:
+                raise ValueError("no mean image in the NWB file -- re-run processing to add it")
+            if roi_df is None or included_mask is None:
+                raise ValueError("roi_df/included_mask not provided")
+            params = body_outline.params_for(cfg.body_outline)
+            inside, body = body_outline.inside_rois(roi_df, mean_img, params)
+            masks = [body_outline.pixel_mask_yx(m) for m in roi_df["pixel_mask"]]
+            passing = ((roi_df["p_iscell"].values > cfg.iscell_threshold)
+                       & (roi_df["npix"].values > cfg.npix_threshold))
+            if params.get("polygon"):
+                source = "hand-drawn polygon (YAML body_outline)"
+            else:
+                source = (("YAML body_outline" if cfg.body_outline
+                           else "defaults (no body_outline in YAML)") + ": "
+                          + ", ".join(f"{k}={params[k]}" for k in body_outline.DEFAULTS))
+            c_in, c_out = "#2a78d6", "#eb6834"
+
+            fig = plt.figure(figsize=(16, 6.2))
+            gs = fig.add_gridspec(1, 4, width_ratios=[1, 1, 0.32, 0.32], wspace=0.15)
+            show = body_outline.log_mean(mean_img)
+            lo, hi = np.percentile(show, [1, 99.5])
+            for k, (title, sel) in enumerate((("all ROIs", np.ones(len(roi_df), bool)),
+                                              ("passing iscell/npix", passing))):
+                ax = fig.add_subplot(gs[0, k])
+                ax.imshow(show, cmap="gray", vmin=lo, vmax=hi)
+                rgba = np.zeros((*body.shape, 4))
+                for i in np.where(sel)[0]:
+                    yy, xx = masks[i]
+                    rgba[yy, xx] = matplotlib.colors.to_rgba(c_in if inside[i] else c_out, 0.85)
+                ax.imshow(rgba, interpolation="nearest", rasterized=True)
+                ax.contour(body, levels=[0.5], colors="#f2c400", linewidths=1)
+                ax.set_title(f"{title}: {(sel & inside).sum()} inside (blue), "
+                             f"{(sel & ~inside).sum()} outside (orange)", fontsize=9)
+                ax.axis("off")
+            # One strip per variable, every ROI: P(iscell) and npix.
+            rng = np.random.default_rng(0)
+            for k, (vals, label) in enumerate(((roi_df["p_iscell"].values, "P(iscell), all ROIs"),
+                                               (roi_df["npix"].values, "npix, all ROIs"))):
+                ax = fig.add_subplot(gs[0, 2 + k])
+                for j, (m, c) in enumerate(((inside, c_in), (~inside, c_out))):
+                    x = j + rng.uniform(-0.3, 0.3, m.sum())
+                    ax.scatter(x, vals[m], s=2, c=c, alpha=0.4, linewidths=0, rasterized=True)
+                    if m.any():
+                        ax.plot([j - 0.35, j + 0.35], [np.median(vals[m])] * 2, color="k", lw=1.5)
+                ax.set_xticks([0, 1])
+                ax.set_xticklabels(["inside", "outside"], fontsize=8)
+                ax.set_title(label, fontsize=9)
+                ax.tick_params(labelsize=7)
+                if k == 0:
+                    ax.axhline(cfg.iscell_threshold, color="k", ls="--", lw=0.8)
+                    ax.set_ylim(-0.03, 1.03)
+                else:
+                    ax.axhline(cfg.npix_threshold, color="k", ls="--", lw=0.8)
+                    ax.set_yscale("log")
+            fig.suptitle(f"{cfg.name}  |  yellow: outline of the fish in the mean image; "
+                         f"orange ROIs outside it are not analysed  |  {source}\n"
+                         f"one dot per ROI; black bar: median; dashed: iscell/npix thresholds",
+                         fontsize=9)
+            pdf.savefig(fig, dpi=110)
+            plt.close(fig)
+        except Exception as exc:
+            fig, ax = plt.subplots(figsize=(6, 4))
+            ax.text(0.5, 0.5, f"fish outline error:\n{exc}",
                     ha="center", va="center", transform=ax.transAxes, fontsize=7)
             pdf.savefig(fig, dpi=150)
             plt.close(fig)

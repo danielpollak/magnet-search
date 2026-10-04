@@ -131,6 +131,16 @@ class ExperimentConfig:
     sample_period: float = 1.0  # seconds per frame (T in fit_Fourier); 1.02 for 2022_03_01
     iscell_threshold: float = 0.7
     npix_threshold: int = 20
+    # Outline of the fish in suite2p's mean image, for dropping ROIs outside the fish:
+    # {sigma, frac, margin, min_region}, or a hand-drawn `polygon` of [x, y] pixel vertices that
+    # replaces the automatic outline (docs/body_outline.md). Set per field of view with
+    # docs/nfc_finite_sample_bias/body_outline_gui.ipynb; empty = the defaults in
+    # pipeline/body_outline.py. The engert/medaka analysis stages drop ROIs outside the outline.
+    body_outline: dict = field(default_factory=dict)
+    # Keep ROIs whose trace is active (>= 3 frames above its floor) in at least this share of
+    # 60 s windows (pipeline/roi_coverage.py); inclusive (>=), unlike the strict `>` of
+    # iscell_threshold/npix_threshold. 0 = no coverage filter.
+    coverage_threshold: float = 0.0
     # subject/session metadata — historically medaka-only, promoted to a
     # universal field for the NWB replatform (NWBFile.session_start_time /
     # Subject.subject_id / Subject.species). Optional: create_nwbfile()

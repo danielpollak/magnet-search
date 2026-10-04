@@ -8,10 +8,18 @@ session_path: "//datanas/family/data_aggregated/Engert/2022_03_01"
 tiff_name: "2022-03-01_15-08-54_visual+magnet_z_plane0000_trial000_imaging_roi00_green_channel.tif"
 sample_period: 1.02
 
-iscell_threshold: 0.55
-npix_threshold: 10
+iscell_threshold: 0.5
+npix_threshold: 9  # strict >, i.e. npix >= 10
+coverage_threshold: 0.1  # inclusive >=: active in >= 10% of 60 s windows
 
 analysis:
   f: 0.4
   Q_frac: 0.15
   visual_f: 0.016667
+
+# Outline of the fish in the mean image (docs/body_outline.md); set with body_outline_gui.ipynb
+body_outline:
+  sigma: 9.0
+  frac: 0.05
+  margin: 5
+  min_region: 0.1
