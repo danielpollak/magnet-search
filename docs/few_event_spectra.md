@@ -71,7 +71,7 @@ does it depend on how active the ROI is?
 
 ![Real traces](guard_band_null/fig_gb_ripples_real.png)
 
-<sub>**Figure 2. Ten ROIs of `engert_20221001_fish2_magneto_0` (0.1 Hz zebrafish).** Blue: five ROIs drawn at random from the 29 with coverage ≥ 0.8. Orange: five drawn at random from the 102 with 0.1 ≤ coverage < 0.4. All ten pass production's thresholds (P(iscell) > 0.5, npix ≥ 10, inside the fish outline, coverage ≥ 0.1); none was selected on p. Columns are Figure 1's rows A–F: trace; real and imaginary coefficients near 0.1 Hz, divided by σ̂, with CV²; complex plane; correlation of powers; analysis vs noise power; R against its null. Row titles give the ROI's coverage and its p at 0.1 Hz.</sub>
+<sub>**Figure 2. Ten ROIs of `engert_20221001_fish2_magneto_0` (0.1 Hz zebrafish).** Blue: five ROIs drawn at random from the 29 with coverage ≥ 0.8. Orange: five drawn at random from the 102 with 0.1 ≤ coverage < 0.4. All ten pass production's thresholds (P(iscell) > 0.5, npix ≥ 10, inside the fish outline, coverage ≥ 0.1); none was selected on p. Columns are Figure 1's rows A–D: trace; real and imaginary coefficients near 0.1 Hz, divided by σ̂, with CV²; complex plane; correlation of powers. Figure 1's per-bin panels (E, F) are left out: one ROI has only about 420 analysis bins, too few to show a shift of a few percent (see below). Row titles give the ROI's coverage and its p at 0.1 Hz.</sub>
 
 - **Traces.** The high-coverage ROIs (blue) are active through much of the recording. The
   low-coverage ROIs (orange) are flat at 50.0 except for a few small transients, often
@@ -83,9 +83,14 @@ does it depend on how active the ROI is?
 - **Correlation.** Low-coverage ROIs have lag-1 correlations up to 0.8, and in some it comes
   back at longer lags (ROI 154 at L ≈ 27, ROI 198 every few bins): the swing period of a
   few dominant events. High-coverage ROIs are mostly below 0.3.
-- **One ROI is not enough.** One ROI's few hundred analysis bins cannot show a shift of a few
-  percent: every complex-plane cloud and R histogram looks close to the null. The effect
-  becomes visible only when ROIs are pooled (Figure 3).
+- **One ROI is not enough to see the p-values move.** The kept low-coverage ROIs are off by
+  about 2.5% of their p-values. With about 420 analysis bins per ROI, the share of p-values in
+  any range is uncertain by about ±2.4%, more once the correlation between bins is counted.
+  In the tail, R above 4.6 (p < 0.01) is expected about 4 times per ROI and occurs about
+  half as often, so 2 against 4. Per ROI, the R histogram therefore looks like the null in
+  both groups, and so does the complex-plane cloud. CV² does separate the groups, because it
+  summarises the spread of all the bins in one number. The size of the effect is shown
+  pooled, in Figure 3.
 
 ## 3. Pooled over the recording
 
