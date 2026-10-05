@@ -28,10 +28,13 @@ distribution of the same spread, then computes the p-value under that.
 - **But the shape is wrong in the other direction** (Figure 3): the hump turns into an S, with
   slightly too many small p-values and a pile near p = 1. It overshoots in the simulations
   too.
+- **Split by CV², the good average is errors cancelling** (Figure 4). Every group below
+  CV² 0.85 gets the S, and the ROIs above 1.15, which production had calibrated, get a hump
+  of +0.05 to +0.12.
 - **Power** rises 21–66% in simulation, with the false-positive rate at 0.033–0.059 instead of
-  production's 0.020–0.038 (Figure 4).
+  production's 0.020–0.038 (Figure 5).
 - **At the stimulus frequency** the 0.3 Hz excess goes from +0.063 to +0.004 and the 0.1 Hz
-  from +0.044 to +0.013 (Figure 5).
+  from +0.044 to +0.013 (Figure 6).
 - **Verdict:** right direction, wrong shape. The Gamma family matches a ROI's spread but not
   the bounded, U-shaped distribution of power that a few events actually produce.
 
@@ -140,6 +143,25 @@ null, in the real recordings and in simulated traces where the null is true by c
   Gamma(k) with k > 1 has almost no mass near 0. Bins with near-zero power are therefore
   called extremely unlikely under the matched null, and get p close to 1.
 
+![By CV2](dispersion_matched_null/fig_dm_by_cv2.png)
+
+<sub>**Figure 4. Figure 3's real recordings, ROIs binned by CV².** ECDF(p) − p over each ROI's test frequencies, averaged over the ROIs in each CV² bin. *Top row:* production null. *Bottom row:* dispersion-matched null. Legends give ROIs and dev@0.5 per bin; bins with fewer than 20 ROIs are not drawn.</sub>
+
+| dev@0.5, production → matched | CV² < 0.5 | 0.5–0.7 | 0.7–0.85 | 0.85–1.15 | > 1.15 |
+|---|---|---|---|---|---|
+| 0.3 Hz zebrafish | +0.141 → −0.025 | +0.035 → −0.018 | +0.016 → −0.016 | −0.003 → −0.008 | −0.016 → **+0.086** |
+| 0.1 Hz zebrafish | +0.150 → +0.010 | +0.052 → −0.003 | +0.025 → −0.005 | +0.003 → −0.002 | +0.005 → **+0.116** |
+| 2022 Q1 zebrafish | — | — | +0.006 → −0.019 | −0.011 → −0.013 | −0.025 → **+0.052** |
+
+- **Below CV² 0.85, the matched null trades the hump for an S** (Figure 4, bottom): close to 0
+  at p = 0.5, but too many p-values below 0.3 and too few just below 1, more so the lower the
+  CV².
+- **Above CV² 1.15 it creates a hump** where production had almost none. For CV² > 1, k < 1,
+  and Gamma(k) has a heavier tail than the exponential, so ordinary NFCs get p-values near
+  the middle.
+- **So the near-zero averages in Figure 3 come from these errors cancelling,** not from a
+  calibrated null.
+
 ## 4. What does it cost in power?
 
 **The question.** A correction that calibrates by making every p-value larger would also hide
@@ -148,7 +170,7 @@ known to be there?
 
 ![Power](dispersion_matched_null/fig_dm_power.png)
 
-<sub>**Figure 4. Detection of a simulated stimulus-locked response.** Simulated floor-clipped traces whose event rate is multiplied by 1 + m sin(2πft) at the configuration's stimulus frequency, with slow rate modulation of log-rate SD 2 (top) and 3 (bottom). y: share of traces with p < 0.05. At m = 0 there is no response and the share should be 0.05 (dotted).</sub>
+<sub>**Figure 5. Detection of a simulated stimulus-locked response.** Simulated floor-clipped traces whose event rate is multiplied by 1 + m sin(2πft) at the configuration's stimulus frequency, with slow rate modulation of log-rate SD 2 (top) and 3 (bottom). y: share of traces with p < 0.05. At m = 0 there is no response and the share should be 0.05 (dotted).</sub>
 
 | share with p < 0.05 | m = 0 (no response) | m = 0.3 |
 |---|---|---|
@@ -161,7 +183,7 @@ known to be there?
   traces significant at 0.05, because few-event traces rarely produce small p-values.
 - **The matched null brings the false-positive rate near 0.05 and detects 21–66% more
   responses** at m = 0.3. In the 0.3 Hz configuration it slightly overshoots 0.05 (0.058–0.059),
-  the same overshoot as in Figure 3.
+  the same overshoot as in Figures 3–4.
 
 ## 5. At the stimulus frequency
 
@@ -170,7 +192,7 @@ stimulus frequency under the matched null?
 
 ![Stimulus frequency](dispersion_matched_null/fig_dm_stimulus.png)
 
-<sub>**Figure 5. p-value distributions at the stimulus frequency.** ECDF(p) − p for every ROI trace, production null (gray) and dispersion-matched null (blue). Legends give dev@0.5. Gray band: 95% binomial band.</sub>
+<sub>**Figure 6. p-value distributions at the stimulus frequency.** ECDF(p) − p for every ROI trace, production null (gray) and dispersion-matched null (blue). Legends give dev@0.5. Gray band: 95% binomial band.</sub>
 
 | at the stimulus frequency | dev@0.5, production | dev@0.5, matched | p < 0.05, production | p < 0.05, matched |
 |---|---|---|---|---|
@@ -180,7 +202,7 @@ stimulus frequency under the matched null?
 
 - **0.3 Hz and 0.1 Hz zebrafish:** the excess largely goes, with the same S-shape as at the
   test frequencies. The share below 0.05 rises to about the 5% expected (6.8% at 0.3 Hz, in
-  line with the overshoot in Figures 3–4). Nothing stimulus-specific stands out.
+  line with the overshoot in Figures 3–5). Nothing stimulus-specific stands out.
 - **2022 Q1:** the excess stays. Its stimulus bin carries a known local stimulus-locked
   component in `20220301` (background report, Figure 12), which a different null would not
   remove.
@@ -191,9 +213,10 @@ stimulus frequency under the matched null?
 |---|---|
 | **Established** | A ROI's miscalibration under the production null is predicted by the spread of its periodogram (CV²), in both directions: CV² < 1 (few-event, floor-clipped traces) piles p-values in the middle; CV² > 1 does the opposite. |
 | **Established** | For most ROIs with CV² near 1, including 81% of 2022 Q1, the matched null is practically production's. It matters for the low-CV² ROIs of the floor-clipped recordings. |
-| **Established** | Matching the spread with a Gamma distribution removes most of the excess at p = 0.5, brings the false-positive rate near 0.05 and gains 21–66% power in simulation, but overshoots into an S-shape. |
+| **Established** | Matching the spread with a Gamma distribution removes most of the excess at p = 0.5, brings the false-positive rate near 0.05 and gains 21–66% power in simulation, but overshoots into an S-shape below CV² 0.85 and creates a hump above 1.15 (Figure 4); its overall calibration is errors cancelling. |
 | **Not adopted** | The Gamma shape is wrong for few-event traces (bounded, piling up near 0). Fixing it would mean an even more constructed, per-ROI null. |
 | **Alternative** | Keep only ROIs whose CV² shows the production null applies: those with CV² ≥ 0.85 are calibrated under it (dev@0.5 +0.004 at 0.1 Hz, −0.005 at 0.3 Hz), but they are 43% of the 0.1 Hz ROIs and 24% of the 0.3 Hz ROIs. |
+| **Since found** | The low CV² is not a property of the cells: suite2p's integer halving and truncation of these photon-starved movies created the floor. Re-extracted at full resolution, CV² is about 1 and the production null is calibrated without any change to the null ([`cv2.md`](cv2.md), section 4). |
 
 ## Reproducing
 
