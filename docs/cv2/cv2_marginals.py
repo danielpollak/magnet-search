@@ -1,6 +1,6 @@
 """Marginal distribution of CV^2 for every ephys unit and imaging ROI in the Fig 2 magnetic pool.
 
-    python docs/guard_band_null/cv2_marginals.py
+    python docs/cv2/cv2_marginals.py
 
 CV^2 here is computed the same way for both modalities, from exactly the bins the test uses:
 the 2M off-frequency coefficients at the analysis frequency (1F) persisted in each NWB file's
@@ -17,7 +17,7 @@ CV^2 = 1 - 1/K applies with K = the spike count (ignoring bursts).
 The population is the Fig 2 magnetic pool (statistics.get_poscontrols_negresults), joined on
 (rec, freq, id). Mouse and owl have no NWB file (precomputed) and are left out.
 
-Outputs (next to this script): results_cv2_marginals.csv (gitignored), fig_gb_cv2_marginals.png.
+Outputs (next to this script): results_cv2_marginals.csv (gitignored), fig_cv2_marginals.png.
 """
 import sys
 from pathlib import Path
@@ -98,7 +98,7 @@ def compute():
     neg, _, _ = st.get_poscontrols_negresults(df)
     neg = neg[~neg["rec"].isin(DUPLICATE_RECS)].copy()
     neg["freq"] = neg["freq"].astype(float).round(4)
-    m = neg[["species", "rec", "freq", "id"]].merge(cv, on=["rec", "freq", "id"], how="inner")
+    m = neg[["species", "rec", "freq", "id", "p_value"]].merge(cv, on=["rec", "freq", "id"], how="inner")
     m["group"] = m.apply(group_of, axis=1)
     m = m[m["group"].notna()]
     print(f"  joined {len(m)} of {len(neg)} magnetic-pool rows "
@@ -164,7 +164,7 @@ def main():
                                below_05=("cv2", lambda v: np.mean(v < 0.5)),
                                ref_below_05=("cv2_ref", lambda v: np.mean(v < 0.5)))
     print(t.round(3).to_string())
-    figure(m, _HERE / "fig_gb_cv2_marginals.png")
+    figure(m, _HERE / "fig_cv2_marginals.png")
 
 
 if __name__ == "__main__":
