@@ -19,7 +19,7 @@ prototype's (docs/guard_band_null/guard_band.py), whose machinery this script re
 noise bins right next to the analysis bin (G = 0, as in production) and its nulls swapped for
 the two above.
 
-Outputs (next to this script): results_dm_*.csv (gitignored), fig_dm_*.png.
+Outputs (next to this script): results_dm_*.csv/.npz (gitignored), fig_dm_*.png.
 """
 import sys
 from pathlib import Path
@@ -33,7 +33,9 @@ from scipy import stats
 
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parent / "guard_band_null"))
+sys.path.insert(0, str(_HERE.parent / "cv2"))
 import guard_band as gb  # noqa: E402
+import cv2_report as cr  # noqa: E402
 from guard_band import SETS, CONFIGS, SIM_DEPTHS, P_GRID, C_INK, C_MUTED, _band, _style, ecdf_dev  # noqa: E402
 
 C_SETS = {"zebrafish 0.4 Hz (2022 Q1)": "#8a8a8a", "zebrafish 0.3 Hz": "#2a78d6",
@@ -59,6 +61,36 @@ def compute():
     for n, d in out.items():
         d.to_csv(_HERE / f"results_dm_{n}.csv", index=False)
     return out
+
+
+def compute_by_cv2():
+    """Per ROI, the ECDF of its test-frequency p-values under both nulls, with its CV^2, for
+    Figure 4 (ROIs binned by CV^2; cv2_report.fig_binned)."""
+    rows, Ep, Ed = [], [], []
+    for name, batch in cr.recordings():
+        cfg, F, _ = gb.sv.load(name, outline=True)
+        s = cr.spectrum(F, cfg)
+        ok = s["ok"]
+        X, k = s["X"][ok], s["k"][ok][:, None]
+        Ep.append(cr.ecdf_rows(gb.p_from_nfc(X, s["M"])))
+        Ed.append(cr.ecdf_rows(stats.f.sf(X ** 2 / 2, 2 * k, 4 * s["M"] * k)))
+        rows.append(pd.DataFrame(dict(experiment=name, batch=batch, cv2=s["cv2"][ok])))
+    d = pd.concat(rows, ignore_index=True)
+    Ep, Ed = np.concatenate(Ep), np.concatenate(Ed)
+    d.to_csv(_HERE / "results_dm_by_cv2.csv", index=False)
+    np.savez_compressed(_HERE / "results_dm_by_cv2.npz", prod=Ep, disp=Ed)
+    return d, Ep, Ed
+
+
+def summary_by_cv2(d, Ep, Ed):
+    b = cr.cv2_bin(d["cv2"])
+    out = []
+    for (s, lab), g in d.groupby([d["batch"], b], observed=True):
+        sel = g.index.values
+        out.append(dict(set=s, cv2=lab, rois=len(sel),
+                        prod=np.interp(0.5, P_GRID, Ep[sel].mean(0) - P_GRID),
+                        disp=np.interp(0.5, P_GRID, Ed[sel].mean(0) - P_GRID)))
+    print(pd.DataFrame(out).round(3).to_string(index=False))
 
 
 # ------------------------------------------------------------------ figures
@@ -170,7 +202,7 @@ def fig_curves(curves, out):
 
 
 def fig_power(power, out):
-    """Figure 4: detection of a known stimulus-locked modulation in simulated traces."""
+    """Figure 5: detection of a known stimulus-locked modulation in simulated traces."""
     fig, axes = plt.subplots(2, len(CONFIGS), figsize=(5.6 * len(CONFIGS), 7.4), squeeze=False)
     for j, b in enumerate(CONFIGS):
         for i, depth in enumerate([2.0, 3.0]):
@@ -195,7 +227,7 @@ def fig_power(power, out):
 
 
 def fig_stimulus(stim, out):
-    """Figure 5: read-out at the stimulus frequency."""
+    """Figure 6: read-out at the stimulus frequency."""
     fig, axes = plt.subplots(1, len(SETS), figsize=(4.4 * len(SETS), 3.6), sharey=True)
     for ax, b in zip(axes, SETS):
         d = stim[stim["batch"] == b]
@@ -220,14 +252,21 @@ def main():
     names = ["real", "meff", "stim", "sim", "power", "curves"]
     if "--figures-only" in sys.argv:
         r = {n: pd.read_csv(_HERE / f"results_dm_{n}.csv") for n in names}
+        d = pd.read_csv(_HERE / "results_dm_by_cv2.csv")
+        z = np.load(_HERE / "results_dm_by_cv2.npz")
+        Ep, Ed = z["prod"], z["disp"]
     else:
         r = compute()
+        d, Ep, Ed = compute_by_cv2()
+    summary_by_cv2(d, Ep, Ed)
     print(gb._summary(r["real"]).round(4).to_string(index=False))
     print(gb._summary(r["sim"].assign(batch=r["sim"]["batch"] + " d"
                                       + r["sim"]["depth"].astype(str))).round(4).to_string(index=False))
     fig_diagnose(r["meff"], _HERE / "fig_dm_diagnose.png")
     fig_gamma(r["stim"], _HERE / "fig_dm_gamma.png")
     fig_curves(r["curves"], _HERE / "fig_dm_curves.png")
+    cr.fig_binned(d, [(Ep, "production null"), (Ed, "dispersion-matched null")],
+                  _HERE / "fig_dm_by_cv2.png")
     fig_power(r["power"], _HERE / "fig_dm_power.png")
     fig_stimulus(r["stim"], _HERE / "fig_dm_stimulus.png")
     print("  wrote fig_dm_*.png")
