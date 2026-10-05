@@ -1,30 +1,24 @@
-"""CV^2: what it is, how it is distributed, how it predicts miscalibration, and how each proposed
-fix does across CV^2.
+"""CV^2 of the zebrafish imaging ROIs: what it looks like in a raw trace, how it follows
+coverage, how it relates to the p-value bump, and where the floor that lowers it comes from.
 
-    python docs/cv2/cv2_marginals.py           # first: per-unit CV^2 of the noise bins, ephys + imaging
+    python docs/cv2/cv2_marginals.py           # per-unit noise-bin CV^2, ephys + imaging (Figure 3)
+    /c/Users/dan/anaconda3/envs/suite2p/python.exe docs/cv2/reextract_traces.py   # full-resolution traces
     python docs/cv2/cv2_report.py              # ~5 min
     python docs/cv2/cv2_report.py --figures-only
 
 Write-up: docs/cv2.md.
 
-Two versions of CV^2 (variance / mean^2 of a unit's periodogram powers; 1 for Gaussian noise):
-  whole-spectrum  imaging only. Every bin from 0.05 Hz up, away from the stimulus window, each
-                  power divided by the mean of its 51 neighbours. Hundreds of bins per ROI, so
-                  little sampling noise. guard_band.ordinate_shape.
-  noise-bin       every unit with an NWB file, ephys and imaging: the 2M noise-bin powers at
-                  the stimulus frequency, as persisted in per_unit_fourier_results. Few bins, so
-                  noisy; cv2_marginals.py pairs each unit with an exact-null draw of the same M.
-For Gaussian noise the noise-bin CV^2 is independent of the unit's own p-value (a scale-free
-statistic of exponential samples is independent of their sum, and the analysis bin is
-independent of the noise bins), so binning units by it does not by itself bend their p-values.
+CV^2 here is the whole-spectrum version: variance / mean^2 of a ROI's periodogram ordinates
+over every bin from 0.05 Hz up, away from the stimulus window, each divided by the mean of its
+51 neighbours (guard_band.ordinate_shape). 1 for Gaussian noise.
 
-Imaging (zebrafish 0.4 Hz / 0.3 Hz / 0.1 Hz): every ROI's production p-value at every test
-frequency (guard_band.test_bins: every 3rd bin from 0.05 Hz, away from the stimulus), under
-production's null F(2, 4M) and the dispersion-matched null F(2k, 4Mk), k = 1 / whole-spectrum
-CV^2. Each ROI's ECDF over its test frequencies is stored, so any grouping of ROIs is the mean
-of its ROIs' ECDFs (each ROI weighted equally). Population: production before the coverage
-threshold (P(iscell) > 0.5, npix >= 10, inside the outline, flatline removal), coverage
-computed alongside so the coverage threshold can be evaluated as one of the fixes.
+Zebrafish 0.4 Hz / 0.3 Hz / 0.1 Hz: every ROI's production p-value at every test frequency
+(guard_band.test_bins: every 3rd bin from 0.05 Hz, away from the stimulus) under production's
+null F(2, 4M). Each ROI's ECDF over its test frequencies is stored, so any grouping of ROIs is
+the mean of its ROIs' ECDFs (each ROI weighted equally). Population: production before the
+coverage threshold (P(iscell) > 0.5, npix >= 10, inside the outline, flatline removal). For the
+0.3 Hz and 0.1 Hz recordings the same is repeated on the full-resolution traces from
+reextract_traces.py (same ROIs, same frames).
 
 Outputs (next to this script): results_cv2_rois.csv, results_cv2_ecdf.npz (gitignored),
 fig_cv2_*.png.
@@ -37,6 +31,7 @@ import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import tifffile
 from scipy import stats
 
 _HERE = Path(__file__).resolve().parent
@@ -44,20 +39,22 @@ _REPO = _HERE.parents[1]
 sys.path.insert(0, str(_REPO))
 sys.path.insert(0, str(_HERE.parent / "guard_band_null"))
 import guard_band as gb  # noqa: E402
-from guard_band import sv, P_GRID, C_INK, C_MUTED, _band, _style, ecdf_dev  # noqa: E402
+from guard_band import sv, P_GRID, C_INK, C_MUTED, _style  # noqa: E402
 from pipeline.roi_coverage import activity  # noqa: E402
 
 SETS = gb.SETS
+CLIPPED = ["zebrafish 0.3 Hz", "zebrafish 0.1 Hz"]
 SHORT = {"zebrafish 0.4 Hz (2022 Q1)": "0.4 Hz (2022 Q1)", "zebrafish 0.3 Hz": "0.3 Hz",
          "zebrafish 0.1 Hz": "0.1 Hz"}
 CV2_BINS = [0, 0.5, 0.7, 0.85, 1.15, np.inf]
 CV2_LABELS = ["< 0.5", "0.5-0.7", "0.7-0.85", "0.85-1.15", "> 1.15"]
 CV2_COLOURS = ["#6b2a0d", "#eb6834", "#f2a36b", "#8a8a8a", "#2a78d6"]
-CV2_MIN = 0.85
-COVERAGE_MIN = 0.1
+C_S2P, C_FULL = "#eb6834", "#2a78d6"
+EXAMPLE_REC = "engert_20221001_fish2_magneto_0"
+EXAMPLE_COVERAGE = [0.06, 0.17, 0.33, 0.61, 1.0]
+REEXTRACTED = _HERE / "reextracted"
 OUT_ROIS = _HERE / "results_cv2_rois.csv"
 OUT_ECDF = _HERE / "results_cv2_ecdf.npz"
-MARGINALS = _HERE / "results_cv2_marginals.csv"
 
 
 # ------------------------------------------------------------------ compute
@@ -67,38 +64,89 @@ def ecdf_rows(P):
     return np.stack([np.searchsorted(row, P_GRID, side="right") / P.shape[1] for row in P])
 
 
-def compute():
+def recordings():
+    """(name, batch) of every zebrafish recording in the three sets."""
     recs, _ = sv.pool()
-    rows, E_prod, E_disp = [], [], []
-    for name, batch, _ in recs:
-        if batch not in SETS:
-            continue
+    return [(name, batch) for name, batch, _ in recs if batch in SETS]
+
+
+def spectrum(F, cfg):
+    """What every analysis here needs from a set of traces: dict with the FFT Y, analysis bin
+    f0, noise bins M, the whole-spectrum normalised-ordinate range (lo, excl), CV^2 and k = 1/CV^2,
+    NFC at the test frequencies X, and the rows with finite NFC everywhere."""
+    T, N = cfg.sample_period, F.shape[1]
+    f0, M = sv.window_bins(N, T, cfg.analysis.f, cfg.analysis.Q_frac)
+    res = 1.0 / (N * T)
+    Y = np.fft.rfft(F - F.mean(axis=1, keepdims=True), axis=1)
+    lo = max(int(np.ceil(gb.F_MIN / res)) - gb.MED_WIN, 1)
+    excl = np.arange(f0 - gb.G_MAX - M, f0 + gb.G_MAX + M + 1)
+    k, cv2 = gb.ordinate_shape(Y, lo, Y.shape[1] - 1, excl)
+    X = np.stack([gb.nfc(Y, b, M, 0) for b in gb.test_bins(Y.shape[1], f0, M, res)], 1)
+    return dict(Y=Y, f0=f0, M=M, lo=lo, excl=excl, k=k, cv2=cv2, X=X,
+                ok=np.isfinite(X).all(1))
+
+
+def floor_share(F):
+    """Share of frames at each trace's most common value."""
+    return np.array([np.unique(r, return_counts=True)[1].max() / len(r) for r in F])
+
+
+def full_res(name, roi, F):
+    """(suite2p, full-resolution) traces of these ROIs over this tiff's own frames, or None if
+    reextract_traces.py has not been run for this recording. The suite2p traces are the
+    production traces, except that production's magneto_1/2 of the 0.3 Hz fish start 60 frames
+    early, in the previous tiff (get_len_df offsets every start by the first tiff's length; the
+    0.3 Hz sessions' first tiff is 60 frames longer than the rest): there the last frames of
+    the production trace are the tiff's own."""
+    path = REEXTRACTED / f"{name}.npz"
+    if not path.exists():
+        return None
+    z = np.load(path)
+    Fs, Ff = z["F_s2p"][roi].astype(float), z["F_full"][roi].astype(float)
+    n = Fs.shape[1]
+    err = np.abs(F[:, -n:] - Fs[:, :F.shape[1]]).max()
+    assert err < 1e-3, f"{name}: F.npy slice does not match the production traces ({err})"
+    N = min(int(120 * (n // 60)), n)
+    return Fs[:, :N], Ff[:, :N]
+
+
+def compute():
+    """Per ROI: production CV^2, coverage, floor share and dev@0.5; for the floor-clipped sets
+    the same on this tiff's own frames from suite2p (_s2p) and at full resolution (_full).
+    ECDFs: E (production), Es and Ef (own frames, suite2p / full resolution; NaN elsewhere)."""
+    rows, E, Es, Ef = [], [], [], []
+    for name, batch in recordings():
         cfg, F, roi = sv.load(name, outline=True)
-        T, N = cfg.sample_period, F.shape[1]
-        f0, M = sv.window_bins(N, T, cfg.analysis.f, cfg.analysis.Q_frac)
-        res = 1.0 / (N * T)
-        Y = np.fft.rfft(F - F.mean(axis=1, keepdims=True), axis=1)
-        lo = max(int(np.ceil(gb.F_MIN / res)) - gb.MED_WIN, 1)
-        excl = np.arange(f0 - gb.G_MAX - M, f0 + gb.G_MAX + M + 1)
-        k, cv2 = gb.ordinate_shape(Y, lo, Y.shape[1] - 1, excl)
-        ks = gb.test_bins(Y.shape[1], f0, M, res)
-        X = np.stack([gb.nfc(Y, b, M, 0) for b in ks], 1)
-        ok = np.isfinite(X).all(1)
-        Pp = gb.p_from_nfc(X, M)
-        Pd = stats.f.sf(X ** 2 / 2, 2 * k[:, None], 4 * M * k[:, None])
-        x0 = gb.nfc(Y, f0, M, 0)
-        cov = activity(F, T)["coverage"]
-        rows.append(pd.DataFrame(dict(
-            experiment=name, batch=batch, roi=roi, M=M, cv2=cv2, coverage=cov,
-            p_stim=gb.p_from_nfc(x0, M), p_stim_disp=stats.f.sf(x0 ** 2 / 2, 2 * k, 4 * M * k),
-            dev_prod=np.mean(Pp <= 0.5, 1) - 0.5, dev_disp=np.mean(Pd <= 0.5, 1) - 0.5))[ok])
-        E_prod.append(ecdf_rows(Pp[ok]))
-        E_disp.append(ecdf_rows(Pd[ok]))
-        print(f"  {name}: {ok.sum()} ROIs, M={M}, {len(ks)} test frequencies", flush=True)
+        s = spectrum(F, cfg)
+        ok = s["ok"]
+        r = pd.DataFrame(dict(experiment=name, batch=batch, roi=roi, M=s["M"], cv2=s["cv2"],
+                              coverage=activity(F, cfg.sample_period)["coverage"],
+                              floor_share=floor_share(F)))
+        Pp = gb.p_from_nfc(s["X"], s["M"])
+        r["dev"] = np.mean(Pp <= 0.5, 1) - 0.5
+        own = full_res(name, roi, F) if batch in CLIPPED else None
+        if own is not None:
+            P_own = {}
+            for tag, Fx in zip(["s2p", "full"], own):
+                sx = spectrum(Fx, cfg)
+                ok = ok & sx["ok"]
+                P_own[tag] = gb.p_from_nfc(sx["X"], sx["M"])
+                r[f"cv2_{tag}"], r[f"floor_share_{tag}"] = sx["cv2"], floor_share(Fx)
+                r[f"dev_{tag}"] = np.mean(P_own[tag] <= 0.5, 1) - 0.5
+            Es.append(ecdf_rows(P_own["s2p"][ok]))
+            Ef.append(ecdf_rows(P_own["full"][ok]))
+        else:
+            Es.append(np.full((ok.sum(), len(P_GRID)), np.nan))
+            Ef.append(np.full((ok.sum(), len(P_GRID)), np.nan))
+        rows.append(r[ok])
+        E.append(ecdf_rows(Pp[ok]))
+        print(f"  {name}: {ok.sum()} ROIs, M={s['M']}, full-res {'yes' if own is not None else 'no'}",
+              flush=True)
     d = pd.concat(rows, ignore_index=True)
+    E, Es, Ef = np.concatenate(E), np.concatenate(Es), np.concatenate(Ef)
     d.to_csv(OUT_ROIS, index=False)
-    np.savez_compressed(OUT_ECDF, prod=np.concatenate(E_prod), disp=np.concatenate(E_disp))
-    return d, np.concatenate(E_prod), np.concatenate(E_disp)
+    np.savez_compressed(OUT_ECDF, prod=E, s2p=Es, full=Ef)
+    return d, E, Es, Ef
 
 
 def cv2_bin(c):
@@ -106,12 +154,100 @@ def cv2_bin(c):
 
 
 # ------------------------------------------------------------------ figures
-def fig_binned(d, Ep, Ed, out):
-    """Figure 2: ECDF deviation where nothing was presented, ROIs binned by CV^2, under the
-    production null (top) and the dispersion-matched null (bottom)."""
-    fig, axes = plt.subplots(2, len(SETS), figsize=(4.6 * len(SETS), 7.6), sharey=True)
+def examples(d):
+    """ROIs of EXAMPLE_REC spanning coverage: per target, among ROIs within one 60 s window of
+    it, the one with the median CV^2."""
+    e = d[d["experiment"] == EXAMPLE_REC]
+    out = []
+    for t in EXAMPLE_COVERAGE:
+        c = e[(e["coverage"] - t).abs() < 0.03].sort_values("cv2")
+        out.append(int(c.iloc[len(c) // 2]["roi"]))
+    return out
+
+
+def load_examples(d):
+    """(cfg, rows of d, production traces, full-resolution traces) of the examples."""
+    cfg, F, roi = sv.load(EXAMPLE_REC, outline=True)
+    ids = examples(d)
+    pos = [int(np.where(roi == i)[0][0]) for i in ids]
+    own = full_res(EXAMPLE_REC, roi, F)
+    rows = d[d["experiment"] == EXAMPLE_REC].set_index("roi").loc[ids]
+    return cfg, rows, F[pos], (own[1][pos] if own is not None else None)
+
+
+def fig_traces(d, out):
+    """Figure 1: example traces from low to high coverage, and the distribution of their
+    normalised power across frequencies."""
+    cfg, rows, F, _ = load_examples(d)
+    s = spectrum(F, cfg)
+    I = gb.normalised_ordinates(s["Y"], s["lo"], s["Y"].shape[1] - 1, s["excl"])
+    t = np.arange(F.shape[1]) * cfg.sample_period
+    fig, axes = plt.subplots(len(F), 2, figsize=(13, 1.9 * len(F)),
+                             gridspec_kw=dict(width_ratios=[3.2, 1]))
+    x = np.linspace(0, 6, 200)
+    for i, (ax, axh) in enumerate(axes):
+        r = rows.iloc[i]
+        ax.plot(t, F[i], color=C_INK, lw=0.6)
+        ax.set_xlim(0, t[-1])
+        ax.set_ylabel("F (suite2p)", fontsize=7)
+        ax.set_title(f"ROI {rows.index[i]}: coverage {r['coverage']:.2f}, CV$^2$ {r['cv2']:.2f}, "
+                     f"{r['floor_share']:.0%} of frames at the floor", fontsize=8, loc="left")
+        _style(ax)
+        axh.hist(I[i], bins=np.linspace(0, 6, 31), density=True, color=C_S2P, alpha=0.85)
+        axh.plot(x, np.exp(-x), color=C_INK, lw=1, ls="--")
+        axh.set_yscale("log")
+        axh.set_ylim(2e-3, 3)
+        axh.set_xlim(0, 6)
+        axh.set_ylabel("density", fontsize=7)
+        _style(axh)
+    axes[-1, 0].set_xlabel("time (s)", fontsize=8)
+    axes[-1, 1].set_xlabel("power / local mean power", fontsize=8)
+    axes[0, 1].set_title("power across frequencies\n(dashed: exponential, CV$^2$ = 1)", fontsize=8)
+    fig.suptitle(f"{EXAMPLE_REC}: five ROIs from low to high coverage", fontsize=9)
+    fig.tight_layout(rect=(0, 0, 1, 0.97))
+    fig.savefig(out, dpi=150, facecolor="white")
+    plt.close(fig)
+
+
+def fig_coverage(d, out):
+    """Figure 2: CV^2 against coverage, every ROI of the floor-clipped recordings."""
+    rng = np.random.default_rng(0)
+    ex = examples(d)
+    fig, axes = plt.subplots(1, len(CLIPPED), figsize=(11, 4.4), sharey=True)
+    for ax, s in zip(axes, CLIPPED):
+        e = d[d["batch"] == s]
+        ax.scatter(e["coverage"] + rng.uniform(-0.012, 0.012, len(e)), e["cv2"], s=3,
+                   color=C_MUTED, alpha=0.35, lw=0, rasterized=True)
+        b = pd.cut(e["coverage"], np.linspace(0, 1.0001, 11))
+        med = e.groupby(b, observed=True)["cv2"].median()
+        ax.plot([iv.mid for iv in med.index], med.values, color=C_INK, lw=2, marker="o", ms=4,
+                label="median per 0.1 of coverage")
+        if s == "zebrafish 0.1 Hz":
+            x = e[(e["experiment"] == EXAMPLE_REC) & e["roi"].isin(ex)]
+            ax.scatter(x["coverage"], x["cv2"], s=60, facecolor="none", edgecolor=C_S2P, lw=1.6,
+                       label="Figure 1's examples", zorder=3)
+        ax.axhline(1, color=C_INK, lw=0.6, ls=":")
+        ax.axvline(0.1, color=C_MUTED, lw=0.8, ls="--")
+        rho = stats.spearmanr(e["coverage"], e["cv2"])[0]
+        ax.set_title(f"zebrafish {SHORT[s]}: {len(e)} ROIs, Spearman {rho:.2f}", fontsize=9)
+        ax.set_xlabel("coverage (share of 60 s windows with >= 3 frames above the floor)",
+                      fontsize=8)
+        ax.set_ylim(0, 2)
+        ax.legend(fontsize=7, frameon=False, loc="upper left")
+        _style(ax)
+    axes[0].set_ylabel("whole-spectrum CV$^2$", fontsize=8)
+    fig.tight_layout()
+    fig.savefig(out, dpi=150, facecolor="white")
+    plt.close(fig)
+
+
+def fig_binned(d, rows, out):
+    """ECDF deviation where nothing was presented, ROIs binned by CV^2: one row of panels per
+    (ECDF array, title) in `rows`. Figure 4 here; dispersion_null.py reuses it."""
+    fig, axes = plt.subplots(len(rows), len(SETS), figsize=(4.6 * len(SETS), 3.8 * len(rows)),
+                             sharey=True, squeeze=False)
     b = cv2_bin(d["cv2"])
-    for i, (E, null) in enumerate([(Ep, "production null"), (Ed, "dispersion-matched null")]):
+    for i, (E, null) in enumerate(rows):
         for ax, s in zip(axes[i], SETS):
             for lab, c in zip(CV2_LABELS, CV2_COLOURS):
                 sel = ((d["batch"] == s) & (b == lab)).values
@@ -123,152 +259,153 @@ def fig_binned(d, Ep, Ed, out):
             ax.axhline(0, color=C_INK, lw=0.6)
             ax.set_title(f"zebrafish {SHORT[s]}, {null}", fontsize=9)
             ax.set_xlabel("p", fontsize=8)
-            ax.legend(fontsize=6.5, frameon=False, loc="lower center")
+            ax.legend(fontsize=6.5, frameon=False, loc="best")
             _style(ax)
         axes[i, 0].set_ylabel("ECDF(p) - p over test frequencies", fontsize=8)
     fig.suptitle("Where nothing was presented, ROIs binned by whole-spectrum CV$^2$ "
                  "(flat at 0 = calibrated)", fontsize=9)
-    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    fig.tight_layout(rect=(0, 0, 1, 1 - 0.04 / len(rows)))
     fig.savefig(out, dpi=150, facecolor="white")
     plt.close(fig)
 
 
-MARG_GROUPS = [("zebra finch", "ephys"), ("Pigeon", "ephys"), ("Quail", "ephys"),
-               ("zebrafish 0.4 Hz (2022 Q1)", "imaging"), ("zebrafish 0.3 Hz", "imaging"),
-               ("zebrafish 0.1 Hz", "imaging"), ("medaka 0.1 Hz", "imaging")]
-MARG_BINS = [0, 0.7, 0.85, 1.0, 1.15, np.inf]
-MARG_LABELS = ["< 0.7", "0.7-0.85", "0.85-1.0", "1.0-1.15", "> 1.15"]
-MARG_COLOURS = ["#b8431a", "#f2a36b", "#b0b0b0", "#6fa3e3", "#1c5cab"]
+def pixel_values(n=200):
+    """Share of EXAMPLE_REC's pixels at each value, in the first n frames: raw tiff (offset
+    100), after suite2p's // 2, and in suite2p's registered movie (data.bin), all expressed in
+    raw levels above the offset."""
+    cfg = sv.load(EXAMPLE_REC, outline=True)[0]
+    plane = f"{cfg.session_path}/suite2p/plane0/"
+    ops = np.load(plane + "ops.npy", allow_pickle=True).item()
+    raw = tifffile.imread(f"{cfg.session_path}/{cfg.tiff_name}", key=range(n)).astype(int)
+    files = [Path(f.replace("\\", "/")).name for f in ops["filelist"]]
+    off = int(np.sum(ops["frames_per_file"][:files.index(cfg.tiff_name)]))
+    reg = np.memmap(plane + "data.bin", dtype=np.int16, mode="r").reshape(
+        -1, ops["Ly"], ops["Lx"])[off:off + n].astype(int)
+    out = {}
+    for lab, v in [("raw tiff", raw - 100), ("raw // 2 (x 2)", 2 * (raw // 2) - 100),
+                   ("suite2p data.bin (x 2)", 2 * reg - 100)]:
+        u, c = np.unique(v, return_counts=True)
+        out[lab] = (u, c / c.sum())
+    return out
 
 
-def fig_stimulus_binned(m, out):
-    """Figure 3: every dataset at the stimulus frequency, units binned by noise-bin CV^2."""
-    fig, axes = plt.subplots(2, 4, figsize=(18, 7.6), sharey=True)
-    b = pd.cut(m["cv2"], MARG_BINS, labels=MARG_LABELS, right=False)
-    for ax, (g, mod) in zip(axes.flat, MARG_GROUPS):
-        for lab, c in zip(MARG_LABELS, MARG_COLOURS):
-            p = m.loc[(m["group"] == g) & (b == lab), "p_value"].dropna().values
-            if len(p) < 30:
-                continue
-            ax.plot(P_GRID, ecdf_dev(p), color=c, lw=1.8,
-                    label=f"CV$^2$ {lab}: n = {len(p)}, {np.mean(p <= 0.5) - 0.5:+.3f}")
-        ax.axhline(0, color=C_INK, lw=0.6)
-        ax.set_title(f"{g} ({mod})", fontsize=9)
-        ax.set_xlabel("p at the stimulus frequency (production)", fontsize=8)
-        ax.legend(fontsize=6, frameon=False, loc="lower center", title="legend: dev@0.5",
-                  title_fontsize=6)
-        _style(ax)
-    axes.flat[-1].axis("off")
-    for ax in axes[:, 0]:
-        ax.set_ylabel("ECDF(p) - p", fontsize=8)
-    fig.suptitle("Fig 2 magnetic pool at the stimulus frequency, units binned by noise-bin "
-                 "CV$^2$ (the 2M bins the test uses)", fontsize=9)
-    fig.tight_layout(rect=(0, 0, 1, 0.95))
-    fig.savefig(out, dpi=150, facecolor="white")
+def fig_floor(d, out):
+    """Figure 5: pixel values at each suite2p step. Figure 6: suite2p and full-resolution
+    traces of Figure 1's ROIs, on top of each other."""
+    pv = pixel_values()
+    fig, ax = plt.subplots(figsize=(7, 3.6))
+    w = 0.27
+    for j, ((lab, (u, c)), col) in enumerate(zip(pv.items(), [C_INK, C_MUTED, C_S2P])):
+        keep = (u >= -1) & (u <= 8)
+        ax.bar(u[keep] + (j - 1) * w, c[keep], width=w, color=col, label=lab)
+    ax.set_yscale("log")
+    ax.set_xlabel("pixel value above the offset (raw tiff levels)", fontsize=8)
+    ax.set_ylabel("share of pixels", fontsize=8)
+    ax.legend(fontsize=7, frameon=False)
+    _style(ax)
+    fig.tight_layout()
+    fig.savefig(out[0], dpi=150, facecolor="white")
+    plt.close(fig)
+
+    cfg, rows, F, Ff = load_examples(d)
+    t = np.arange(F.shape[1]) * cfg.sample_period
+    fig, axes = plt.subplots(len(F), 2, figsize=(13, 1.9 * len(F)),
+                             gridspec_kw=dict(width_ratios=[3, 1.2]))
+    z0, z1 = 300, 420
+    for i, (ax, axz) in enumerate(axes):
+        r = rows.iloc[i]
+        for a in (ax, axz):
+            a.plot(t, Ff[i] - 100, color=C_FULL, lw=0.6, label="full resolution (raw tiff)")
+            a.plot(t, 2 * F[i] - 100, color=C_S2P, lw=0.6, label="suite2p F x 2")
+            _style(a)
+        ax.set_xlim(0, t[-1])
+        axz.set_xlim(z0, z1)
+        ax.axvspan(z0, z1, color=C_MUTED, alpha=0.15, lw=0)
+        ax.set_ylabel("above offset", fontsize=7)
+        ax.set_title(f"ROI {rows.index[i]}: CV$^2$ suite2p {r['cv2_s2p']:.2f}, full resolution "
+                     f"{r['cv2_full']:.2f}; frames at the most common value "
+                     f"{r['floor_share_s2p']:.0%} vs {r['floor_share_full']:.0%}",
+                     fontsize=8, loc="left")
+    axes[0, 0].legend(fontsize=7, frameon=False, loc="upper right")
+    axes[0, 1].set_title(f"zoom, {z0}-{z1} s", fontsize=8)
+    axes[-1, 0].set_xlabel("time (s)", fontsize=8)
+    axes[-1, 1].set_xlabel("time (s)", fontsize=8)
+    fig.tight_layout()
+    fig.savefig(out[1], dpi=150, facecolor="white")
     plt.close(fig)
 
 
-def fixes(d, Ep, Ed):
-    """Each fix: which ROIs it keeps and which null it uses."""
-    return [("production: all ROIs, production null", np.ones(len(d), bool), Ep, "#8a8a8a", "o"),
-            (f"coverage >= {COVERAGE_MIN}, production null (current pipeline)",
-             (d["coverage"] >= COVERAGE_MIN).values, Ep, "#eb6834", "s"),
-            (f"CV$^2$ >= {CV2_MIN}, production null", (d["cv2"] >= CV2_MIN).values, Ep,
-             "#2a78d6", "D"),
-            ("all ROIs, dispersion-matched null", np.ones(len(d), bool), Ed, "#0d366b", "^")]
-
-
-def fig_fixes(d, Ep, Ed, out):
-    """Figure 4: each fix across CV^2 bins, and the trade-off between calibration and ROIs kept."""
-    fig, axes = plt.subplots(2, len(SETS), figsize=(4.8 * len(SETS), 7.6))
-    b = cv2_bin(d["cv2"])
-    for j, s in enumerate(SETS):
-        ins = (d["batch"] == s).values
+def fig_full(d, Es, Ef, out):
+    """Figure 7: CV^2 and the p-value distribution where nothing was presented, suite2p traces
+    against full-resolution traces of the same ROIs."""
+    fig, axes = plt.subplots(2, len(CLIPPED), figsize=(10, 7.6))
+    for j, s in enumerate(CLIPPED):
+        ins = (d["batch"] == s).values & d["cv2_full"].notna().values
+        e = d[ins]
         ax = axes[0, j]
-        lab_dev = []
-        for lab in CV2_LABELS:
-            sel = ins & (b == lab).values
-            lab_dev.append((lab, sel.sum(), (Ep[sel].mean(0) - P_GRID) if sel.sum() else None,
-                            (Ed[sel].mean(0) - P_GRID) if sel.sum() else None))
-        x = np.arange(len(CV2_LABELS))
-        for k_, (name, c) in enumerate([("production null", "#8a8a8a"),
-                                        ("dispersion-matched null", "#0d366b")]):
-            y = [np.interp(0.5, P_GRID, r[2 + k_]) if r[1] >= 20 else np.nan for r in lab_dev]
-            ax.plot(x, y, color=c, lw=2, marker="o", ms=5, label=name)
-        ax.axhline(0, color=C_INK, lw=0.6)
-        ax.set_xticks(x, [f"{l}\n({r[1]})" for l, r in zip(CV2_LABELS, lab_dev)], fontsize=7)
-        ax.set_xlabel("whole-spectrum CV$^2$ bin (ROIs)", fontsize=8)
-        ax.set_ylabel("dev@0.5 over test frequencies", fontsize=8)
-        ax.set_title(f"zebrafish {SHORT[s]}: calibration by CV$^2$", fontsize=9)
-        ax.legend(fontsize=7, frameon=False)
+        ax.scatter(e["cv2_s2p"], e["cv2_full"], s=3, color=C_MUTED, alpha=0.4, lw=0, rasterized=True)
+        ax.plot([0, 2], [0, 2], color=C_INK, lw=0.6, ls=":")
+        ax.set_xlim(0, 2)
+        ax.set_ylim(0, 2)
+        ax.set_xlabel("CV$^2$, suite2p trace", fontsize=8)
+        ax.set_ylabel("CV$^2$, full-resolution trace", fontsize=8)
+        ax.set_title(f"zebrafish {SHORT[s]}: median {e['cv2_s2p'].median():.2f} -> "
+                     f"{e['cv2_full'].median():.2f}", fontsize=9)
         _style(ax)
         ax = axes[1, j]
-        for name, keep, E, c, mk in fixes(d, Ep, Ed):
-            sel = ins & keep
-            dev = np.interp(0.5, P_GRID, E[sel].mean(0) - P_GRID)
-            ax.plot(sel.sum() / ins.sum(), dev, mk, color=c, ms=9, label=name)
+        for A, c, lab in [(Es, C_S2P, "suite2p"), (Ef, C_FULL, "full resolution")]:
+            y = A[ins].mean(0) - P_GRID
+            ax.plot(P_GRID, y, color=c, lw=2,
+                    label=f"{lab}: dev@0.5 {np.interp(0.5, P_GRID, y):+.3f}")
         ax.axhline(0, color=C_INK, lw=0.6)
-        ax.set_xlim(0, 1.05)
-        ax.set_xlabel("share of ROIs kept", fontsize=8)
-        ax.set_ylabel("dev@0.5 over test frequencies", fontsize=8)
-        ax.set_title(f"zebrafish {SHORT[s]}: calibration vs ROIs kept", fontsize=9)
+        ax.set_xlabel("p", fontsize=8)
+        ax.set_ylabel("ECDF(p) - p over test frequencies", fontsize=8)
+        ax.set_title(f"zebrafish {SHORT[s]}: {ins.sum()} ROIs", fontsize=9)
+        ax.legend(fontsize=7, frameon=False, loc="lower center")
         _style(ax)
-    axes[1, 0].legend(fontsize=6.5, frameon=False, loc="upper left")
     fig.tight_layout()
     fig.savefig(out, dpi=150, facecolor="white")
     plt.close(fig)
 
 
-def fig_curves_fixes(d, Ep, Ed, out):
-    """Figure 5: the whole p-value distribution under each fix."""
-    fig, axes = plt.subplots(1, len(SETS), figsize=(4.6 * len(SETS), 3.8), sharey=True)
-    for ax, s in zip(axes, SETS):
-        ins = (d["batch"] == s).values
-        for name, keep, E, c, _ in fixes(d, Ep, Ed):
-            sel = ins & keep
-            ax.plot(P_GRID, E[sel].mean(0) - P_GRID, color=c, lw=1.8,
-                    label=f"{name}: {sel.sum()} ROIs")
-        ax.axhline(0, color=C_INK, lw=0.6)
-        ax.set_title(f"zebrafish {SHORT[s]}", fontsize=9)
-        ax.set_xlabel("p", fontsize=8)
-        _style(ax)
-    axes[0].set_ylabel("ECDF(p) - p over test frequencies", fontsize=8)
-    axes[0].legend(fontsize=6, frameon=False, loc="lower center")
-    fig.suptitle("Where nothing was presented, under each fix (flat at 0 = calibrated)",
-                 fontsize=9)
-    fig.tight_layout(rect=(0, 0, 1, 0.93))
-    fig.savefig(out, dpi=150, facecolor="white")
-    plt.close(fig)
-
-
-def summary(d, Ep, Ed):
-    out = []
-    for s in SETS:
-        ins = (d["batch"] == s).values
-        for name, keep, E, _, _ in fixes(d, Ep, Ed):
-            sel = ins & keep
-            out.append(dict(set=SHORT[s], fix=name, rois=int(sel.sum()),
-                            kept=sel.sum() / ins.sum(),
-                            dev=np.interp(0.5, P_GRID, E[sel].mean(0) - P_GRID)))
-    print(pd.DataFrame(out).round(3).to_string(index=False))
+def summary(d, Es, Ef):
     b = cv2_bin(d["cv2"])
     t = d.assign(bin=b).groupby(["batch", "bin"], observed=True).agg(
-        n=("cv2", "size"), dev_prod=("dev_prod", "mean"), dev_disp=("dev_disp", "mean"))
+        n=("cv2", "size"), dev=("dev", "mean"), dev_full=("dev_full", "mean"))
     print(t.round(3).to_string())
+    below = lambda c: np.mean(c < 0.5)
+    g = d.groupby("batch").agg(n=("cv2", "size"), cv2=("cv2", "median"),
+                               cv2_s2p=("cv2_s2p", "median"), cv2_full=("cv2_full", "median"),
+                               floor=("floor_share", "median"),
+                               floor_full=("floor_share_full", "median"),
+                               below05=("cv2", below), below05_full=("cv2_full", below))
+    print(g.round(3).to_string())
+    for s in CLIPPED:
+        e = d[d["batch"] == s]
+        print(s, "Spearman coverage vs CV2", round(stats.spearmanr(e["coverage"], e["cv2"])[0], 3))
+        ins = (d["batch"] == s).values & d["cv2_full"].notna().values
+        print(s, "dev@0.5 suite2p / full (own frames)",
+              round(np.interp(0.5, P_GRID, Es[ins].mean(0) - P_GRID), 4),
+              round(np.interp(0.5, P_GRID, Ef[ins].mean(0) - P_GRID), 4))
+    fb = d.assign(bin=b)[d["cv2_full"].notna()].groupby(["batch", "bin"], observed=True).agg(
+        n=("cv2", "size"), cv2_full=("cv2_full", "median"), dev_s2p=("dev_s2p", "mean"),
+        dev_full=("dev_full", "mean"))
+    print(fb.round(3).to_string())
 
 
 def main():
     if "--figures-only" in sys.argv:
         d = pd.read_csv(OUT_ROIS)
         z = np.load(OUT_ECDF)
-        Ep, Ed = z["prod"], z["disp"]
+        E, Es, Ef = z["prod"], z["s2p"], z["full"]
     else:
-        d, Ep, Ed = compute()
-    summary(d, Ep, Ed)
-    fig_binned(d, Ep, Ed, _HERE / "fig_cv2_binned.png")
-    fig_stimulus_binned(pd.read_csv(MARGINALS), _HERE / "fig_cv2_stimulus_binned.png")
-    fig_fixes(d, Ep, Ed, _HERE / "fig_cv2_fixes.png")
-    fig_curves_fixes(d, Ep, Ed, _HERE / "fig_cv2_fixes_curves.png")
+        d, E, Es, Ef = compute()
+    summary(d, Es, Ef)
+    fig_traces(d, _HERE / "fig_cv2_traces.png")
+    fig_coverage(d, _HERE / "fig_cv2_coverage.png")
+    fig_binned(d, [(E, "production null")], _HERE / "fig_cv2_binned.png")
+    fig_floor(d, [_HERE / "fig_cv2_pixels.png", _HERE / "fig_cv2_overlay.png"])
+    fig_full(d, Es, Ef, _HERE / "fig_cv2_full_resolution.png")
     print("  wrote fig_cv2_*.png")
 
 
