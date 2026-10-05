@@ -42,4 +42,5 @@ docs/nfc_finite_sample_bias/results_roi_retention.csv
 docs/nfc_finite_sample_bias/results_roi_retention_summary.csv
 docs/guard_band_null/results_gb_*.csv
 docs/cv2/results_cv2_*
-docs/dispersion_matched_null/results_dm_*.csv
+docs/dispersion_matched_null/results_dm_*
+docs/cv2/reextracted/
