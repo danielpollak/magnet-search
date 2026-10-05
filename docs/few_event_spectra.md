@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-03. **Script:** `docs/guard_band_null/ripples.py` (about 1 min).
 **Background:** `docs/nfc_finite_sample_bias.md` (section "Slow variation and floor-clipped
-traces") and `docs/guard_band_null.md`.
+traces"), `docs/guard_band_null.md` and `docs/dispersion_matched_null.md`.
 
 **The problem.** In the floor-clipped zebrafish recordings (0.1 Hz and 0.3 Hz), the p-values
 are too often in the middle of the range at every analysis frequency, including frequencies where
@@ -131,8 +131,8 @@ departure from the null?
   (coverage < 0.1, dropped).
 - This is why a guard band does not fix it (`docs/guard_band_null.md`, Figure 2): skipping
   correlated bins does not change how far the analysis bin can stray from the local level.
-  It is also why the CV² of a ROI's ordinates predicts its miscalibration (same document,
-  Figure 1C).
+  It is also why the CV² of a ROI's ordinates predicts its miscalibration
+  (`docs/dispersion_matched_null.md`, Figure 1B).
 
 ## Reproducing
 
