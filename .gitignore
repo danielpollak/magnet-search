@@ -41,3 +41,4 @@ docs/nfc_finite_sample_bias/results_body_mask.csv
 docs/nfc_finite_sample_bias/results_roi_retention.csv
 docs/nfc_finite_sample_bias/results_roi_retention_summary.csv
 docs/guard_band_null/results_gb_*.csv
+docs/guard_band_null/results_cv2_marginals.csv
