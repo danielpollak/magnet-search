@@ -107,16 +107,21 @@ def ordinate_corr(Y, lo, hi, exclude):
     return np.nan_to_num(rho)                     # degenerate spectrum: no correlation
 
 
-def ordinate_shape(Y, lo, hi, exclude):
-    """Per ROI, k = 1 / CV^2 of its periodogram ordinates over bins lo..hi minus `exclude`,
-    each ordinate divided by the running mean of its MED_WIN neighbours (so the spectrum's
-    shape does not count as spread). Gaussian Fourier coefficients give exponential ordinates,
-    CV^2 = 1, k = 1. A trace whose power comes from a few events gives CV^2 < 1."""
+def normalised_ordinates(Y, lo, hi, exclude):
+    """Periodogram ordinates over bins lo..hi minus `exclude`, each divided by the running mean
+    of its MED_WIN neighbours (so the spectrum's shape does not count as spread)."""
     I = np.abs(Y[:, lo:hi]) ** 2
     I = I / np.maximum(uniform_filter1d(I, MED_WIN, axis=1, mode="nearest"), 1e-30)
     ok = np.ones(hi - lo, bool)
     ok[np.clip(np.asarray(exclude) - lo, 0, hi - lo - 1)] = False
-    I = I[:, ok]
+    return I[:, ok]
+
+
+def ordinate_shape(Y, lo, hi, exclude):
+    """Per ROI, k = 1 / CV^2 of its normalised ordinates (normalised_ordinates). Gaussian
+    Fourier coefficients give exponential ordinates, CV^2 = 1, k = 1. A trace whose power comes
+    from a few events gives CV^2 < 1."""
+    I = normalised_ordinates(Y, lo, hi, exclude)
     cv2 = I.var(1) / I.mean(1) ** 2
     cv2 = np.where(np.isfinite(cv2), cv2, 1.0)    # degenerate spectrum: fall back to k = 1
     return 1.0 / np.clip(cv2, 0.02, None), cv2
