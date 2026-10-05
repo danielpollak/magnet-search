@@ -37,7 +37,9 @@ Simulated traces (null true by construction; docs/nfc_finite_sample_bias/slow_va
 check the same thing where the answer is known, and measure the cost in power: a
 stimulus-locked rate modulation is added and the share of traces with p < 0.05 is counted.
 
-Outputs (next to this script): results_gb_*.csv, fig_gb_*.png.
+Outputs (next to this script): results_gb_*.csv, fig_gb_*.png. The machinery (test bins,
+calibration, simulated traces, power) is reused at G = 0 by
+docs/dispersion_matched_null/dispersion_null.py, which swaps in its own nulls.
 """
 import sys
 from pathlib import Path
@@ -121,10 +123,10 @@ def ordinate_shape(Y, lo, hi, exclude):
 
 
 def nulls(x, M, me, k):
-    """p-values of NFC values x under the three nulls."""
-    return (("nominal", p_from_nfc(x, M)), ("effective", p_from_nfc(x, me)),
-            ("dispersion", stats.f.sf(x ** 2 / 2, 2 * k, 4 * M * k)),
-            ("dispersion + effective-M", stats.f.sf(x ** 2 / 2, 2 * k, 4 * me * k)))
+    """p-values of NFC values x under the nulls compared here. `k` (the ROI's ordinate shape)
+    is unused in this report; docs/dispersion_matched_null/dispersion_null.py replaces this
+    function to compare the dispersion-matched null instead."""
+    return (("nominal", p_from_nfc(x, M)), ("effective", p_from_nfc(x, me)))
 
 
 def m_eff(rho, M):
@@ -263,8 +265,7 @@ def run_sim():
 
 # ------------------------------------------------------------------ figures
 def _summary(d):
-    """Mean over test bins of dev@0.5, and the SE of that mean for independent test bins
-    (a lower bound: neighbouring test bins share noise bins)."""
+    """Mean over test bins of dev@0.5, per set of recordings, G and null."""
     g = d.groupby(["batch", "G", "null"])
     return g.agg(dev=("dev", "mean"), n=("n", "median"), n_bins=("dev", "size")).reset_index()
 
@@ -272,13 +273,16 @@ def _summary(d):
 C_SETS = {"zebrafish 0.4 Hz (2022 Q1)": "#8a8a8a", "zebrafish 0.3 Hz": "#2a78d6",
           "zebrafish 0.1 Hz": "#eb6834"}
 NULL_STYLE = {"nominal": ("#eb6834", "-", "nominal null, F(2, 4M)"),
-              "effective": ("#8a8a8a", ":", "effective-M null, F(2, 4 M_eff)"),
-              "dispersion": ("#2a78d6", "--", "dispersion-matched null, F(2k, 4Mk)")}
+              "effective": ("#8a8a8a", ":", "effective-M null, F(2, 4 M_eff)")}
+SHOW = [(0, "#8a8a8a", "-", "production (G 0)"),
+        (10, "#2a78d6", "-", "G 10"),
+        (20, "#0d366b", "--", "G 20")]
 
 
-def fig_diagnose(meff, coup, out):
-    """Figure 1: which property of a trace predicts its miscalibration?"""
-    fig, axes = plt.subplots(1, 3, figsize=(14, 4))
+def fig_diagnose(meff, out):
+    """Figure 1: how far apart must two bins be to be independent, and what does the
+    correlation do to the effective number of noise bins?"""
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
     ax = axes[0]
     for b, c in C_SETS.items():
         r = meff.loc[meff["batch"] == b, [f"rho{L + 1}" for L in range(MAX_LAG)]].mean().values
@@ -291,25 +295,13 @@ def fig_diagnose(meff, coup, out):
     _style(ax)
     ax = axes[1]
     for b, c in C_SETS.items():
-        x = np.sort(meff.loc[meff["batch"] == b, "cv2"].values)
+        d = meff[meff["batch"] == b]
+        x = np.sort((d["M_eff"] / d["M"]).values)
         ax.plot(x, np.arange(1, len(x) + 1) / len(x), color=c, lw=2, label=b)
-    ax.axvline(1, color=C_MUTED, lw=0.6, ls=":")
-    ax.set_xlim(0, 2)
-    ax.set_xlabel("spread of the ROI's ordinates, CV$^2$ (1 = Gaussian noise)", fontsize=8)
+    ax.set_xlim(0, 1.05)
+    ax.set_xlabel("M_eff / M (1 = noise bins independent)", fontsize=8)
     ax.set_ylabel("ECDF over ROI traces", fontsize=8)
-    ax.set_title("B. Most floor-clipped ROIs have CV$^2$ < 1", fontsize=9)
-    _style(ax)
-    ax = axes[2]
-    for b, c in C_SETS.items():
-        d = meff[meff["batch"] == b].copy()
-        d["bin"] = pd.qcut(d["cv2"], 10, labels=False, duplicates="drop")
-        g = d.groupby("bin").agg(cv2=("cv2", "median"), dev=("dev_roi", "mean"), n=("cv2", "size"))
-        ax.plot(g["cv2"], g["dev"], color=c, lw=2, marker="o", ms=4, label=b)
-    ax.axhline(0, color=C_INK, lw=0.6)
-    ax.axvline(1, color=C_MUTED, lw=0.6, ls=":")
-    ax.set_xlabel("spread of the ROI's ordinates, CV$^2$ (1 = Gaussian noise)", fontsize=8)
-    ax.set_ylabel("ROI's dev@0.5 over test frequencies", fontsize=8)
-    ax.set_title("C. Under-dispersed ordinates = miscalibrated ROI", fontsize=9)
+    ax.set_title("B. Effective share of independent noise bins", fontsize=9)
     _style(ax)
     fig.tight_layout()
     fig.savefig(out, dpi=150, facecolor="white")
@@ -345,20 +337,14 @@ def fig_calibration(real, sim, out):
     plt.close(fig)
 
 
-SHOW = [((0, "nominal"), "#8a8a8a", "-", "production: G 0, nominal null"),
-        ((10, "nominal"), "#eb6834", "-", "G 10, nominal null"),
-        ((0, "dispersion"), "#2a78d6", "-", "G 0, dispersion-matched null"),
-        ((10, "dispersion"), "#0d366b", "--", "G 10, dispersion-matched null")]
-
-
 def fig_curves(curves, out):
     """Figure 3: the whole p-value distribution where nothing was presented."""
-    real = curves[curves["source"] == "real"]
+    real = curves[(curves["source"] == "real") & (curves["null"] == "nominal")]
     fig, axes = plt.subplots(1, len(SETS), figsize=(4.4 * len(SETS), 3.6), sharey=True)
     for ax, b in zip(axes, SETS):
         d = real[real["batch"] == b]
-        for (G, null), c, ls, lab in SHOW:
-            row = d[(d["G"] == G) & (d["null"] == null)].iloc[0]
+        for G, c, ls, lab in SHOW:
+            row = d[d["G"] == G].iloc[0]
             y = row[[f"c{i}" for i in range(len(P_GRID))]].values.astype(float)
             ax.plot(P_GRID, y, color=c, ls=ls, lw=1.8, label=lab)
         ax.axhline(0, color=C_INK, lw=0.6)
@@ -367,8 +353,8 @@ def fig_curves(curves, out):
         _style(ax)
     axes[0].set_ylabel("ECDF(p) - p, pooled over test freqs", fontsize=8)
     axes[0].legend(fontsize=7, frameon=False)
-    fig.suptitle("p-value distribution where nothing was presented (flat at 0 = calibrated)",
-                 fontsize=9)
+    fig.suptitle("p-value distribution where nothing was presented, nominal null "
+                 "(flat at 0 = calibrated)", fontsize=9)
     fig.tight_layout(rect=(0, 0, 1, 0.93))
     fig.savefig(out, dpi=150, facecolor="white")
     plt.close(fig)
@@ -378,9 +364,9 @@ def fig_power(power, out):
     """Figure 4: detection of a known stimulus-locked modulation in simulated traces."""
     fig, axes = plt.subplots(1, len(CONFIGS), figsize=(5.6 * len(CONFIGS), 3.9), squeeze=False)
     for ax, b in zip(axes[0], CONFIGS):
-        d = power[(power["batch"] == b) & (power["depth"] == 2.0)]
-        for (G, null), c, ls, lab in SHOW:
-            e = d[(d["G"] == G) & (d["null"] == null)].sort_values("mod")
+        d = power[(power["batch"] == b) & (power["depth"] == 2.0) & (power["null"] == "nominal")]
+        for G, c, ls, lab in SHOW:
+            e = d[d["G"] == G].sort_values("mod")
             ax.plot(e["mod"], e["detected"], color=c, ls=ls, lw=2, marker="o", ms=4, label=lab)
         ax.axhline(0.05, color=C_INK, lw=0.6, ls=":")
         ax.set_xlabel("stimulus-locked modulation depth m: rate x (1 + m sin 2 pi f t)", fontsize=8)
@@ -388,7 +374,7 @@ def fig_power(power, out):
         ax.set_title(f"simulated {b.split()[1]} Hz config, floor-clipped, log-rate SD 2", fontsize=9)
         _style(ax)
     axes[0, 0].legend(fontsize=7, frameon=False)
-    fig.suptitle("Power. At m = 0 the share should be 0.05 (dotted)", fontsize=9)
+    fig.suptitle("Power, nominal null. At m = 0 the share should be 0.05 (dotted)", fontsize=9)
     fig.tight_layout(rect=(0, 0, 1, 0.93))
     fig.savefig(out, dpi=150, facecolor="white")
     plt.close(fig)
@@ -398,9 +384,9 @@ def fig_stimulus(stim, out):
     """Figure 5: read-out at the stimulus frequency."""
     fig, axes = plt.subplots(1, len(SETS), figsize=(4.4 * len(SETS), 3.6), sharey=True)
     for ax, b in zip(axes, SETS):
-        d = stim[stim["batch"] == b]
-        for (G, null), c, ls, lab in (SHOW[0], SHOW[2]):
-            p = d[(d["G"] == G) & (d["null"] == null)]["p"].values
+        d = stim[(stim["batch"] == b) & (stim["null"] == "nominal")]
+        for G, c, ls, lab in SHOW:
+            p = d[d["G"] == G]["p"].values
             ax.plot(P_GRID, ecdf_dev(p), color=c, ls=ls, lw=1.8,
                     label=f"{lab}: dev@0.5 {np.mean(p <= 0.5) - 0.5:+.3f}")
         _band(ax, len(p))
@@ -410,14 +396,15 @@ def fig_stimulus(stim, out):
         ax.legend(fontsize=6.5, frameon=False, loc="lower center")
         _style(ax)
     axes[0].set_ylabel("ECDF(p) - p at the stimulus frequency", fontsize=8)
-    fig.suptitle("Read-out at the stimulus frequency. Gray: 95% binomial band", fontsize=9)
+    fig.suptitle("Read-out at the stimulus frequency, nominal null. Gray: 95% binomial band",
+                 fontsize=9)
     fig.tight_layout(rect=(0, 0, 1, 0.93))
     fig.savefig(out, dpi=150, facecolor="white")
     plt.close(fig)
 
 
 def figures(real, coup, meff, stim, sim, power, curves):
-    fig_diagnose(meff, coup, _HERE / "fig_gb_diagnose.png")
+    fig_diagnose(meff, _HERE / "fig_gb_diagnose.png")
     fig_calibration(real, sim, _HERE / "fig_gb_calibration.png")
     fig_curves(curves, _HERE / "fig_gb_curves.png")
     fig_power(power, _HERE / "fig_gb_power.png")
