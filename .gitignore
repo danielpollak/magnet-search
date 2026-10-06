@@ -44,3 +44,5 @@ docs/guard_band_null/results_gb_*.csv
 docs/cv2/results_cv2_*
 docs/dispersion_matched_null/results_dm_*
 docs/cv2/reextracted/
+docs/coverage_full_resolution/results_*
+docs/full_resolution_rerun/results_*
