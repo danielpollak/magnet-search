@@ -717,6 +717,7 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     mag_ks_dev = mag_ecdf - mag_x
     mag_ks_lower = mag_lower - mag_x
     mag_ks_upper = mag_upper - mag_x
+    statistics.plot_binomial_ecdf_band(ecdf_mag_ax, len(mag_pvals))
     ecdf_mag_ax.plot(mag_x, mag_ks_dev, color=FP.COLOR_MAG, linewidth=FP.LW_TRACE)
     ecdf_mag_ax.fill_between(mag_x, mag_ks_lower, mag_ks_upper, color=FP.COLOR_MAG, alpha=FP.ALPHA_CONFIDENCE)
     ecdf_mag_ax.axhline(0, color=FP.COLOR_NULL, linestyle="--", linewidth=FP.LW_REFERENCE, alpha=0.6)
@@ -745,6 +746,7 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     vis_ks_dev = vis_ecdf - vis_x
     vis_ks_lower = vis_lower - vis_x
     vis_ks_upper = vis_upper - vis_x
+    statistics.plot_binomial_ecdf_band(ecdf_vis_ax, len(vis_pvals))
     ecdf_vis_ax.plot(vis_x, vis_ks_dev, color=FP.COLOR_VIS, linewidth=FP.LW_TRACE)
     ecdf_vis_ax.fill_between(vis_x, vis_ks_lower, vis_ks_upper, color=FP.COLOR_VIS, alpha=FP.ALPHA_CONFIDENCE)
     ecdf_vis_ax.axhline(0, color=FP.COLOR_NULL, linestyle="--", linewidth=FP.LW_REFERENCE, alpha=0.6)
