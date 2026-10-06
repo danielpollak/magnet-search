@@ -44,7 +44,7 @@ point colour encodes (see COLOR_SPECS):
 
 Only EPHYS species appear (pigeon, zebra finch, quail). A spike PSTH does not
 exist for the rest: mouse/owl are precomputed analysis frames with no raw data
-in the repo at all, and zebrafish/medaka are GCaMP dF/F traces, whose
+in the repo at all, and zebrafish/medaka are GCaMP raw fluorescence (F) traces, whose
 sinusoid amplitude is in fluorescence units and does not share a y axis with
 spikes/s. So quadrant A is "all ephys species", not literally all species --
 its title says so.

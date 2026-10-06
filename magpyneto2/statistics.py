@@ -2787,7 +2787,7 @@ def raw_GECI(raw_GECI_ax, F, cell_ind):
     raw_GECI_ax.annotate("200 s", (0, 1.05))
     # Set labels
     raw_GECI_ax.set_xlabel("time (s)")
-    raw_GECI_ax.set_ylabel(r"$\frac{\Delta F}{F}$ ")
+    raw_GECI_ax.set_ylabel("normalized F")
     raw_GECI_ax.axis("off")
 
 

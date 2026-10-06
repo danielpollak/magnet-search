@@ -112,7 +112,7 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
         onfreq_sub  = np.array(onfreq_coef_l)[kk]
 
         fig, axes = plt.subplots(2, 1, figsize=(10, 6))
-        fig.suptitle(f"{cfg.name}  |  {freq} Hz  —  Fourier spectrum (ΔF/F)", fontsize=9)
+        fig.suptitle(f"{cfg.name}  |  {freq} Hz  —  Fourier spectrum (raw F)", fontsize=9)
         colors = plt.cm.viridis(np.linspace(0.1, 0.9, len(kk)))
         for i, (row, c_on) in enumerate(zip(fou_alt_sub, onfreq_sub)):
             axes[0].plot(freq_win, np.real(row), ".", color=colors[i],
@@ -159,7 +159,7 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
             onfreq_2f_sub = np.array(onfreq_coef_2f)[kk2]
 
             fig, axes = plt.subplots(2, 1, figsize=(10, 6))
-            fig.suptitle(f"{cfg.name}  |  {freq * 2} Hz (2F)  —  Fourier spectrum (ΔF/F)",
+            fig.suptitle(f"{cfg.name}  |  {freq * 2} Hz (2F)  —  Fourier spectrum (raw F)",
                          fontsize=9)
             colors = plt.cm.viridis(np.linspace(0.1, 0.9, len(kk2)))
             for i, (row, c_on) in enumerate(zip(fou_alt_2f_sub, onfreq_2f_sub)):
@@ -204,7 +204,7 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
         fig, axes = plt.subplots(len(panels), 1, figsize=(12, 6 if len(panels) == 1 else 9),
                                  sharex=True, squeeze=False,
                                  gridspec_kw=dict(height_ratios=heights))
-        fig.suptitle(f"{cfg.name}  |  {freq} Hz  —  ΔF/F, each row scaled to its own range",
+        fig.suptitle(f"{cfg.name}  |  {freq} Hz  —  raw F, each row scaled to its own range",
                      fontsize=9)
         for ax, (X, title) in zip(axes[:, 0], panels):
             im = ax.imshow(X, aspect="auto", cmap="viridis", vmin=0, vmax=1,
@@ -214,7 +214,7 @@ def plot_engert_diagnostics(cfg, F, fourier_df, freq_win,
             ax.set_yticks([0, len(X) - 1])
             _draw_period_scalebar(ax, freq, cfg.sample_period)
         axes[-1, 0].set_xlabel("Frame")
-        plt.colorbar(im, ax=axes[:, 0].tolist(), label="normalized ΔF/F", shrink=0.6)
+        plt.colorbar(im, ax=axes[:, 0].tolist(), label="normalized F", shrink=0.6)
         pdf.savefig(fig, dpi=150)
         plt.close(fig)
 
