@@ -58,7 +58,8 @@ def _fix_excess_legend(ax, ncol=3, loc=None):
 
 
 def _plot_pvalue_ecdf_deviation(ax, df, color):
-    """Deviation of a pooled p-value ECDF from uniform, with a bootstrap band.
+    """Deviation of a pooled p-value ECDF from uniform, with a bootstrap band
+    (colored) and the 95% binomial band expected under the null (gray).
 
     Mirrors the ECDF insets in Fig1 E/F (see fig1.py), and replaces what used
     to be a pooled NFC histogram with a null-PDF overlay.
@@ -79,6 +80,8 @@ def _plot_pvalue_ecdf_deviation(ax, df, color):
     x, lower, upper, center = statistics.bootstrap_occurrence_ecdf_band(
         df, value_col="p_value", alpha=0.05, seed=0)
 
+    # Null reference: 95% binomial band for this many unique neurons.
+    statistics.plot_binomial_ecdf_band(ax, df.groupby(list(statistics.UNIQUE_NEURON_KEY)).ngroups)
     ax.plot(x, center, color=color, linewidth=FP.LW_TRACE)
     ax.fill_between(x, lower, upper, color=color, alpha=FP.ALPHA_CONFIDENCE)
     ax.axhline(0, color=FP.COLOR_NULL, linestyle="--", linewidth=FP.LW_REFERENCE, alpha=0.6)
