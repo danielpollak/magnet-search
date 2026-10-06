@@ -92,7 +92,7 @@ def recordings():
 def load_all(name, batch):
     cfg = schema.load_experiment(str(sv._REPO / "experiments" / f"{name}.yml"))
     io_r, nwbfile = nwb_io.read_nwbfile(cfg.nwb_path())
-    F, roi_df = nwb_io.read_roi_data(nwbfile)
+    F, roi_df = nwb_io.read_roi_data(nwbfile, "suite2p")   # the traces this report describes
     io_r.close()
     N = min(int(120 * (F.shape[1] // 60)), F.shape[1])   # same frames as sv.load
     a = activity(F[:, :N].astype(float), cfg.sample_period)
