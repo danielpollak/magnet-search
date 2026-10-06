@@ -5,6 +5,8 @@ subject_id: "fish_1"
 species: "medaka"
 area: "WB"
 session_path: "//datanas/family/data_aggregated/Engert/Medaka Experiments/fish3_8dpf_gcamp_good/fish3_8dpf_magneto_1"
+# suite2p v1 (1.1.0) segmentation, local disk; F_full.npy from pipeline/ophys_extraction.py
+suite2p_path: "C:/Users/dan/suite2p_v1_production/fish3_8dpf_magneto_1/output/suite2p/plane0"
 sample_period: 1.0
 iscell_threshold: 0.5
 npix_threshold: 9  # strict >, i.e. npix >= 10
