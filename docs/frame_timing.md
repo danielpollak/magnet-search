@@ -131,6 +131,31 @@ late. Which is it?
 - **So 1.0212 is justified, and needed.** (It has five significant figures, four decimal places.)
   Rounding to 1.02 would leave 2022_03_01's 0.4 Hz test more than a bin off the stimulus.
 
+## 4. What the corrected period changes
+
+**The question.** With `sample_period: 1.0212` in all twelve 2022 Q1 YAMLs (set 2026-10-06, then
+analysis, aggregate and Figs 1–4 re-run), does the 0.4 Hz magnetic test of these recordings give
+a different answer?
+
+| recording (Fig 2A, 0.4 Hz) | old period | suspects / 95% bound, old period | suspects / bound at 1.0212 s |
+|---|---|---|---|
+| 02-21 magnet | 1.0 | 17 / 22 | 13 / 22 |
+| 02-21 visual+magnet | 1.0 | 11 / 22 | 14 / 22 |
+| 02-23 magnet | 1.0 | 9 / 19 | 14 / 19 |
+| 02-23 visual+magnet | 1.0 | 16 / 19 | 12 / 19 |
+| 03-01 visual+magnet (12:55) | 1.02 | **23 / 21** | 18 / 21 |
+| 03-01 visual+magnet (15:08) | 1.02 | **46 / 21** | **24 / 21** |
+
+<sub>Suspects: ROIs with p < 0.01 at 0.4 Hz. Bound: the 95th percentile of their count under the null; bold = above it, i.e. flagged in Fig 2A.</sub>
+
+- **The 2022_02_21 and 2022_02_23 tests now look at the stimulus frequency.** At 1.0 s they were
+  10 bins off it. They stay unflagged.
+- **2022_03_01's visual+magnet counts drop:** 23 → 18 (12:55, no longer flagged) and 46 → 24
+  (15:08, still just above its bound). At 1.02 s their test was 1.4 bins off the stimulus, so
+  most of the 46 were ROIs with power at a neighbouring frequency.
+- **Fig 2A:** 5 of 104 magnetic recordings are flagged at the stimulus frequency, against 6
+  before. The visual rows in Fig 2B (1/60 Hz) are unchanged.
+
 ## What this establishes
 
 | | finding |
@@ -138,6 +163,7 @@ late. Which is it?
 | **Established** | The 2022 Q1 frame period is 1.0212 s: 1.021198 s by the scan waveform, 1.02121–1.02122 s by the timestamps, the same in all twelve recordings. |
 | **Established** | Single intervals jitter by a few ms, but the jitter is in the logging; the frames are regularly spaced and the average period is known to microseconds. |
 | **Established** | `sample_period` needs four decimals here: 1.0 put the 0.4 Hz test 10–25 bins off, 1.02 puts it 0.6–1.4 bins off, 1.0212 puts it within 0.002 bins. |
+| **Established** | At 1.0212 s, none of the 2022_02_21/02_23 magnetic recordings is flagged, and 2022_03_01's 15:08 visual+magnet recording has 24 suspects against a bound of 21 (46 at 1.02 s). |
 | **Not covered** | The 0.3 Hz and 0.1 Hz zebrafish and medaka (another setup, no timestamp file). Their grating harmonics put them at 0.998–1.002 s, consistent with the 1.0 s used. |
 
 ## Reproducing
