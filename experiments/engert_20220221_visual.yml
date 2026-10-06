@@ -9,7 +9,7 @@ session_path: "//datanas/family/data_aggregated/Engert/2022_02_21"
 # suite2p v1 (1.1.0) segmentation, local disk; F_full.npy from pipeline/ophys_extraction.py
 suite2p_path: "C:/Users/dan/suite2p_v1_production/2022_02_21/output/suite2p/plane0"
 tiff_name: "2022-02-21_17-33-14_visual_z_plane0000_trial000_imaging_roi00_green_channel.tif"
-sample_period: 1.02  # frame period read off the grating harmonics (same rig as 20220301); was 1.0, as in the legacy Engert_analysis.py
+sample_period: 1.0212  # frame period from the acquisition timestamps and scan waveform (docs/frame_timing.md)
 
 iscell_threshold: 0.5
 npix_threshold: 9  # strict >, i.e. npix >= 10
