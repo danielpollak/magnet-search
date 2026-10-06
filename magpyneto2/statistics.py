@@ -628,6 +628,20 @@ def ecdf_minus_uniform(sorted_vals, x_grid=ECDF_P_GRID):
     return np.searchsorted(sorted_vals, x_grid, side="right") / len(sorted_vals) - x_grid
 
 
+def plot_binomial_ecdf_band(ax, n, x_grid=ECDF_P_GRID, alpha=0.05):
+    """Gray pointwise binomial band for ECDF(p) - p of `n` null p-values.
+
+    Under the null each ECDF ordinate is Binomial(n, p)/n, so the band is
+    +/- z_{1-alpha/2} * sqrt(p(1-p)/n) around zero -- the same band as
+    docs/nfc_finite_sample_bias.md Figure 9. It marks where a curve from a
+    calibrated test would fall; unlike the occurrence bootstrap it depends on
+    nothing but `n`.
+    """
+    x_grid = np.asarray(x_grid, dtype=float)
+    half = norm.ppf(1 - alpha / 2) * np.sqrt(x_grid * (1 - x_grid) / n)
+    ax.fill_between(x_grid, -half, half, color="#d9d9d9", lw=0, zorder=0)
+
+
 def bootstrap_occurrence_ecdf_band(df, value_col="p_value", group_cols=UNIQUE_NEURON_KEY,
                                    n_boot=1000, alpha=0.05, x_grid=None, seed=None):
     """Band for an ECDF-minus-uniform curve, over WHICH observation each neuron contributes.
