@@ -169,7 +169,7 @@ def plot_fig2(all_fourier_df, out_dir: Path):
     freq_levels = np.concatenate([all_neg_res.freq.unique(), all_pos_control.freq.unique()])
 
     statistics.plot_excess_counts(ax_A, all_neg_res, ylim=(-15, 35), freq_levels=freq_levels)
-    _fix_excess_legend(ax_A, ncol=7)
+    _fix_excess_legend(ax_A, ncol=7, loc="upper left")
     num_exp_A = all_neg_res.groupby(["species", "area", "rec"]).ngroups
     print(f"Subfig A (magnetic): {num_exp_A} experiments")
 
