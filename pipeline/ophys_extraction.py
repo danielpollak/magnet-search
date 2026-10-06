@@ -21,7 +21,11 @@ Two halves, two conda envs:
        `transform_data` minus the final `.short()`, and is checked on every batch to give
        suite2p's int16 frames bit for bit once truncated.
   Writes `F_full.npy` (n_rois, n_frames, float32, raw tiff units) and `fullres_check.json`
-  next to suite2p's outputs. Neuropil is not subtracted (production uses raw F).
+  next to suite2p's outputs, and `meanImg_full.npy`, the mean of the full-resolution registered
+  movie (suite2p's own meanImg is the mean of the truncated movie: in photon-starved sessions it
+  is almost flat and the fish outline fails on it). With `--neuropil` it also writes `Fneu_full.npy`, each ROI's
+  neuropil trace (suite2p's neuropil masks, unweighted mean), checked against Fneu.npy the
+  same way. Production does not subtract neuropil.
 
 * `trial_traces(plane0, tiff_name)` -- used by processing (magneto2 env, numpy only): one
   experiment's frames of F_full.npy and F.npy, located with suite2p's own file list.
@@ -39,6 +43,8 @@ REPRO_RTOL = 1e-5               # exact-match tolerance, relative to the largest
 REPRO_ATOL = 1e-4
 BATCH = 200                     # frames per GPU batch
 FULL_FILE = "F_full.npy"
+NEU_FILE = "Fneu_full.npy"
+MEAN_FILE = "meanImg_full.npy"
 CHECK_FILE = "fullres_check.json"
 
 
@@ -63,6 +69,12 @@ def trial_files(ops, tiff_name=None):
     return [(f, int(s), n) for f, s, n in zip(files, starts, fpf)]
 
 
+def mean_image(plane0):
+    """Mean of the session's full-resolution registered movie (meanImg_full.npy), for the fish
+    outline."""
+    return np.load(os.path.join(plane0, MEAN_FILE))
+
+
 def trial_traces(plane0, tiff_name=None):
     """dict for one experiment's frames, every ROI of the segmentation:
         F_full    (n_rois, n_frames) float32, full-resolution traces, raw tiff units
@@ -85,6 +97,23 @@ def trial_traces(plane0, tiff_name=None):
 
 
 # ------------------------------------------------------------------ extraction (suite2p1.0 env)
+
+def neuropil_weights(stat, ops):
+    """Sparse (n_rois, Ly*Lx) matrix averaging each ROI's suite2p neuropil mask, built by
+    suite2p's own create_masks with the run's extraction settings."""
+    import scipy.sparse as sp
+    from suite2p.extraction.masks import create_masks
+    Ly, Lx, ex = int(ops["Ly"]), int(ops["Lx"]), ops["extraction"]
+    _, nmasks = create_masks(stat, Ly, Lx, lam_percentile=ex["lam_percentile"],
+                             allow_overlap=ex["allow_overlap"], neuropil_extract=True,
+                             inner_neuropil_radius=ex["inner_neuropil_radius"],
+                             min_neuropil_pixels=ex["min_neuropil_pixels"],
+                             circular_neuropil=ex["circular_neuropil"])
+    rows = np.concatenate([np.full(len(m), i) for i, m in enumerate(nmasks)])
+    cols = np.concatenate(nmasks)
+    vals = np.concatenate([np.full(len(m), 1.0 / len(m)) for m in nmasks])
+    return sp.csr_matrix((vals, (rows, cols)), shape=(len(stat), Ly * Lx))
+
 
 def roi_weights(stat, Ly, Lx):
     """Sparse (n_rois, Ly*Lx) matrix of each ROI's normalised lam over its non-overlapping
@@ -130,8 +159,9 @@ def _transform_float(data, nblocks, xblock, yblock, ymax1, xmax1):
     return fr_shift.squeeze(1)
 
 
-def extract_session(plane0, device="cuda", log=print):
-    """Write F_full.npy and fullres_check.json for one suite2p v1 session; returns the check."""
+def extract_session(plane0, device="cuda", log=print, neuropil=False):
+    """Write F_full.npy (and Fneu_full.npy if neuropil) and fullres_check.json for one suite2p
+    v1 session; returns the check."""
     import tifffile
     import torch
     import suite2p
@@ -145,6 +175,7 @@ def extract_session(plane0, device="cuda", log=print):
         raise NotImplementedError(f"{plane0}: bidiphase / two-step / 2-channel registration")
     Ly, Lx = int(ops["Ly"]), int(ops["Lx"])
     W = roi_weights(stat, Ly, Lx)
+    Wn = neuropil_weights(stat, ops) if neuropil else None
     blocks = nonrigid.make_blocks(Ly=Ly, Lx=Lx, block_size=reg["block_size"]) if reg["nonrigid"] else None
     dev = torch.device(device)
     tiff_dir = [os.path.dirname(str(f)) for f in ops["file_list"]][0]
@@ -164,7 +195,8 @@ def extract_session(plane0, device="cuda", log=print):
         return _transform_float(out, blocks[2], blocks[1], blocks[0], y1, x1)
 
     flat = lambda m: m.reshape(len(m), -1).T
-    full, repro = [], []
+    full, repro, nfull, nrepro = [], [], [], []
+    mean_sum = np.zeros(Ly * Lx, np.float64)
     n_copy_checked = 0
     for name, start, n in trial_files(ops):
         path = os.path.join(tiff_dir, name)
@@ -183,9 +215,15 @@ def extract_session(plane0, device="cuda", log=print):
                         raise RuntimeError(f"{path}: the float warp differs from suite2p's "
                                            f"transform_data (frames {i}-{j})")
                     n_copy_checked += j - i
-                fr = register(torch.from_numpy(raw.astype(np.float32)).to(dev), start + i, lossy=False)
-                full.append(np.asarray(W @ flat(fr.cpu().numpy()), np.float32))
-                repro.append(np.asarray(W @ flat(lossy.cpu().numpy().astype(np.float32))))
+                fr = flat(register(torch.from_numpy(raw.astype(np.float32)).to(dev), start + i,
+                                   lossy=False).cpu().numpy())
+                mean_sum += fr.sum(axis=1)
+                lo = flat(lossy.cpu().numpy().astype(np.float32))
+                full.append(np.asarray(W @ fr, np.float32))
+                repro.append(np.asarray(W @ lo))
+                if neuropil:
+                    nfull.append(np.asarray(Wn @ fr, np.float32))
+                    nrepro.append(np.asarray(Wn @ lo))
         log(f"  {name}: {n} frames")
     F_full = np.concatenate(full, axis=1).astype(np.float32)
     F_repro = np.concatenate(repro, axis=1)
@@ -194,16 +232,28 @@ def extract_session(plane0, device="cuda", log=print):
         raise RuntimeError(f"{plane0}: F_full {F_full.shape} vs F.npy {F_ref.shape}")
     err = float(np.abs(F_repro - F_ref).max())
     tol = REPRO_RTOL * float(np.abs(F_ref).max()) + REPRO_ATOL
+    if neuropil:
+        N_ref = np.load(os.path.join(plane0, "Fneu.npy")).astype(np.float32)
+        nerr = float(np.abs(np.concatenate(nrepro, axis=1) - N_ref).max())
+        ntol = REPRO_RTOL * float(np.abs(N_ref).max()) + REPRO_ATOL
+        if not nerr <= ntol:
+            raise RuntimeError(f"{plane0}: reproducing suite2p's Fneu.npy failed "
+                               f"(max error {nerr:.3g} > {ntol:.3g})")
+        np.save(os.path.join(plane0, NEU_FILE), np.concatenate(nfull, axis=1).astype(np.float32))
+        log(f"  neuropil check passed: max error {nerr:.2g} (tolerance {ntol:.2g}) -> {NEU_FILE}")
     check = dict(passed=bool(err <= tol), max_err=err, tolerance=tol,
                  frames_float_warp_checked=n_copy_checked, n_rois=len(stat),
                  n_frames=int(F_full.shape[1]), suite2p_version=suite2p.version,
                  torch_version=torch.__version__, device=str(dev))
+    if neuropil:
+        check.update(neuropil_max_err=nerr, neuropil_tolerance=ntol)
     with open(os.path.join(plane0, CHECK_FILE), "w") as f:
         json.dump(check, f, indent=1)
     if not check["passed"]:
         raise RuntimeError(f"{plane0}: reproducing suite2p's F.npy failed "
                            f"(max error {err:.3g} > {tol:.3g})")
     np.save(os.path.join(plane0, FULL_FILE), F_full)
+    np.save(os.path.join(plane0, MEAN_FILE), (mean_sum / F_full.shape[1]).reshape(Ly, Lx).astype(np.float32))
     log(f"  exact-match check passed: max error {err:.2g} (tolerance {tol:.2g}) -> {FULL_FILE}")
     return check
 
@@ -212,7 +262,8 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--plane0", nargs="+", required=True, help="suite2p v1 plane0 directories")
     ap.add_argument("--device", default="cuda")
+    ap.add_argument("--neuropil", action="store_true", help="also write Fneu_full.npy")
     a = ap.parse_args()
     for p in a.plane0:
         print(p, flush=True)
-        extract_session(p, a.device, log=lambda m: print(m, flush=True))
+        extract_session(p, a.device, log=lambda m: print(m, flush=True), neuropil=a.neuropil)
