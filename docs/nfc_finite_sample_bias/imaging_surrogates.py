@@ -236,8 +236,7 @@ def main():
         "engert_20221001_fish1_magneto_0", "engert_20221001_fish1_magneto_1",
         "engert_20221001_fish1_magneto_2", "engert_20221001_fish2_magneto_0",
         "engert_20221001_fish2_magneto_1", "engert_20221001_fish2_magneto_2",
-        "engert_20221002_fish1_magneto_1", "engert_20221002_fish1_magneto_2",
-        "engert_20221002_fish1_magneto_3", "engert_20221002_fish2_magneto_0",
+        "engert_20221002_fish1_magneto_1", "engert_20221002_fish2_magneto_0",
         "engert_20221002_fish2_magneto_1", "engert_20221002_fish2_magneto_2",
     ]
     rng = np.random.default_rng(0)
