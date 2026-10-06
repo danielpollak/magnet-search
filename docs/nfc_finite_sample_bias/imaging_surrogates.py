@@ -139,7 +139,7 @@ def nfc_and_p(F, T, freq, Q_frac):
 def analyse(cfg_name, rng):
     cfg = schema.load_experiment(str(_REPO_ROOT / "experiments" / f"{cfg_name}.yml"))
     F, roi_df, _, _ = _load_from_nwb(cfg.nwb_path(), cfg.iscell_threshold,
-                                      cfg.npix_threshold)
+                                      cfg.npix_threshold, series="suite2p")
     freq, Q_frac, T = cfg.analysis.f, cfg.analysis.Q_frac, cfg.sample_period
     rows = []
     for kind in ("real", "phase_only", "gaussian_psd", "gaussian_white"):
