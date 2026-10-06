@@ -127,6 +127,8 @@ class ExperimentConfig:
 
     # engert / GCaMP / medaka
     session_path: str = ""   # session root dir (parent of suite2p/); tiffs live here too
+    suite2p_path: str = ""   # plane0 dir of the suite2p v1 run used (local disk), with F_full.npy
+                             # from pipeline/ophys_extraction.py
     tiff_name: str = ""      # filename of the specific tiff to analyze (frames sliced via len_df)
     sample_period: float = 1.0  # seconds per frame (T in fit_Fourier); 1.02 for 2022_03_01
     iscell_threshold: float = 0.7
@@ -214,6 +216,8 @@ class ExperimentConfig:
         if self.paradigm in {"engert", "medaka"}:
             if not self.session_path:
                 raise ValueError(f"{self.name}: {self.paradigm} paradigm requires session_path")
+            if not self.suite2p_path:
+                raise ValueError(f"{self.name}: {self.paradigm} paradigm requires suite2p_path")
             if self.analysis.f <= 0:
                 raise ValueError(f"{self.name}: {self.paradigm} paradigm requires analysis.f > 0")
         if self.paradigm == "openephys_multistim":
