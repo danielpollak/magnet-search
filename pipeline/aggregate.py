@@ -130,11 +130,15 @@ def build_all_fourier_df(data_dir: str) -> pd.DataFrame:
     n_nwb = 0
     for nwb_path in nwb_paths:
         name = os.path.basename(nwb_path)[:-len(".nwb")]
+        cfg = cfg_by_name.get(name)
+        if cfg is None:
+            # A leftover file of an experiment whose YAML was removed (e.g. the
+            # byte-identical duplicate tiffs of 20221002_fish1): never aggregate it.
+            print(f"  skip {os.path.basename(nwb_path)} (.nwb): no experiments/*.yml with this name")
+            continue
         try:
             df = _read_nwb_analysis_df(nwb_path)
-            cfg = cfg_by_name.get(name)
-            if cfg is not None:
-                df = _annotate_experiment_df(df, cfg)
+            df = _annotate_experiment_df(df, cfg)
             dfs.append(df)
             n_nwb += 1
         except Exception as exc:
