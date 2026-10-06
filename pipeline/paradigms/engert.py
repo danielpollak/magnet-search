@@ -34,7 +34,9 @@ def run_processing(cfg):
     nwb_io.write_roi_response_series(
         nwbfile, tr["F_full"], ps, sampling_rate=1.0 / cfg.sample_period,
         F_suite2p=tr["F_suite2p"], repro_err=tr["max_err"])
-    nwb_io.write_mean_image(nwbfile, ops["meanImg"])   # for the fish-outline diagnostics
+    # for the fish outline: the full-resolution movie's mean (suite2p's meanImg is nearly flat
+    # in the photon-starved sessions, and the automatic outline then covers the whole field)
+    nwb_io.write_mean_image(nwbfile, ophys_extraction.mean_image(suite2p_dir))
     nwb_io.write_nwbfile(nwbfile, cfg.nwb_path())
     print(f"[engert] {cfg.name}: wrote {len(stat)} ROIs + "
           f"{tr['F_full'].shape[1]}-frame traces -> {cfg.nwb_path()}")
