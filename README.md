@@ -229,6 +229,8 @@ The read/write logic lives in `pipeline/nwb_io.py`; `build_modulation_frame()` a
 | `iscell.npy` | classifier probability, written as `p_iscell` |
 | `F.npy` | suite2p's traces: stored as `RoiResponseSeries_suite2p` and used for the exact-match check |
 | `F_full.npy`, `fullres_check.json` | full-resolution traces and their exact-match check, written by `pipeline/ophys_extraction.py` (below) |
+| `meanImg_full.npy` | mean of the full-resolution registered movie, written to the NWB file for the fish outline (suite2p's `meanImg` is nearly flat in the photon-starved sessions, and the automatic outline then covers the whole field) |
+| `Fneu_full.npy` | full-resolution neuropil traces (`--neuropil`), checked against `Fneu.npy` the same way; not used by production |
 
 Each imaging YAML's `suite2p_path` names its session's `plane0/`.
 
