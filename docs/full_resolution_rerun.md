@@ -114,7 +114,8 @@ too?
 | **Established** | At the stimulus frequency the floor-related bump is gone. 0.3 Hz zebrafish and the medaka trial 0 are calibrated. |
 | **Established** | Trials 1–2 of every 0.3 Hz, 0.1 Hz and medaka session contain the 60 s visual grating; trial 0 does not. |
 | **Likely** | The remaining stimulus-frequency excess in 0.1 Hz zebrafish and medaka trials 1–2 is a visual response at 0.1 Hz, the grating's 6th harmonic. It is equal in magneto and no_magneto trials. |
-| **Open** | Whether to analyse only trial 0 for the 0.1 Hz magnetic test, or to treat 0.1 Hz as contaminated in trials 1–2. Also: which visual-frequency rows count as positive controls (0.3 Hz trial 0 rows currently do, and shouldn't; the 0.1 Hz trials 1–2 could). |
+| **Done** | Trials with the grating are treated as visual experiments (Fig 2B), and they stay in the magnetic pool (Fig 2A). The 0.3 Hz trial-0 visual-frequency rows are gone, because those trials had no grating. The 0.1 Hz zebrafish trials 1–2 now also get a 1/60 Hz fit (`analysis.visual_f`), magneto and no_magneto alike, but not `20221002_fish1`, whose real trial has no grating. Fig 2B goes from 100 to 108 recordings. In the new rows, 49–86% of ROIs have p < 0.05 at 1/60 Hz. |
+| **Open** | How to treat the 0.1 Hz magnetic rows of trials 1–2. 0.1 Hz is the grating's 6th harmonic, so a visual response there looks like a magnetic one. Five of the seven magnetic recordings that Fig 2A flags with excess suspects are such trials. |
 
 ## Reproducing
 
