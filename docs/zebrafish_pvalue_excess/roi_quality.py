@@ -56,7 +56,7 @@ def join_roi_quality():
     for rec, rows in z.groupby("rec"):
         cfg = load_experiment(str(_REPO / "experiments" / f"{rec}.yml"))
         _, roi_df, included, _ = _load_from_nwb(cfg.nwb_path(), cfg.iscell_threshold,
-                                                cfg.npix_threshold)
+                                                cfg.npix_threshold, series="suite2p")
         kept = roi_df[included].reset_index(drop=True)
         kept["roi_index"] = np.where(included)[0]
         ids = rows["id"].astype(int).values
