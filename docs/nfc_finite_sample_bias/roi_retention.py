@@ -58,7 +58,7 @@ COVERAGE_MIN = 0.1         # active in at least 10% of the 60 s windows
 def load(name, batch):
     cfg = schema.load_experiment(str(sv._REPO / "experiments" / f"{name}.yml"))
     io_r, nwbfile = nwb_io.read_nwbfile(cfg.nwb_path())
-    F, roi_df = nwb_io.read_roi_data(nwbfile)
+    F, roi_df = nwb_io.read_roi_data(nwbfile, "suite2p")   # the traces this report describes
     mean_img = nwb_io.read_mean_image(nwbfile)
     fourier = nwb_io.read_fourier_results_as_full_fourier_df(nwbfile)
     n_analysed = int(np.isclose(fourier["freq"], cfg.analysis.f).sum())
