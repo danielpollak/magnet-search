@@ -5,6 +5,8 @@ subject_id: "20221001_fish2"
 species: "zebrafish"
 area: "WB"
 session_path: "//datanas/family/data_aggregated/Engert/2022_10_01-fish2_cytoGCaMP"
+# suite2p v1 (1.1.0) segmentation, local disk; F_full.npy from pipeline/ophys_extraction.py
+suite2p_path: "C:/Users/dan/suite2p_v1_production/2022_10_01-fish2_cytoGCaMP/output/suite2p/plane0"
 tiff_name: "2022_10_01_fish2_magneto_1.tif"
 sample_period: 1.0
 
