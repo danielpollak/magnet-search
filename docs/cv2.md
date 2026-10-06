@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-05. **Branch:** `guard-band-null`. **Scripts:**
 - `docs/cv2/cv2_marginals.py`: per-unit CV² for ephys and imaging, ~2 min.
-- `docs/cv2/reextract_traces.py`: full-resolution traces from the raw tiffs, run in the suite2p env, ~15 s per recording.
+- `pipeline/ophys_extraction.py` (processing, since this report): the full-resolution traces from the raw tiffs, stored in each NWB file next to suite2p's.
 - `docs/cv2/cv2_report.py`: everything else, ~5 min; `--figures-only` replots.
 
 Related:
@@ -109,7 +109,7 @@ vanish near 1?
 
 | dev@0.5 (ROIs) | CV² < 0.5 | 0.5–0.7 | 0.7–0.85 | 0.85–1.15 | > 1.15 |
 |---|---|---|---|---|---|
-| zebrafish 0.3 Hz | **+0.138** (301) | +0.035 (280) | +0.016 (278) | −0.003 (232) | −0.016 (40) |
+| zebrafish 0.3 Hz | **+0.139** (293) | +0.036 (272) | +0.015 (279) | −0.006 (225) | −0.002 (52) |
 | zebrafish 0.1 Hz | **+0.150** (486) | +0.052 (791) | +0.025 (1152) | +0.003 (1486) | +0.005 (380) |
 | zebrafish 0.4 Hz (2022 Q1) | — (0) | — (1) | +0.006 (292) | −0.011 (4774) | −0.025 (820) |
 
@@ -163,18 +163,18 @@ halving and truncation give the full-resolution trace.
 
 | | 0.3 Hz zebrafish | 0.1 Hz zebrafish |
 |---|---|---|
-| ROIs | 1,131 | 4,295 |
-| frames at the trace's most common value, median: suite2p → full resolution | 98% → 9% | 95% → 6% |
+| ROIs | 1,121 | 4,295 |
+| frames at the trace's most common value, median: suite2p → full resolution | 98% → 9% | 95% → 7% |
 | median CV² | 0.70 → 1.05 | 0.82 → 1.02 |
-| ROIs with CV² < 0.5 | 27% → 0.1% | 11% → 0% |
-| dev@0.5 at test frequencies | **+0.052 → −0.014** | **+0.035 → +0.004** |
+| ROIs with CV² < 0.5 | 26% → 0.1% | 11% → 0% |
+| dev@0.5 at test frequencies | **+0.048 → −0.015** | **+0.035 → +0.004** |
 
 - **At full resolution CV² is about 1 for nearly every ROI** (Figure 7, top). The ROIs that
   suite2p put lowest move the most.
 - **The bump is gone at 0.1 Hz** (Figure 7, bottom right): flat within 0.005 everywhere, with
   every ROI kept, no coverage threshold and no change to the null. Split by suite2p CV², every
   group is between +0.002 and +0.010, where it was +0.003 to +0.150 (Figure 4).
-- **At 0.3 Hz the bump becomes a slight deficit,** −0.014 at p = 0.5 and −0.007 to −0.032
+- **At 0.3 Hz the bump becomes a slight deficit,** −0.015 at p = 0.5 and −0.008 to −0.039
   across CV² groups. This is the same size and sign as 2022 Q1's −0.012 (Figure 4), whose
   traces were never floored.
 - **One recording is a built-in control.** `20221002_fish1`'s tiff is stored 256 times
@@ -183,17 +183,19 @@ halving and truncation give the full-resolution trace.
   It is at its floor in only 33% of frames, and it had no bump to begin with (dev@0.5 +0.006,
   against +0.03 to +0.06 in every other recording).
 
-**Note on frames.** Production's magneto_1 and magneto_2 of the two 0.3 Hz fish start 60
-frames early, in the previous trial's tiff:
+**Note on frames.** Before the pipeline change, production's magneto_1 and magneto_2 of the two
+0.3 Hz fish started 60 frames early, in the previous trial's tiff:
 - **Cause:** `magpyneto2.engert_helpers.get_len_df` subtracts the first tiff's length from
   every cumulative end, where it should subtract each tiff's own length.
 - **Who is affected:** these sessions' first tiff is 1,260 frames and the rest 1,200, so the
   offset matters only here.
-- **Here:** the suite2p-versus-full-resolution comparison uses each tiff's own frames for both.
-- **Not done:** the pipeline itself is not corrected yet.
+- **Fixed:** processing now takes each trial's frames from suite2p's own file list, and
+  `get_len_df` is corrected. Both stored traces use each tiff's own frames.
 
-**Not checked here:** medaka (also uint16 tiffs through suite2p, also floor-clipped, presumably
-the same) and 2022 Q1 (its traces were never floored).
+**Medaka and 2022 Q1:** the same re-extraction now runs for every imaging recording. For medaka,
+see [`full_resolution_rerun.md`](full_resolution_rerun.md) and
+[`coverage_full_resolution.md`](coverage_full_resolution.md). 2022 Q1's traces were never
+floored.
 
 ## What this establishes
 
@@ -201,14 +203,13 @@ the same) and 2022 Q1 (its traces were never floored).
 |---|---|
 | **Established** | In the 0.3 Hz and 0.1 Hz zebrafish, CV² below 1 predicts the p-value bump: +0.14 to +0.15 for CV² < 0.5, calibrated for 0.85–1.15. Ephys and 2022 Q1 sit at CV² ≈ 1. |
 | **Established** | CV² follows coverage (Spearman 0.68–0.73), with a wide spread at any coverage. |
-| **Established** | The floor, the low CV² and the bump were created by suite2p's integer halving and post-registration truncation of photon-starved movies. Re-extracting without them restores CV² ≈ 1 and calibrates the production null at 0.1 Hz (+0.004) with every ROI kept. At 0.3 Hz it leaves a slight deficit (−0.014), like the never-floored 2022 Q1 recordings. |
-| **Open** | Feeding the full-resolution traces into the pipeline, which means re-running processing from the raw tiffs for these recordings. Also: medaka, and the 60-frame offset in `get_len_df`. |
+| **Established** | The floor, the low CV² and the bump were created by suite2p's integer halving and post-registration truncation of photon-starved movies. Re-extracting without them restores CV² ≈ 1 and calibrates the production null at 0.1 Hz (+0.004) with every ROI kept. At 0.3 Hz it leaves a slight deficit (−0.015), like the never-floored 2022 Q1 recordings. |
+| **Done since** | The full-resolution traces are now what the pipeline analyses (`pipeline/ophys_extraction.py`; [`full_resolution_rerun.md`](full_resolution_rerun.md)). |
 
 ## Reproducing
 
 ```bash
 python docs/cv2/cv2_marginals.py                                               # Figure 3
-/c/Users/dan/anaconda3/envs/suite2p/python.exe docs/cv2/reextract_traces.py   # docs/cv2/reextracted/*.npz (gitignored)
 python docs/cv2/cv2_report.py                                                  # Figures 1, 2, 4-7
 python docs/cv2/cv2_report.py --figures-only
 ```
