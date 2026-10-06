@@ -240,7 +240,9 @@ def get_len_df(path):
     len_df = pd.concat(len_df_l)
 
     # Get cumulative sums
-    len_df["start"] = np.cumsum(len_df.length.values) - len_df.length.values[0]
+    # Each tiff starts where the previous one ended. (Previously cumsum - length[0], which
+    # was right only when every tiff had the first one's length.)
+    len_df["start"] = np.cumsum(len_df.length.values) - len_df.length.values
     len_df["end"] = np.cumsum(len_df.length.values)
     return len_df
 
