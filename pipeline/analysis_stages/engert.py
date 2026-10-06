@@ -33,7 +33,7 @@ from pipeline.roi_coverage import activity, low_coverage_traces
 
 
 def _load_from_nwb(nwb_path, iscell_thres, npix_thres, outline=None, coverage_min=0.0,
-                   sample_period=1.0):
+                   sample_period=1.0, series="full"):
     """Load (F, roi_df, included_mask, imaging_dims) from the processing
     stage's NWB file, applying the iscell/npix mask (STRICT `>`, matching
     the pre-NWB `_load_suite2p_sliced`'s own convention) and flatline
@@ -46,7 +46,10 @@ def _load_from_nwb(nwb_path, iscell_thres, npix_thres, outline=None, coverage_mi
     the iscell/npix population alone).
 
     `coverage_min`: keep ROIs whose trace has coverage >= this (pipeline/roi_coverage.py, on
-    the whole stored trace, sample period `sample_period` s); 0 = no coverage filter."""
+    the whole stored trace, sample period `sample_period` s); 0 = no coverage filter.
+
+    `series`: which stored trace to load (nwb_io.read_roi_data): "full" (full-resolution,
+    production) or "suite2p" (suite2p's own F.npy, for the reports that describe it)."""
     if not os.path.exists(nwb_path):
         raise FileNotFoundError(
             f"{nwb_path} not found -- run `python pipeline/processing.py "
@@ -54,7 +57,7 @@ def _load_from_nwb(nwb_path, iscell_thres, npix_thres, outline=None, coverage_mi
             f"stage; it's no longer a no-op).")
 
     io_r, nwbfile = nwb_io.read_nwbfile(nwb_path)
-    F_all, roi_df = nwb_io.read_roi_data(nwbfile)
+    F_all, roi_df = nwb_io.read_roi_data(nwbfile, series)
     Ly, Lx = nwb_io.get_imaging_dims(nwbfile)
     mean_img = nwb_io.read_mean_image(nwbfile)
     io_r.close()

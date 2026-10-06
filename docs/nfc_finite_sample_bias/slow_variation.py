@@ -115,15 +115,17 @@ def pool():
     return out, im
 
 
-def load(name, outline=False):
+def load(name, outline=False, series="suite2p"):
     """(cfg, F, ROI indices) of the ROIs passing the YAML's iscell/npix thresholds and flatline
     removal; with outline=True also the fish outline, as in production (but never the coverage
-    threshold, which activity_coverage.py sweeps)."""
+    threshold, which activity_coverage.py sweeps). `series`: suite2p's own traces by default,
+    which these reports describe; "full" for the full-resolution traces production analyses
+    since 2026-10-05 (docs/cv2.md)."""
     cfg = schema.load_experiment(str(_REPO / "experiments" / f"{name}.yml"))
     stage = medaka_stage if name.startswith("medaka") else engert_stage
     F, _, kept, _ = stage._load_from_nwb(
         cfg.nwb_path(), cfg.iscell_threshold, cfg.npix_threshold,
-        outline=body_outline.params_for(cfg.body_outline) if outline else None)
+        outline=body_outline.params_for(cfg.body_outline) if outline else None, series=series)
     # fit_Fourier analyses the first N frames; everything here uses the same N.
     N = min(int(120 * (F.shape[1] // 60)), F.shape[1])
     return cfg, F[:, :N].astype(float), np.where(kept)[0]

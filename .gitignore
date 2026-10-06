@@ -44,6 +44,8 @@ docs/guard_band_null/results_gb_*.csv
 docs/cv2/results_cv2_*
 docs/dispersion_matched_null/results_dm_*
 docs/cv2/reextracted/
+docs/coverage_full_resolution/results_*
+docs/full_resolution_rerun/results_*
 
 # Per-ROI tables from docs/suite2p_v1/compare_v1.py (regenerable, ~1 MB per session)
 docs/suite2p_v1/results/rois_*.csv

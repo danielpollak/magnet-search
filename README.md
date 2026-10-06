@@ -120,7 +120,7 @@ python pipeline/processing.py --all --filter Q         # quail only
 
 **Output:** `data/{name}.nwb` (created)
 
-`engert`/`medaka` (suite2p imaging) read the raw `F.npy`/`stat.npy`/`iscell.npy`/`ops.npy` files exactly once here and write *all* ROIs, unfiltered — `iscell_threshold`/`npix_threshold` filtering happens at analysis time instead, so tuning those thresholds only requires re-running analysis, not reprocessing. `mouse` and `owl` have no processing stage at all (see [Data Access](#data-access)); `manual` paradigms are skipped with a warning.
+`engert`/`medaka` (suite2p imaging) read suite2p's `stat.npy`/`iscell.npy`/`ops.npy`/`F.npy` and the raw tiffs exactly once here. They re-extract every ROI's trace from the raw tiff at full resolution (see [GCaMP imaging data](#gcamp-imaging-data-from-raw-tiffs-to-traces)) and write *all* ROIs, unfiltered. `iscell_threshold`/`npix_threshold` filtering happens at analysis time instead, so tuning those thresholds only requires re-running analysis, not reprocessing. `mouse` and `owl` have no processing stage at all (see [Data Access](#data-access)); `manual` paradigms are skipped with a warning.
 
 ### Stage 2: Analysis
 
@@ -207,7 +207,56 @@ The read/write logic lives in `pipeline/nwb_io.py`; `build_modulation_frame()` a
 | `x`, `y` | ROI centroid |
 | `pixel_mask` | `(x, y, weight)` triples from suite2p's ROI mask |
 
-**`nwbfile.processing["ophys"]["Fluorescence"]["RoiResponseSeries"]`** — suite2p's `F.npy` fluorescence traces for all ROIs, `(n_frames, n_rois)`, `rate` = imaging sampling rate. There is no per-unit epochs table analog here — imaging analysis calls `fit_Fourier()` directly on the frame-indexed traces rather than reconstructing period/phase.
+**`nwbfile.processing["ophys"]["Fluorescence"]`** — two trace series for all ROIs, each `(n_frames, n_rois)`, `rate` = imaging sampling rate, over this experiment's own tiff:
+
+| Series | Content |
+|---|---|
+| `RoiResponseSeries` | Full-resolution traces re-extracted from the raw tiff (raw tiff units, detector offset included). **What analysis uses.** Its description records the exact-match check's error. |
+| `RoiResponseSeries_suite2p` | suite2p's own `F.npy` over the same frames (halved, truncated movie). Kept for provenance and for the reports that describe it. |
+
+`nwb_io.read_roi_data(nwbfile, series="full" | "suite2p")` reads either one. **`nwbfile.processing["ophys"]["SummaryImages"]["meanImg"]`** holds suite2p's mean image, which the fish outline (`pipeline/body_outline.py`) is drawn on. There is no per-unit epochs table analog here — imaging analysis calls `fit_Fourier()` directly on the frame-indexed traces rather than reconstructing period/phase.
+
+### GCaMP imaging data: from raw tiffs to traces
+
+**On the NAS.** Each imaging session is a directory holding the raw tiffs (uint16, one per trial) and suite2p's output in `suite2p/plane0/`. suite2p was run once per directory, concatenating every tiff in it:
+
+| File | What the pipeline uses it for |
+|---|---|
+| `ops.npy` | file list and frames per tiff (where each trial sits in the concatenated movie), registration shifts (`yoff`/`xoff` rigid, `yoff1`/`xoff1` nonrigid), mean image |
+| `stat.npy` | each ROI's pixels and weights (`ypix`, `xpix`, `lam`, `overlap`) |
+| `iscell.npy` | classifier probability, written as `p_iscell` |
+| `F.npy` | suite2p's traces: stored as `RoiResponseSeries_suite2p` and used for the exact-match check |
+
+**Sessions and experiments.** One experiment YAML = one trial = one tiff.
+- **Zebrafish:** several trials share a session directory and its segmentation, so ROI *k* is the same cell in every trial of that session. The YAML's `session_path` names the directory and `tiff_name` the trial.
+- **Medaka:** each trial directory has its own tiff and its own segmentation, so there is no `tiff_name`, and ROI numbers don't carry across trials.
+- **Protocols:**
+
+  | Set | Sessions | Design |
+  |---|---|---|
+  | 2022 Q1 zebrafish | `2022_02_21`, `2022_02_23`, `2022_03_01` | one ~20 min tiff per condition (magnet 0.4 Hz, visual 1/60 Hz, both, none); bright, not photon-starved |
+  | 0.3 Hz zebrafish | `2022_09_14-fish2`, `2022_09_15-fish1` | magneto_0-2 / no_magneto_0-2 repeat trials, with a 30 s on / 30 s off visual grating running throughout |
+  | 0.1 Hz zebrafish | `2022_10_01-fish1/2`, `2022_10_02-fish1/2` | magneto / no_magneto repeat trials, 5 s on / 5 s off gated magnet, no visual stimulus. `2022_10_02-fish1`'s magneto_2/3 are copies of magneto_1 on the NAS |
+  | medaka 0.1 Hz | `fish3_8dpf_*` | one directory per trial; magnet 0.1 Hz, and a second fit at the visual frequency (1/60 Hz) |
+
+**Why traces are re-extracted.** suite2p (0.10.1 and 0.14.4 here) stores its registered movie as int16:
+- it halves uint16 tiffs (`// 2`);
+- it truncates the registered frames back to integers.
+
+In the photon-starved 0.1 Hz, 0.3 Hz and medaka movies (offset 100, ~95% of pixels at the offset in any frame, one level ≈ one photon), those two steps erase most of the signal between events. That left suite2p's traces sitting at one value in most frames, which broke the frequency-domain null ([`docs/cv2.md`](docs/cv2.md)).
+
+**How (`pipeline/ophys_extraction.py`).** For the trial's frames, every ROI's trace is computed from the raw tiff twice, with suite2p's stored registration shifts and ROI weights:
+1. **With suite2p's two lossy steps:** this must reproduce `F.npy` to float precision, or processing fails (the *exact-match check*). Passing it proves the reimplemented registration does what suite2p did.
+2. **Without them, in float32:** the full-resolution trace, stored as `RoiResponseSeries`.
+
+**Segmentation is suite2p's, unchanged.** Same ROIs and same `p_iscell`. Neuropil is not subtracted.
+
+**At analysis time** (`pipeline/analysis_stages/engert.py`, `medaka.py`), ROIs are kept if all of these hold:
+- `p_iscell > iscell_threshold`;
+- `npix > npix_threshold`;
+- inside the fish outline;
+- coverage ≥ `coverage_threshold`, currently 0 (off);
+- not a flatline (`magpyneto2.engert_helpers.remove_flatlines`).
 
 ### Analysis results: `nwbfile.processing["analysis"]`
 
@@ -243,7 +292,7 @@ Two pickle files remain in active use, for the two species that can't be re-proc
 
 Raw neural recordings are hosted on [institutional archive/server]:
 - OpenEphys binary recordings (Neuropixel, OpenEphys)
-- suite2p outputs (zebrafish, medaka)
+- raw GCaMP tiffs and their suite2p outputs (zebrafish, medaka)
 - Gutfreund recordings (barn owl, quail)
 - SpikeGLX recordings (Q-series birds)
 

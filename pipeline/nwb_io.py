@@ -1347,50 +1347,68 @@ def get_imaging_dims(nwbfile):
     return None, None
 
 
-def write_roi_response_series(nwbfile, F, plane_segmentation, sampling_rate):
-    """Write suite2p's `F.npy` (ALL rois, already sliced to this experiment's
-    own frame range for engert's shared-session tiffs -- see
-    `pipeline/paradigms/engert.py`) as a `RoiResponseSeries` inside a
-    `Fluorescence` container (both use fixed names -- `read_roi_data` reads
-    them back by those same fixed names).
+ROI_SERIES = {"full": "RoiResponseSeries", "suite2p": "RoiResponseSeries_suite2p"}
 
-    `F` : np.ndarray, shape (n_rois, n_frames) -- suite2p's own convention
-    (roi-major). NWB's `TimeSeries.data` convention is time-major, so this
-    is transposed before writing.
 
-    Stores ALL ROIs regardless of p_iscell/npix -- unlike Units'
-    good-only cutover, iscell_threshold/npix_threshold tuning is an
-    actively-used workflow (see CLAUDE.md's tutorial), so trimming
-    non-passing ROIs here would break "retune the threshold without
-    reprocessing." Compression (see GZIP_LEVEL) is applied instead, for a
-    smaller but still free and lossless size reduction (~24% measured on
-    real data).
+def write_roi_response_series(nwbfile, F, plane_segmentation, sampling_rate, F_suite2p=None,
+                              repro_err=None):
+    """Write the experiment's ROI traces (ALL rois, this experiment's own frames) as
+    `RoiResponseSeries` inside a `Fluorescence` container (fixed names -- `read_roi_data`
+    reads them back by those names).
+
+    `F` : np.ndarray, shape (n_rois, n_frames) -- suite2p's roi-major convention, transposed
+    to NWB's time-major on write. Since 2026-10-05 this is the full-resolution trace from
+    `pipeline/ophys_extraction.py` (raw tiff units, offset included), stored as
+    "RoiResponseSeries" -- what analysis reads.
+    `F_suite2p` : suite2p's own F.npy over the same frames (int16-halved units), stored as
+    "RoiResponseSeries_suite2p" for provenance and the reports that describe it.
+    `repro_err` : the exact-match check's max |reproduction - F.npy|, stored in the
+    full-resolution series' description.
+
+    Stores ALL ROIs regardless of p_iscell/npix -- iscell_threshold/npix_threshold tuning is
+    an actively-used workflow (see CLAUDE.md's tutorial), so trimming non-passing ROIs here
+    would break "retune the threshold without reprocessing." Compression (see GZIP_LEVEL) is
+    applied instead.
     """
     rois_region = plane_segmentation.create_roi_table_region(
         description="all suite2p ROIs (see PlaneSegmentation's p_iscell/npix "
                      "columns for deferred threshold filtering)",
         region=list(range(len(plane_segmentation))),
     )
-    roi_series = RoiResponseSeries(
-        name="RoiResponseSeries",
-        data=H5DataIO(
-            data=np.asarray(F, dtype=np.float32).T,  # (n_frames, n_rois)
-            compression="gzip", compression_opts=GZIP_LEVEL, chunks=True),
-        unit="a.u.",
-        rois=rois_region,
-        rate=float(sampling_rate),
-        starting_time=0.0,
-    )
-    fluor = Fluorescence(roi_response_series=roi_series, name="Fluorescence")
+    full_desc = ("full-resolution ROI traces re-extracted from the raw tiff with suite2p's "
+                 "registration shifts and ROI weights, without suite2p's uint16 halving and "
+                 "int16 truncation (pipeline/ophys_extraction.py); raw tiff units")
+    if repro_err is not None:
+        full_desc += f"; exact-match check vs suite2p F.npy passed, max error {repro_err:.3g}"
+    series = [(ROI_SERIES["full"], F, full_desc)]
+    if F_suite2p is not None:
+        series.append((ROI_SERIES["suite2p"], F_suite2p,
+                       "suite2p's F.npy over the same frames (halved and truncated movie)"))
+    out = []
+    for name, data, desc in series:
+        out.append(RoiResponseSeries(
+            name=name,
+            description=desc,
+            data=H5DataIO(
+                data=np.asarray(data, dtype=np.float32).T,  # (n_frames, n_rois)
+                compression="gzip", compression_opts=GZIP_LEVEL, chunks=True),
+            unit="a.u.",
+            rois=rois_region,
+            rate=float(sampling_rate),
+            starting_time=0.0,
+        ))
+    fluor = Fluorescence(roi_response_series=out, name="Fluorescence")
 
     ophys_module = nwbfile.processing["ophys"]
     ophys_module.add(fluor)
-    return roi_series
+    return out[0]
 
 
-def read_roi_data(nwbfile):
+def read_roi_data(nwbfile, series="full"):
     """Reconstruct suite2p-shaped `(F, roi_df)` from the NWB file.
 
+    `series` : "full" (the full-resolution trace analysis uses) or "suite2p" (suite2p's own
+    F.npy, kept for the reports that describe it); see `write_roi_response_series`.
     `F` : np.ndarray, shape (n_rois, n_frames) -- suite2p convention,
     transposed back from NWB's time-major storage.
     `roi_df` : pd.DataFrame, one row per ROI (same order as F's rows),
@@ -1402,8 +1420,11 @@ def read_roi_data(nwbfile):
     """
     ophys_module = nwbfile.processing["ophys"]
     roi_df = ophys_module["ImageSegmentation"]["PlaneSegmentation"].to_dataframe()
-    roi_series = ophys_module["Fluorescence"].roi_response_series["RoiResponseSeries"]
-    F = np.asarray(roi_series.data).T  # back to (n_rois, n_frames)
+    available = ophys_module["Fluorescence"].roi_response_series
+    if ROI_SERIES[series] not in available:
+        raise KeyError(f"no {ROI_SERIES[series]!r} in this NWB file (has {list(available)}); "
+                       f"re-run processing")
+    F = np.asarray(available[ROI_SERIES[series]].data).T  # back to (n_rois, n_frames)
     return F, roi_df[["p_iscell", "npix", "x", "y", "pixel_mask"]]
 
 
