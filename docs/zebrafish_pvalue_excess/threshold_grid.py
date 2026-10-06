@@ -74,7 +74,7 @@ def pool_recordings():
 def fit_all_rois(rec, f_mag):
     cfg = load_experiment(str(_REPO / "experiments" / f"{rec}.yml"))
     # Thresholds of -1 keep every ROI; flatline removal still runs (per trace).
-    F, roi_df, kept, _ = _load_from_nwb(cfg.nwb_path(), -1.0, -1.0)
+    F, roi_df, kept, _ = _load_from_nwb(cfg.nwb_path(), -1.0, -1.0, series="suite2p")
     roi_idx = np.where(kept)[0]
     out = []
     for kind, f in [("magnetic", f_mag)] + [(f"sham {r}", f_mag * r) for r in SHAM_RATIOS]:

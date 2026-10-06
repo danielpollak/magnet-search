@@ -1,49 +1,41 @@
-"""Engert GCaMP paradigm — processing stage.
+"""Engert GCaMP paradigm -- processing stage.
 
-Reads Suite2p outputs (ALL ROIs, unfiltered) once and writes them to this
-experiment's NWB file: PlaneSegmentation (segmentation masks + p_iscell/npix
-columns so iscell_threshold/npix_threshold filtering stays deferred to
-analysis time, matching CLAUDE.md's documented tutorial workflow) and a
-RoiResponseSeries holding this experiment's own tiff-sliced fluorescence
-trace (multiple engert experiments can share one session_path's suite2p
-output, distinguished only by tiff_name -- see get_len_df).
+Writes this experiment's NWB file from suite2p's segmentation and the raw tiff:
+PlaneSegmentation (ALL suite2p ROIs, with p_iscell/npix columns so
+iscell_threshold/npix_threshold filtering stays deferred to analysis time) and two
+RoiResponseSeries over this experiment's own tiff (several engert experiments share one
+session_path's suite2p output, distinguished only by tiff_name):
+  RoiResponseSeries           full-resolution traces re-extracted from the raw tiff with
+                              suite2p's registration and ROI weights, minus suite2p's lossy
+                              int16 conversions (pipeline/ophys_extraction.py) -- analysed
+  RoiResponseSeries_suite2p   suite2p's own F.npy over the same frames (provenance)
+The tiff's frames within suite2p's concatenated movie come from suite2p's own file list
+(ops filelist / frames_per_file).
 """
 import os
 
 import numpy as np
 
-from magpyneto2.engert_helpers import get_len_df
-from pipeline import nwb_io
+from pipeline import nwb_io, ophys_extraction
 
 
 def run_processing(cfg):
     suite2p_dir = os.path.normpath(os.path.join(cfg.session_path, "suite2p", "plane0"))
-    F      = np.load(os.path.join(suite2p_dir, "F.npy"),      allow_pickle=True)
     stat   = np.load(os.path.join(suite2p_dir, "stat.npy"),   allow_pickle=True)
     iscell = np.load(os.path.join(suite2p_dir, "iscell.npy"), allow_pickle=True)
     ops    = np.load(os.path.join(suite2p_dir, "ops.npy"),    allow_pickle=True).item()
 
-    if cfg.tiff_name:
-        len_df = get_len_df(cfg.session_path)
-        tiff_full = os.path.join(cfg.session_path, cfg.tiff_name)
-        row = len_df.loc[len_df["path"] == tiff_full]
-        if len(row) == 0:
-            raise ValueError(
-                f"tiff_name '{cfg.tiff_name}' not found in len_df for {cfg.session_path}.\n"
-                f"Available: {list(len_df['path'])}"
-            )
-        start, end = int(row["start"].values[0]), int(row["end"].values[0])
-        F_slice = F[:, start:end]
-        print(f"[engert] {cfg.name}: slicing frames [{start}:{end}] for tiff {cfg.tiff_name}")
-    else:
-        F_slice = F
+    print(f"[engert] {cfg.name}: extracting {cfg.tiff_name or 'all tiffs'} at full resolution")
+    tr = ophys_extraction.extract(cfg.session_path, cfg.tiff_name or None,
+                                  log=lambda m: print(f"[engert] {cfg.name}:{m}"))
 
     nwbfile = nwb_io.create_nwbfile(cfg)
     ps = nwb_io.write_imaging_plane_and_rois(
         nwbfile, stat, iscell, ops, sampling_rate=1.0 / cfg.sample_period)
     nwb_io.write_roi_response_series(
-        nwbfile, F_slice, ps, sampling_rate=1.0 / cfg.sample_period)
+        nwbfile, tr["F_full"], ps, sampling_rate=1.0 / cfg.sample_period,
+        F_suite2p=tr["F_suite2p"], repro_err=tr["max_err"])
     nwb_io.write_mean_image(nwbfile, ops["meanImg"])   # for the fish-outline diagnostics
     nwb_io.write_nwbfile(nwbfile, cfg.nwb_path())
     print(f"[engert] {cfg.name}: wrote {len(stat)} ROIs + "
-          f"{F_slice.shape[1]}-frame trace -> {cfg.nwb_path()}")
+          f"{tr['F_full'].shape[1]}-frame traces -> {cfg.nwb_path()}")

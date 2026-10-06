@@ -2,7 +2,6 @@
 coverage, how it relates to the p-value bump, and where the floor that lowers it comes from.
 
     python docs/cv2/cv2_marginals.py           # per-unit noise-bin CV^2, ephys + imaging (Figure 3)
-    /c/Users/dan/anaconda3/envs/suite2p/python.exe docs/cv2/reextract_traces.py   # full-resolution traces
     python docs/cv2/cv2_report.py              # ~5 min
     python docs/cv2/cv2_report.py --figures-only
 
@@ -17,8 +16,8 @@ Zebrafish 0.4 Hz / 0.3 Hz / 0.1 Hz: every ROI's production p-value at every test
 null F(2, 4M). Each ROI's ECDF over its test frequencies is stored, so any grouping of ROIs is
 the mean of its ROIs' ECDFs (each ROI weighted equally). Population: production before the
 coverage threshold (P(iscell) > 0.5, npix >= 10, inside the outline, flatline removal). For the
-0.3 Hz and 0.1 Hz recordings the same is repeated on the full-resolution traces from
-reextract_traces.py (same ROIs, same frames).
+0.3 Hz and 0.1 Hz recordings the same is repeated on the full-resolution traces that processing
+stores next to suite2p's (pipeline/ophys_extraction.py; same ROIs, same frames).
 
 Outputs (next to this script): results_cv2_rois.csv, results_cv2_ecdf.npz (gitignored),
 fig_cv2_*.png.
@@ -40,6 +39,7 @@ sys.path.insert(0, str(_REPO))
 sys.path.insert(0, str(_HERE.parent / "guard_band_null"))
 import guard_band as gb  # noqa: E402
 from guard_band import sv, P_GRID, C_INK, C_MUTED, _style  # noqa: E402
+from pipeline import nwb_io, schema  # noqa: E402
 from pipeline.roi_coverage import activity  # noqa: E402
 
 SETS = gb.SETS
@@ -52,7 +52,6 @@ CV2_COLOURS = ["#6b2a0d", "#eb6834", "#f2a36b", "#8a8a8a", "#2a78d6"]
 C_S2P, C_FULL = "#eb6834", "#2a78d6"
 EXAMPLE_REC = "engert_20221001_fish2_magneto_0"
 EXAMPLE_COVERAGE = [0.06, 0.17, 0.33, 0.61, 1.0]
-REEXTRACTED = _HERE / "reextracted"
 OUT_ROIS = _HERE / "results_cv2_rois.csv"
 OUT_ECDF = _HERE / "results_cv2_ecdf.npz"
 
@@ -92,22 +91,22 @@ def floor_share(F):
 
 
 def full_res(name, roi, F):
-    """(suite2p, full-resolution) traces of these ROIs over this tiff's own frames, or None if
-    reextract_traces.py has not been run for this recording. The suite2p traces are the
-    production traces, except that production's magneto_1/2 of the 0.3 Hz fish start 60 frames
-    early, in the previous tiff (get_len_df offsets every start by the first tiff's length; the
-    0.3 Hz sessions' first tiff is 60 frames longer than the rest): there the last frames of
-    the production trace are the tiff's own."""
-    path = REEXTRACTED / f"{name}.npz"
-    if not path.exists():
+    """(suite2p, full-resolution) traces of these ROIs over the same frames as F, both from the
+    experiment's NWB file (processing stores both since 2026-10-05), or None for a file
+    processed before that."""
+    io, nwbfile = nwb_io.read_nwbfile(schema.load_experiment(
+        str(_REPO / "experiments" / f"{name}.yml")).nwb_path())
+    try:
+        Fs, _ = nwb_io.read_roi_data(nwbfile, "suite2p")
+        Ff, _ = nwb_io.read_roi_data(nwbfile, "full")
+    except KeyError:
         return None
-    z = np.load(path)
-    Fs, Ff = z["F_s2p"][roi].astype(float), z["F_full"][roi].astype(float)
-    n = Fs.shape[1]
-    err = np.abs(F[:, -n:] - Fs[:, :F.shape[1]]).max()
-    assert err < 1e-3, f"{name}: F.npy slice does not match the production traces ({err})"
-    N = min(int(120 * (n // 60)), n)
-    return Fs[:, :N], Ff[:, :N]
+    finally:
+        io.close()
+    N = F.shape[1]
+    Fs, Ff = Fs[roi, :N].astype(float), Ff[roi, :N].astype(float)
+    assert np.abs(Fs - F).max() < 1e-3, f"{name}: stored suite2p traces do not match"
+    return Fs, Ff
 
 
 def compute():

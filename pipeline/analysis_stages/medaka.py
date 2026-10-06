@@ -30,9 +30,9 @@ _VISUAL_Q_FRAC = 0.50
 
 
 def _load_from_nwb(nwb_path, iscell_thres, npix_thres, outline=None, coverage_min=0.0,
-                   sample_period=1.0):
+                   sample_period=1.0, series="full"):
     """Same contract as engert's _load_from_nwb — see that module's
-    docstring for the included_mask, `outline` and `coverage_min` semantics."""
+    docstring for the included_mask, `outline`, `coverage_min` and `series` semantics."""
     if not os.path.exists(nwb_path):
         raise FileNotFoundError(
             f"{nwb_path} not found -- run `python pipeline/processing.py "
@@ -40,7 +40,7 @@ def _load_from_nwb(nwb_path, iscell_thres, npix_thres, outline=None, coverage_mi
             f"stage; it's no longer a no-op).")
 
     io_r, nwbfile = nwb_io.read_nwbfile(nwb_path)
-    F_all, roi_df = nwb_io.read_roi_data(nwbfile)
+    F_all, roi_df = nwb_io.read_roi_data(nwbfile, series)
     Ly, Lx = nwb_io.get_imaging_dims(nwbfile)
     mean_img = nwb_io.read_mean_image(nwbfile)
     io_r.close()
