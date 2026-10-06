@@ -120,7 +120,7 @@ python pipeline/processing.py --all --filter Q         # quail only
 
 **Output:** `data/{name}.nwb` (created)
 
-`engert`/`medaka` (suite2p imaging) read suite2p's `stat.npy`/`iscell.npy`/`ops.npy`/`F.npy` and the raw tiffs exactly once here. They re-extract every ROI's trace from the raw tiff at full resolution (see [GCaMP imaging data](#gcamp-imaging-data-from-raw-tiffs-to-traces)) and write *all* ROIs, unfiltered. `iscell_threshold`/`npix_threshold` filtering happens at analysis time instead, so tuning those thresholds only requires re-running analysis, not reprocessing. `mouse` and `owl` have no processing stage at all (see [Data Access](#data-access)); `manual` paradigms are skipped with a warning.
+`engert`/`medaka` (suite2p imaging) read the session's suite2p v1 output (`stat.npy`/`iscell.npy`/`ops.npy`/`F.npy`) and its full-resolution traces (`F_full.npy`, re-extracted from the raw tiff; see [GCaMP imaging data](#gcamp-imaging-data-from-raw-tiffs-to-traces)) and write *all* ROIs, unfiltered. `iscell_threshold`/`npix_threshold` filtering happens at analysis time instead, so tuning those thresholds only requires re-running analysis, not reprocessing. `mouse` and `owl` have no processing stage at all (see [Data Access](#data-access)); `manual` paradigms are skipped with a warning.
 
 ### Stage 2: Analysis
 
@@ -218,38 +218,52 @@ The read/write logic lives in `pipeline/nwb_io.py`; `build_modulation_frame()` a
 
 ### GCaMP imaging data: from raw tiffs to traces
 
-**On the NAS.** Each imaging session is a directory holding the raw tiffs (uint16, one per trial) and suite2p's output in `suite2p/plane0/`. suite2p was run once per directory, concatenating every tiff in it:
+**On the NAS.** Each imaging session is a directory holding the raw tiffs (uint16, one per trial) and the original suite2p output (0.10.1 or 0.14.4) in `suite2p/plane0/`. The pipeline no longer reads that output; the NAS is only the source of the raw tiffs.
 
-| File | What the pipeline uses it for |
+**Segmentation: suite2p v1 (1.1.0, GPU), on local disk.** Since 2026-10-05 every session is re-segmented with suite2p 1.1.0 (conda env `suite2p1.0`), with settings mapped from the original run's `ops.npy`, by `docs/suite2p_v1/run_suite2p_v1.py`. It copies the session's tiffs to `C:/Users/dan/suite2p_v1_production/<session>/tiffs/`, writes suite2p's output to `<session>/output/suite2p/plane0/`, and refuses any path on the NAS. suite2p concatenates every tiff of a session. Why v1: the original 0.14.4 segmentation of `2022_02_23` had failed (173 ROIs; v1 finds 3786), see [`docs/suite2p_v1_comparison.md`](docs/suite2p_v1_comparison.md).
+
+| File in `plane0/` | What the pipeline uses it for |
 |---|---|
-| `ops.npy` | file list and frames per tiff (where each trial sits in the concatenated movie), registration shifts (`yoff`/`xoff` rigid, `yoff1`/`xoff1` nonrigid), mean image |
+| `ops.npy` | `file_list` and `frames_per_file` (where each trial sits in the concatenated movie), registration shifts (`yoff`/`xoff` rigid, `yoff1`/`xoff1` nonrigid), mean image |
 | `stat.npy` | each ROI's pixels and weights (`ypix`, `xpix`, `lam`, `overlap`) |
 | `iscell.npy` | classifier probability, written as `p_iscell` |
 | `F.npy` | suite2p's traces: stored as `RoiResponseSeries_suite2p` and used for the exact-match check |
+| `F_full.npy`, `fullres_check.json` | full-resolution traces and their exact-match check, written by `pipeline/ophys_extraction.py` (below) |
+| `meanImg_full.npy` | mean of the full-resolution registered movie, written to the NWB file for the fish outline (suite2p's `meanImg` is nearly flat in the photon-starved sessions, and the automatic outline then covers the whole field) |
+| `Fneu_full.npy` | full-resolution neuropil traces (`--neuropil`), checked against `Fneu.npy` the same way; not used by production |
+
+Each imaging YAML's `suite2p_path` names its session's `plane0/`.
 
 **Sessions and experiments.** One experiment YAML = one trial = one tiff.
-- **Zebrafish:** several trials share a session directory and its segmentation, so ROI *k* is the same cell in every trial of that session. The YAML's `session_path` names the directory and `tiff_name` the trial.
+- **Zebrafish:** several trials share a session directory and its segmentation, so ROI *k* is the same cell in every trial of that session. The YAML's `session_path` names the NAS directory and `tiff_name` the trial.
 - **Medaka:** each trial directory has its own tiff and its own segmentation, so there is no `tiff_name`, and ROI numbers don't carry across trials.
 - **Protocols:**
 
   | Set | Sessions | Design |
   |---|---|---|
   | 2022 Q1 zebrafish | `2022_02_21`, `2022_02_23`, `2022_03_01` | one ~20 min tiff per condition (magnet 0.4 Hz, visual 1/60 Hz, both, none); bright, not photon-starved |
-  | 0.3 Hz zebrafish | `2022_09_14-fish2`, `2022_09_15-fish1` | magneto_0-2 / no_magneto_0-2 repeat trials, with a 30 s on / 30 s off visual grating running throughout |
-  | 0.1 Hz zebrafish | `2022_10_01-fish1/2`, `2022_10_02-fish1/2` | magneto / no_magneto repeat trials, 5 s on / 5 s off gated magnet, no visual stimulus. `2022_10_02-fish1`'s magneto_2/3 are copies of magneto_1 on the NAS |
-  | medaka 0.1 Hz | `fish3_8dpf_*` | one directory per trial; magnet 0.1 Hz, and a second fit at the visual frequency (1/60 Hz) |
+  | 0.3 Hz zebrafish | `2022_09_14-fish2`, `2022_09_15-fish1` | magneto_0-2 / no_magneto_0-2 repeat trials; the 30 s on / 30 s off visual grating runs in trials 1-2, not in trial 0 |
+  | 0.1 Hz zebrafish | `2022_10_01-fish1/2`, `2022_10_02-fish1/2` | magneto / no_magneto repeat trials, 5 s on / 5 s off gated magnet; the grating runs in trials 1-2, not in trial 0. `2022_10_02-fish1`'s magneto_2/3 and no-magneto_2/3 are byte-identical copies of trial 1 on the NAS and have no experiment YAML |
+  | medaka 0.1 Hz | `fish3_8dpf_*` | one directory per trial; magnet 0.1 Hz; the grating runs in trials 1-2 |
 
-**Why traces are re-extracted.** suite2p (0.10.1 and 0.14.4 here) stores its registered movie as int16:
+  Which trials had the grating was read off the population spectra ([`docs/full_resolution_rerun.md`](docs/full_resolution_rerun.md), section 3); it contradicts the experimenter's emails.
+
+**Why traces are re-extracted.** suite2p (0.10.1, 0.14.4, and still 1.1.0) stores its registered movie as int16:
 - it halves uint16 tiffs (`// 2`);
-- it truncates the registered frames back to integers.
+- it truncates the registered frames back to integers (in 1.1.0, the nonrigid warp ends in `.short()`).
 
 In the photon-starved 0.1 Hz, 0.3 Hz and medaka movies (offset 100, ~95% of pixels at the offset in any frame, one level ≈ one photon), those two steps erase most of the signal between events. That left suite2p's traces sitting at one value in most frames, which broke the frequency-domain null ([`docs/cv2.md`](docs/cv2.md)).
 
-**How (`pipeline/ophys_extraction.py`).** For the trial's frames, every ROI's trace is computed from the raw tiff twice, with suite2p's stored registration shifts and ROI weights:
-1. **With suite2p's two lossy steps:** this must reproduce `F.npy` to float precision, or processing fails (the *exact-match check*). Passing it proves the reimplemented registration does what suite2p did.
-2. **Without them, in float32:** the full-resolution trace, stored as `RoiResponseSeries`.
+**How (`pipeline/ophys_extraction.py`, run once per session in the `suite2p1.0` env, on the GPU).** Every ROI's trace is computed from the local tiff copies twice, with suite2p's stored registration shifts and ROI weights:
+1. **With suite2p's two lossy steps,** using suite2p's own `transform_data`: this must reproduce `F.npy` to float precision, or extraction fails (the *exact-match check*).
+2. **Without them, in float32:** the same warp minus the final truncation (checked on every frame to give suite2p's int16 frames bit for bit once truncated). This is the full-resolution trace, `F_full.npy`, stored as `RoiResponseSeries`.
 
-**Segmentation is suite2p's, unchanged.** Same ROIs and same `p_iscell`. Neuropil is not subtracted.
+The check only passes on the GPU: on the CPU, torch's bilinear sampling lands one level lower in ~0.4% of pixels. Processing (magneto2 env) then reads `F_full.npy`/`F.npy` per trial and never touches the tiffs. Neuropil is not subtracted.
+
+```bash
+# suite2p1.0 env, after the suite2p runs; one or more plane0 directories
+C:/Users/dan/anaconda3/envs/suite2p1.0/python.exe pipeline/ophys_extraction.py --plane0 C:/Users/dan/suite2p_v1_production/*/output/suite2p/plane0
+```
 
 **At analysis time** (`pipeline/analysis_stages/engert.py`, `medaka.py`), ROIs are kept if all of these hold:
 - `p_iscell > iscell_threshold`;
