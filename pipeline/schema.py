@@ -130,7 +130,7 @@ class ExperimentConfig:
     suite2p_path: str = ""   # plane0 dir of the suite2p v1 run used (local disk), with F_full.npy
                              # from pipeline/ophys_extraction.py
     tiff_name: str = ""      # filename of the specific tiff to analyze (frames sliced via len_df)
-    sample_period: float = 1.0  # seconds per frame (T in fit_Fourier); 1.02 for 2022_03_01
+    sample_period: float = 1.0  # seconds per frame (T in fit_Fourier); 1.02 for the 2022 Q1 zebrafish
     iscell_threshold: float = 0.7
     npix_threshold: int = 20
     # Outline of the fish in suite2p's mean image, for dropping ROIs outside the fish:
