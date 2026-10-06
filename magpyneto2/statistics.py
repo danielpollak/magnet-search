@@ -2078,17 +2078,15 @@ def get_poscontrols_negresults(all_fourier_df:pd.DataFrame):
 
     # With fish. Any fish row at a visual-band frequency (<0.02 Hz) is a
     # positive control EXCEPT medaka's magneto_0.tif (and no_magneto_0.tif,
-    # via the same ".../magneto_0.tif" suffix match) -- medaka.py's own
-    # processing comment documents that trial as having no visual stimulus.
-    # This used to also require an explicit "visual" substring or a literal
-    # "magneto_1.tif"/"magneto_2.tif" suffix, which silently excluded every
-    # engert visual-frequency row (no ".tif" suffix, no "visual" substring in
-    # e.g. "engert_20220914_fish2_magneto_1") -- confirmed via the original
-    # experimenter's protocol email (see CLAUDE.md's "Zebrafish/medaka
-    # multi-trial sessions" section) that these zebrafish recordings have a
-    # real visual grating running in EVERY trial including magneto_0/
-    # no_magneto_0, unlike medaka -- so no analogous "_0 excluded" rule
-    # applies to zebrafish here.
+    # via the same ".../magneto_0.tif" suffix match): medaka.py fits the
+    # visual frequency in every trial, but trial 0 has no visual grating.
+    # Engert rows need no such rule here: only recordings that had the
+    # grating set `analysis.visual_f` in their YAML (trials 1-2 of the 0.3 Hz
+    # and 0.1 Hz zebrafish, the 2022 Q1 visualmagnet recs), so their trial-0
+    # recordings have no visual-frequency row at all. Which trials had the
+    # grating was read off the population spectra of the full-resolution
+    # traces (docs/full_resolution_rerun.md, section 3), which contradict the
+    # experimenter's email on this point.
     medaka_trial0_no_visual = np.array(
         [rec.endswith("magneto_0.tif") for rec in all_fourier_df.rec.values])
     fish_pos_control = all_fourier_df.loc[include_fish

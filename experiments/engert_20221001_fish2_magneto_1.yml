@@ -15,6 +15,7 @@ coverage_threshold: 0.0  # off: full-resolution traces (2026-10-05); was 0.1 for
 analysis:
   f: 0.1
   Q_frac: 0.30
+  visual_f: 0.016667  # 30 s on / 30 s off grating in trials 1-2 (docs/full_resolution_rerun.md section 3)
 
 # Outline of the fish in the mean image (docs/body_outline.md); set with body_outline_gui.ipynb
 body_outline:
