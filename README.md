@@ -243,7 +243,7 @@ Each imaging YAML's `suite2p_path` names its session's `plane0/`.
   |---|---|---|
   | 2022 Q1 zebrafish | `2022_02_21`, `2022_02_23`, `2022_03_01` | one ~20 min tiff per condition (magnet 0.4 Hz, visual 1/60 Hz, both, none); bright, not photon-starved |
   | 0.3 Hz zebrafish | `2022_09_14-fish2`, `2022_09_15-fish1` | magneto_0-2 / no_magneto_0-2 repeat trials; the 30 s on / 30 s off visual grating runs in trials 1-2, not in trial 0 |
-  | 0.1 Hz zebrafish | `2022_10_01-fish1/2`, `2022_10_02-fish1/2` | magneto / no_magneto repeat trials, 5 s on / 5 s off gated magnet; the grating runs in trials 1-2, not in trial 0. `2022_10_02-fish1`'s magneto_2/3 are copies of magneto_1 on the NAS |
+  | 0.1 Hz zebrafish | `2022_10_01-fish1/2`, `2022_10_02-fish1/2` | magneto / no_magneto repeat trials, 5 s on / 5 s off gated magnet; the grating runs in trials 1-2, not in trial 0. `2022_10_02-fish1`'s magneto_2/3 and no-magneto_2/3 are byte-identical copies of trial 1 on the NAS and have no experiment YAML |
   | medaka 0.1 Hz | `fish3_8dpf_*` | one directory per trial; magnet 0.1 Hz; the grating runs in trials 1-2 |
 
   Which trials had the grating was read off the population spectra ([`docs/full_resolution_rerun.md`](docs/full_resolution_rerun.md), section 3); it contradicts the experimenter's emails.
