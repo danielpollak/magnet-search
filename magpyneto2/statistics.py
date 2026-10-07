@@ -1883,6 +1883,17 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
     conf_ax.set_xticks(xticks)
     conf_ax.set_xticklabels(xticklabels, rotation=0)
 
+    # A species with only a recording or two (e.g. medaka in panel A since the
+    # grating trials left it, 2026-10-07) puts its label on top of its
+    # neighbour's: move such a label down a line.
+    conf_ax.figure.canvas.draw()
+    _ticks = conf_ax.get_xticklabels()
+    _boxes = [t.get_window_extent() for t in _ticks]
+    for i in range(1, len(_ticks)):
+        if _boxes[i].x0 < _boxes[i - 1].x1 and not xticklabels[i - 1].startswith("\n"):
+            xticklabels[i] = "\n" + xticklabels[i]
+    conf_ax.set_xticklabels(xticklabels, rotation=0)
+
     # Get xlimit before adding data for the legend so you can reset it later
     xlim_conf = conf_ax.get_xlim()
 
@@ -2161,17 +2172,25 @@ def get_poscontrols_negresults(all_fourier_df:pd.DataFrame):
     # Optional "visual" prefix (+ optional "_a"/"_b" suffix) also matches the
     # 2022 Q1 batch's "visualmagnet"/"visualmagnet_a"/"visualmagnet_b" recs --
     # magnet and visual grating run simultaneously in these, at a real 0.4Hz
-    # magnetic frequency, now with an independent visual_f fit added (see
-    # those experiments/*.yml) so they land in both negative-result (via this
-    # 0.4Hz row) and positive-control (via the freq<0.02 row below,
-    # already-generalized to not require a bare "visual" rec-name match).
+    # magnetic frequency, with an independent visual_f fit (see those
+    # experiments/*.yml) that makes them positive controls (freq<0.02 row above).
+    #
+    # Since 2026-10-07 (user's decision) an imaging recording with a visual
+    # stimulus is NOT a magnetic experiment, even if the coil ran: the grating's
+    # response has harmonics at k/60 Hz, and 0.1 Hz and 0.3 Hz are among them
+    # (medaka's 0.1 Hz suspects in grating trials are grating-responsive cells).
+    # So any fish rec that is a visual positive control above (2022 Q1
+    # visualmagnet, trials 1-2 of the 0.3/0.1 Hz zebrafish and medaka) is
+    # dropped here; its visual row stays a positive control.
     _magnet_trial_re = re.compile(r"(^|_)(visual)?(magnet|magneto_\d+)(_[ab])?(\.tif)?$")
+    fish_visual_recs = set(fish_pos_control.rec)
     fish_mag_exp = all_fourier_df.loc[
         include_fish
         & np.array(["nostim" not in rec for rec in all_fourier_df.rec.values])
         & np.array(["no_magnet" not in rec and "no-magnet" not in rec
                     for rec in all_fourier_df.rec.values])
         & (all_fourier_df.freq.values  > 0.02) # exclude 1/60 Hz, 0.016667 Hz
+        & ~all_fourier_df.rec.isin(fish_visual_recs).values
         & np.array([bool(_magnet_trial_re.search(elem)) for elem in all_fourier_df.rec.values]), :]
 
     # Combine fish and not fish
