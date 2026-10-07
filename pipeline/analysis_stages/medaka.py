@@ -1,8 +1,8 @@
 """Analysis stage for medaka GCaMP experiments.
 
 Reads Suite2p F/ROI data back from this experiment's NWB file (written by
-the processing stage — see pipeline/paradigms/medaka.py), no tiff slicing
-needed (each session_path is its own independent trial directory). Two
+the processing stage — see pipeline/paradigms/medaka.py; one trial's frames
+of the segmentation the six medaka trials share). Two
 Fourier frequencies are computed per trial:
   - cfg.analysis.f  (magnetic, e.g. 0.1 Hz)
   - 1/60 Hz         (visual stimulus, fixed for medaka)
@@ -99,6 +99,10 @@ def compute_fourier_results(cfg, verbose=True):
     #   magneto_1.tif / magneto_2.tif → fish positive control (visual freq)
     rec_name = os.path.basename(cfg.session_path.rstrip("/\\")) + ".tif"
 
+    # `id` is the suite2p ROI index (row of the shared PlaneSegmentation), the same
+    # cell in every trial -- see engert.py's ROI-identity comment.
+    roi_ids = np.where(included_mask)[0]
+
     rows = []
     for NFC_l, freq, M, off_coef, avg_signal_l in [
         (NFC_b, f_b, M_b, offfreq_coef_b, avg_signal_b),
@@ -111,7 +115,7 @@ def compute_fourier_results(cfg, verbose=True):
         sigma = np.sqrt(0.5 * np.mean(np.abs(np.array(off_coef)) ** 2, axis=1))
         sens  = avg_signal_l / np.where(sigma > 0, 2 * sigma, np.nan)
         rows.append(pd.DataFrame({
-            "id":          np.arange(len(NFC_l)),
+            "id":          roi_ids,
             "p_value":     corrected_pvalues(NFC, M),
             "n_frames":    n_frames,
             "NFC":         NFC,

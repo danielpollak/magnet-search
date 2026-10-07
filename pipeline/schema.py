@@ -129,7 +129,8 @@ class ExperimentConfig:
     session_path: str = ""   # session root dir (parent of suite2p/); tiffs live here too
     suite2p_path: str = ""   # plane0 dir of the suite2p v1 run used (local disk), with F_full.npy
                              # from pipeline/ophys_extraction.py
-    tiff_name: str = ""      # filename of the specific tiff to analyze (frames sliced via len_df)
+    tiff_name: str = ""      # tiff whose frames to analyse, in a segmentation shared by several trials
+                             # (frames from ops file_list/frames_per_file); empty = all frames
     sample_period: float = 1.0  # seconds per frame (T in fit_Fourier); 1.0212 for the 2022 Q1 zebrafish (docs/frame_timing.md)
     iscell_threshold: float = 0.7
     npix_threshold: int = 20

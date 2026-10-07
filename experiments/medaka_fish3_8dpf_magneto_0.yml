@@ -6,7 +6,10 @@ species: "medaka"
 area: "WB"
 session_path: "//datanas/family/data_aggregated/Engert/Medaka Experiments/fish3_8dpf_gcamp_good/fish3_8dpf_magneto_0"
 # suite2p v1 (1.1.0) segmentation, local disk; F_full.npy from pipeline/ophys_extraction.py
-suite2p_path: "C:/Users/dan/suite2p_v1_production/fish3_8dpf_magneto_0/output/suite2p/plane0"
+# one segmentation shared by the six medaka trials (run_suite2p_v1.py --add-session), on x64 tiffs
+# (--scale 64: as acquired, registration gave one shift for every frame); tiff_name picks this trial
+suite2p_path: "C:/Users/dan/suite2p_v1_production/fish3_8dpf_concat_x64/output/suite2p/plane0"
+tiff_name: "fish3_8dpf_magneto_0.tif"
 sample_period: 1.0
 iscell_threshold: 0.5
 npix_threshold: 9  # strict >, i.e. npix >= 10
