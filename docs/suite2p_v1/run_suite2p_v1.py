@@ -27,6 +27,10 @@ the ORIGINAL suite2p/plane0/ output):
    ~6 grey levels after its uint16 halving, norm_frames clips everything to about one value,
    and registration returns the same shift for every frame. 2022_10_02-fish1's tiffs were
    saved x256 and register normally; x128 does the same for medaka (2026-10-07).
+   With --add-session (repeatable), the tiffs of further sessions are appended, in order, so
+   suite2p segments them as one movie and every trial shares one set of ROIs. Settings still
+   come from --session's ops. Used for the six medaka trials (2026-10-07), whose separate
+   segmentations gave no ROI identity across trials (docs/medaka_concat_suite2p.md).
 5. Runs suite2p.run_s2p and records runtime, GPU, versions and per-file frame counts in
    settings_used.json. The original NAS plane0 files' sizes and mtimes are recorded before and
    after the run and must be unchanged.
@@ -375,6 +379,9 @@ def main():
     ap.add_argument("--force", action="store_true",
                     help="delete an existing local output/ folder and rerun from scratch")
     ap.add_argument("--dry-run", action="store_true", help="build and print settings; no copy, no run")
+    ap.add_argument("--add-session", action="append", default=[],
+                    help="append this session's tiffs (relative to --nas-root; repeatable), "
+                         "segmenting all sessions together; see step 4 above")
     ap.add_argument("--scale", type=int, default=1,
                     help="run suite2p on uint16 copies of the tiffs multiplied by this factor "
                          "(written to <run-name>/tiffs_x<scale>/); see step 4 above")
@@ -404,6 +411,18 @@ def main():
     old = np.load(plane0 / "ops.npy", allow_pickle=True).item()
     names = [os.path.basename(str(p).replace("\\", "/")) for p in old["filelist"]]
     fpf_old = [int(x) for x in old["frames_per_file"]]
+    source = {n: session_dir for n in names}          # tiff name -> NAS directory holding it
+    plane0s = [plane0]
+    for extra in a.add_session:
+        xdir = Path(a.nas_root) / extra
+        xold = np.load(xdir / "suite2p" / "plane0" / "ops.npy", allow_pickle=True).item()
+        xnames = [os.path.basename(str(p).replace("\\", "/")) for p in xold["filelist"]]
+        if (xold["Ly"], xold["Lx"]) != (old["Ly"], old["Lx"]) or set(xnames) & set(source):
+            raise ValueError(f"{extra}: different frame size or a repeated tiff name")
+        names += xnames
+        fpf_old += [int(x) for x in xold["frames_per_file"]]
+        source.update({n: xdir for n in xnames})
+        plane0s.append(xdir / "suite2p" / "plane0")
     print(f"session {a.session}: original suite2p {old.get('suite2p_version')}, "
           f"{len(names)} tiffs, frames_per_file {fpf_old}, Ly x Lx {old['Ly']} x {old['Lx']}")
 
@@ -431,7 +450,7 @@ def main():
         return
 
     # disk space: tiffs still to copy + a data.bin of the same size + margin
-    sizes = {n: (session_dir / n).stat().st_size for n in names}
+    sizes = {n: (source[n] / n).stat().st_size for n in names}
     run_dir.mkdir(parents=True, exist_ok=True)
     have = sum((tiff_dir / n).stat().st_size for n in names
                if (tiff_dir / n).exists() and (tiff_dir / n).stat().st_size == sizes[n])
@@ -450,9 +469,10 @@ def main():
         shutil.rmtree(out_dir / "suite2p")
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    fp_before = nas_fingerprint(plane0)
+    fp_before = [nas_fingerprint(p) for p in plane0s]
     t0 = time.time()
-    copy_tiffs(session_dir, names, tiff_dir, a.local_root)
+    for src in dict.fromkeys(source.values()):
+        copy_tiffs(src, [n for n in names if source[n] == src], tiff_dir, a.local_root)
     if a.scale != 1:
         scale_tiffs(tiff_dir, names, s2p_tiff_dir, a.scale, a.local_root)
     t_copy = time.time() - t0
@@ -480,14 +500,15 @@ def main():
     suite2p.run_s2p(db=db, settings=settings)
     t_run = time.time() - t1
 
-    fp_after = nas_fingerprint(plane0)
+    fp_after = [nas_fingerprint(p) for p in plane0s]
     if fp_after != fp_before:
         raise RuntimeError("ORIGINAL NAS suite2p/plane0 FILES CHANGED DURING THE RUN")
 
     p0 = out_dir / "suite2p" / "plane0"
     new_ops = np.load(p0 / "ops.npy", allow_pickle=True).item()
     info = dict(
-        session=a.session, run_name=run_name, nas_session_dir=str(session_dir),
+        session=a.session, added_sessions=a.add_session, run_name=run_name,
+        nas_session_dir=str(session_dir),
         original_suite2p_version=_py(old.get("suite2p_version")),
         suite2p_version=_py(getattr(suite2p, "version", None) or
                             __import__("importlib.metadata").metadata.version("suite2p")),
