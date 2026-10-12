@@ -7,11 +7,12 @@ than a stationary trace's would?
 Write-up: docs/nonstationarity.md.
 
 Every trace is cut into K = 5, 10 and 20 equal chunks, each a whole number of cycles of the
-recording's analysis frequency f: L is the longest length <= N // K with f * L * T within 0.05
-cycles of a whole number (chunk_length; exact when T = 1 s). The frames after the K-th chunk are
-dropped. In the 2022 Q1 recordings (T = 1.0212 s) a cycle is not a whole number of frames, and the
-leftover (< 0.05 cycles) is removed by shifting the chunk's Fourier grid, as production
-fit_Fourier(align="shift") does (docs/fourier_grid_shift.md), so a coefficient sits exactly on f.
+recording's analysis frequency f, and nested: a K = 5 chunk is exactly two K = 10 chunks and four
+K = 20 chunks, so all three resolutions use the same frames (chunk_length; exact when T = 1 s).
+The frames after the last chunk are dropped. In the 2022 Q1 recordings (T = 1.0212 s) a cycle is
+not a whole number of frames, and the leftover (<= 0.07 cycles) is removed by shifting the chunk's
+Fourier grid, as production fit_Fourier(align="shift") does (docs/fourier_grid_shift.md), so a
+coefficient sits exactly on f.
 In each chunk:
   cv2   CV^2 of the chunk's periodogram ordinates from 0.05 Hz to just below Nyquist, stimulus
         coefficient excluded, each ordinate divided by that ROI's mean ordinate at the same
@@ -76,7 +77,7 @@ N_REP = 1000
 BATCH = 25
 BLOCK_S = 10.0
 F_MIN = 0.05
-CYCLE_TOL = 0.05     # cycles; as fit_Fourier's whole_cycle_length (keeps >= 99.2% of the power)
+CYCLE_TOL = 0.07     # cycles; the leftover is then removed exactly by the grid shift
 N_SYNTH = 20
 ALPHA = 0.05
 BATCHES = ["zebrafish 0.4 Hz (2022 Q1)", "zebrafish 0.3 Hz", "zebrafish 0.1 Hz", "medaka 0.1 Hz"]
@@ -127,14 +128,20 @@ def describe(name, f):
 
 # ------------------------------------------------------------------ metrics
 def chunk_length(N, K, f, T):
-    """(L, cycles, delta): the longest chunk L <= N // K frames that holds a whole number of
-    stimulus cycles, f * L * T, to within CYCLE_TOL; delta is what's left over (0 when T = 1 s,
-    where a cycle of 0.1 Hz is 10 frames and of 0.3 Hz 3 cycles per 10 frames)."""
-    for L in range(N // K, 0, -1):
-        kappa = f * L * T
-        if round(kappa) >= 1 and abs(kappa - round(kappa)) <= CYCLE_TOL:
+    """(L, cycles, delta) of the K-chunk split. The resolutions nest: the finest chunk L20 is the
+    longest length <= N // max(KS) whose multiples L20, 2*L20 and 4*L20 (the K = 20, 10 and 5
+    chunks) all hold a whole number of stimulus cycles, f * L * T, to within CYCLE_TOL, and
+    L = L20 * max(KS) // K. So every K uses the same max(KS) * L20 frames and every coarse boundary
+    is also a fine one. delta is what's left over (0 when T = 1 s, where a cycle of 0.1 Hz is 10
+    frames and of 0.3 Hz 3 cycles per 10 frames)."""
+    kmax = max(KS)
+    for L20 in range(N // kmax, 0, -1):
+        if round(f * L20 * T) >= 1 and all(
+                abs(f * m * L20 * T - round(f * m * L20 * T)) <= CYCLE_TOL for m in (1, 2, 4)):
+            L = L20 * kmax // K
+            kappa = f * L * T
             return L, int(round(kappa)), kappa - round(kappa)
-    raise ValueError(f"no whole-cycle chunk for N={N}, K={K}, f={f}, T={T}")
+    raise ValueError(f"no nested whole-cycle chunks for N={N}, f={f}, T={T}")
 
 
 def chunk_metrics(X, T, f, qf, mu, K):
@@ -347,7 +354,7 @@ def fig_metrics(d, ex, name, out):
 
 
 def _p(p):
-    return f"p <= {1 / (1 + N_REP):.3f}" if p <= 1 / (1 + N_REP) else f"p = {p:.3f}"
+    return f"p ≤ {1 / (1 + N_REP):.3f}" if p <= 1 / (1 + N_REP) else f"p = {p:.3f}"
 
 
 def fig_null(d, ex, name, out):
@@ -363,22 +370,21 @@ def fig_null(d, ex, name, out):
                 z = e[f"null_{nl}_{k}_{K}"][:, i]
                 z = z[np.isfinite(z)]
                 if len(z):
-                    ax.hist(z, bins=40, color=c, alpha=0.8 if nl == "block" else 0.9, lw=0)
+                    ax.hist(z, bins=40, color=c, alpha=0.8 if nl == "block" else 0.9, lw=0,
+                            label=f"{nl} shuffle, {_p(r[f'p_{nl}_{k}_{K}'])}")
             if np.isfinite(o):
-                ax.axvline(o, color=C_INK, lw=1.4)
-            ax.set_title(("K = %d chunks\n" % K if a == 0 else "") +
-                         f"observed {o:.3g};  full {_p(r[f'p_full_{k}_{K}'])};  "
-                         f"block {_p(r[f'p_block_{k}_{K}'])}", fontsize=7.5, color=C_INK)
+                ax.axvline(o, color=C_INK, lw=1.4, label="observed")
+            ax.set_ylim(0, ax.get_ylim()[1] * 1.45)   # a band above the histograms for the legend
+            ax.legend(fontsize=7, loc="upper left", frameon=True, facecolor="white",
+                      edgecolor="none", framealpha=0.9, handlelength=1.2)
+            if a == 0:
+                ax.set_title(f"K = {K} chunks", fontsize=9, color=C_INK)
             _style(ax)
             if b == 0:
                 ax.set_ylabel(f"{lab}\nreplicates", fontsize=8)
             if a == len(METRICS) - 1:
                 ax.set_xlabel("std / mean across chunks", fontsize=8)
-    h = [plt.Rectangle((0, 0), 1, 1, color=C_FULL, label="full shuffle (1,000 replicates)"),
-         plt.Rectangle((0, 0), 1, 1, color=C_K[10], label="block shuffle, 10 s blocks (colour = K)"),
-         plt.Line2D([], [], color=C_INK, lw=1.4, label="observed")]
-    fig.legend(handles=h, fontsize=7.5, frameon=False, ncol=3, loc="upper center")
-    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    fig.tight_layout()
     fig.savefig(out, dpi=150)
     plt.close(fig)
 
