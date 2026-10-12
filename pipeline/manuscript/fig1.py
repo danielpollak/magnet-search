@@ -582,7 +582,7 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
 
     # ── Plot Row 2: Magnetic stimulation (null) ──────────────────────────────
     statistics.plot_spectrum(mag_spectra_ax, fou_alt.flatten(), ff_alt, MAG_FREQ, fou0, legend=False,
-                              dot_color=FP.COLOR_MAG, stem_color="black", sigma_color="gray")
+                              dot_color=FP.COLOR_MAG, stem_color="black", sigma_color="black")
     mag_spectra_ax.set_title("Fourier coefficients", fontsize=FP.FS_TITLE)
     mag_spectra_ax.set_ylabel("Magnitude", labelpad=1)
     mag_spectra_ax.tick_params(axis="y", pad=1)
@@ -618,7 +618,7 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
 
     # ── Plot Row 3: Visual gratings (positive) ───────────────────────────────
     statistics.plot_spectrum(vis_spectra_ax, vis_fou_alt.flatten(), vis_ff_alt, VIS_FREQ, vis_fou0, legend=False,
-                              dot_color=FP.COLOR_VIS, stem_color="black", sigma_color="gray")
+                              dot_color=FP.COLOR_VIS, stem_color="black", sigma_color="black")
     vis_spectra_ax.set_title("Fourier coefficients", fontsize=FP.FS_TITLE)
     vis_spectra_ax.set_ylabel("Magnitude", labelpad=1)
     vis_spectra_ax.tick_params(axis="y", pad=1)
