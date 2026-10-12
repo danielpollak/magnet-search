@@ -65,12 +65,16 @@ Everywhere else at least 92% of the frames are used.
 - **Shared permutations:** within a recording, every ROI gets the same permutation in a given replicate.
 - **p-value:** p = (1 + number of replicates with dispersion ≥ observed) / 1001, so the smallest possible p is 0.001.
 
-**Control.** In each recording, 20 ROIs were replaced by stationary Gaussian AR(1) traces with the same lag-1 autocorrelation and variance, 1,000 traces in all, and run through the same procedure (rows with `synthetic=True` in the results table).
+**Control.** In each recording, 20 ROIs were replaced by synthetic stationary traces, 1,000 traces in all, and run through the same procedure (rows with `synthetic=True` in the results table).
+- **What the synthetic traces are:** first-order autoregressive, AR(1), traces. Each frame is the previous frame times ρ plus fresh Gaussian noise: x<sub>t</sub> = ρ·x<sub>t−1</sub> + ε<sub>t</sub>.
+  - **They are correlated frame to frame,** not uncorrelated. ρ is the correlation between consecutive frames, and the correlation at a lag of k frames falls off as ρ<sup>k</sup>.
+  - **ρ is each ROI's own lag-1 autocorrelation,** and the trace is scaled to the ROI's mean and variance. The median ρ is 0.29; the 10th–90th percentile range is 0.00–0.41 in medaka and 0.16–0.83 in the 0.3 Hz zebrafish.
+  - **They are stationary by construction,** because ρ and the noise level never change. They keep the ROI's short-range memory (the calcium decay) without any slow change, which is exactly the case the null must not flag.
 - **The block shuffle is calibrated on them:** p < 0.05 in 4.0–8.0% of these traces across the nine metric × K conditions. RMS is slightly high, at 7–8%.
 - **Why not permute every frame:** shuffling single frames destroys short-range autocorrelation along with slow structure, so it tests "independent frames" rather than "stationary". On the same stationary AR(1) traces it flags CV² in 11% and RMS in 20–33%, so it over-rejects through autocorrelation alone.
 - **What's still computed:** the script still computes the frame shuffle for this check; its columns are `p_full_*` in the results table. It is not used anywhere else in this report.
 
-## The procedure on example traces
+## In one example ROI, power rises over the recording while the spectral shape stays put
 
 ![Procedure](nonstationarity/fig_ns_procedure.png)
 
@@ -84,7 +88,7 @@ Everywhere else at least 92% of the frames are used.
 
 <sub>**Figure 3. Where the same ROI's dispersions sit on the block-shuffle null.** Rows: metric. Columns: K. Histograms: dispersion (std/mean across chunks) in 1,000 block shuffles, 40 bins; shade = K; legends give p. Black: observed. CV² is typical (block p = 0.35–0.85). RMS is beyond all or nearly all replicates (block p ≤ 0.002). Reference-window power is in the top 1–4% (block p = 0.014–0.037).</sub>
 
-## Population
+## Power drifts in a quarter to half of all ROIs, most in the 0.3 Hz zebrafish and least in medaka; the spectral shape drifts in none
 
 ![Population](nonstationarity/fig_ns_population.png)
 
@@ -113,7 +117,7 @@ Everywhere else at least 92% of the frames are used.
   - CV² does not differ (p = 0.78).
   - Coil condition and acquisition order are confounded, though. The two conditions are separate acquisitions. Medaka's no-magnet folder is named `14844_after`, so it was recorded later; the order is unknown for the zebrafish.
 
-## Are the suspects more nonstationary?
+## The suspects are not more nonstationary than the other ROIs
 
 **The question.** Are ROIs with a significant production test (p < 0.01 at the recording's analysis frequency, current parquet) flagged more often than the other ROIs of the same kind of test?
 
@@ -135,7 +139,7 @@ The tests split into three kinds that should not be pooled:
   - pooling the grating responders with the magnetic suspects;
   - chunks that weren't whole cycles, so part of each response leaked into the reference window.
 
-## What this means for the test
+## Drifting power does not produce the suspects
 
 - **The spectral shape fit_Fourier's null assumes holds chunk by chunk.** CV² is at chance in every group.
 - **What changes over time is how much power the trace has.**
