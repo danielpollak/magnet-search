@@ -258,6 +258,9 @@ FREQ        = 5
 # draws its axhline before the scatter, and at matplotlib's equal default
 # zorder the later artist wins, so no zorder argument is needed.
 SPECTRUM_DOT_COLOR = "0.45"
+# Light enough that the A=0 panel's small |c_s| dot, which sits inside the
+# cloud, shows through the |c_n| dots drawn over it.
+SPECTRUM_DOT_ALPHA = 0.4
 SIGMA_COLOR        = "black"
 # --rec-boundaries only: the one deliberately non-achromatic element in panel
 # A, and only when that flag is passed. It marks where each of the exemplar's
@@ -1154,7 +1157,7 @@ def draw_panel_A(spectra_axes, raster_axes, example_spk, FOURIER_Q,
         # stimulation elsewhere -- coloring a simulated spectrum with either
         # would read as a stimulus contingency it doesn't have.
         statistics.plot_spectrum(spectra_axes[mod_i], fou_alt.flatten(), ff_alt, FREQ, fou0,
-                                 legend=False, dot_color=SPECTRUM_DOT_COLOR,
+                                 legend=False, dot_color=SPECTRUM_DOT_COLOR, dot_alpha=SPECTRUM_DOT_ALPHA,
                                  stem_color="black", sigma_color=SIGMA_COLOR)
         spectra_axes[mod_i].set_xlabel("Hz")
         spectra_max = max(spectra_max, spectra_axes[mod_i].get_ylim()[1])
