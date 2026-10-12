@@ -135,7 +135,21 @@ def compute_NFC(on_freq, off_freqs):
     return np.abs(on_freq) / np.sqrt(0.5 * np.mean(np.abs(off_freqs)**2))
 
 
-def fit_Fourier(F, T=1, f=0.4, Q_frac=0.1):
+def whole_cycle_length(N, f, T, tol=0.05):
+    """Longest trace length N' <= N whose duration N'*T holds a whole number
+    of cycles of `f` to within `tol` cycles, i.e. the fewest frames to drop
+    from the end so that f lands within `tol` bins of a standard FFT bin.
+    With a non-integer number of frames per cycle (T = 1.0212 s) exact
+    alignment is usually impossible, hence the tolerance; 0.05 bins keeps
+    99.2% of a sinusoid's power in its bin."""
+    for d in range(N // 10 + 1):
+        k = f * (N - d) * T
+        if abs(k - round(k)) <= tol:
+            return N - d
+    raise ValueError(f"no length within 10% of N={N} holds whole cycles of {f} Hz (T={T})")
+
+
+def fit_Fourier(F, T=1, f=0.4, Q_frac=0.1, align="shift"):
     """
     F: (2d arr) fluorescence traces
     T: (int) sample spacing (inverse of sampling rate)
@@ -146,8 +160,26 @@ def fit_Fourier(F, T=1, f=0.4, Q_frac=0.1):
         resolution `1/(N*T)` (N = frame count after the 120-frame-multiple
         truncation below) -- see that function's docstring for the exact
         formula and error conditions.
+    align: (str) how to handle a trace that is not a whole number of
+        stimulus cycles, where the standard FFT bins k/(N*T) miss `f` by the
+        fractional bin offset delta = f*N*T - round(f*N*T) (the 2022 Q1
+        zebrafish, T = 1.0212 s: |delta| up to 0.36 bins, 35% of a
+        sinusoid's power lost). See docs/fourier_grid_shift.md.
+        "shift" (default): evaluate the transform on the grid f + k/(N*T),
+            k = -M..M. The on-frequency coefficient sits exactly on `f`; the
+            off-frequency coefficients stay 1/(N*T) apart, so they remain
+            orthogonal over the N samples and the null is unchanged.
+            Implemented by demodulating the trace by exp(-2*pi*i*delta*n/N)
+            before the FFT.
+        "trim": drop the fewest frames from the end so that f lies within
+            0.05 bins of a standard bin (`whole_cycle_length`), then use the
+            standard grid.
+        "none": the standard grid on all N frames (the behaviour before
+            2026-10-12).
+        All three are identical when delta = 0 (traces of whole cycles).
 
-    Returns NFC_l, onfreq_coef_l, offfreq_coef_l, xf[freq_win], M, avg_signal_l
+    Returns NFC_l, onfreq_coef_l, offfreq_coef_l, freqs of the off-frequency
+    coefficients (shifted with the grid), M, avg_signal_l
     -- avg_signal_l is each cell's mean RAW fluorescence, over the same
     N-frame window the FFT itself analyzes. This is the numerator of the
     `sens` statistic (avg_signal / (2*sigma)), analogous to the spiking-side
@@ -171,6 +203,10 @@ def fit_Fourier(F, T=1, f=0.4, Q_frac=0.1):
     # grid sized for 2280 samples, but actually getting a 1194-sample FFT,
     # ends up reading the bin for ~0.76 Hz instead).
     N = min(int(120 * (F.shape[1] // 60)), F.shape[1])
+    if align not in ("shift", "trim", "none"):
+        raise ValueError(f"align must be 'shift', 'trim' or 'none', not {align!r}")
+    if align == "trim":
+        N = whole_cycle_length(N, f, T)
     avg_signal_l = np.mean(F[:, :N], axis=1)
 
     xf = fftfreq(N, T)[:N // 2]
@@ -185,17 +221,28 @@ def fit_Fourier(F, T=1, f=0.4, Q_frac=0.1):
                            context=f"fit_Fourier @ {f}Hz ")
     freq_win = np.concatenate([np.arange(f0 - M, f0), np.arange(f0 + 1, f0 + M + 1)])
 
+    # Fractional bin offset of f from the nearest standard bin (|delta| <= 0.5).
+    delta = f * N * T - f0 if align == "shift" else 0.0
+    if abs(delta) < 0.01:
+        # Below 0.01 bins (< 0.03% of a sinusoid's power) keep the standard
+        # grid, so whole-cycle traces analysed at a rounded frequency (e.g.
+        # visual_f = 0.016667 for 1/60 Hz) are left exactly as they were.
+        delta = 0.0
+    demod = np.exp(-2j * np.pi * delta * np.arange(N) / N) if delta else None
+
     for cell_ind in range(len(F)):
         # 120 is the lowest common multiple of the periods here.
         y = F[cell_ind, :N].copy()
         y -= np.mean(y)
+        if demod is not None:
+            y = y * demod
         yf = fft(y)[:N//2]
 
         offfreq_coef_l[cell_ind] = yf[freq_win]
         onfreq_coef_l[cell_ind] = yf[f0]
 
     NFC_l = [compute_NFC(c_on, c_off) for c_on, c_off in zip(onfreq_coef_l, offfreq_coef_l)]
-    return NFC_l, onfreq_coef_l, offfreq_coef_l, xf[freq_win], M, avg_signal_l
+    return NFC_l, onfreq_coef_l, offfreq_coef_l, xf[freq_win] + delta / (N * T), M, avg_signal_l
 
 
 
@@ -329,8 +376,12 @@ def remove_flatlines(F, spks=None, stat=None, rtol=0.01, f=0.2, flat_rtol=1e-4):
 
     """Note: if there are nans, that means that the trace is all zeros"""
     # Q_frac here is an artifact-detection window, not stimulus-meaningful --
-    # only needs to clear MIN_FOURIER_BINS at this f=0.2 default.
-    NFC_l, onfreq_coef_l, offfreq_coef_l, xf, _M, _avg_signal_l = fit_Fourier(F, T=1, f=f, Q_frac=0.15)
+    # only needs to clear MIN_FOURIER_BINS at this f=0.2 default. align="none":
+    # a mean-subtracted delta spike gives NFC = sqrt(2) exactly only on the
+    # standard grid (the mean leaks into shifted bins), and the shifted grid
+    # would change which ROIs survive whenever 0.2*N is not an integer.
+    NFC_l, onfreq_coef_l, offfreq_coef_l, xf, _M, _avg_signal_l = fit_Fourier(
+        F, T=1, f=f, Q_frac=0.15, align="none")
     is_constant = np.std(F, axis=1) < flat_rtol * np.abs(np.mean(F, axis=1))
     inclusion_inds = np.where(
         np.logical_not(np.isclose(NFC_l, np.sqrt(2), rtol=rtol))
