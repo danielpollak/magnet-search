@@ -3,8 +3,9 @@
 Writes this experiment's NWB file from its suite2p v1 segmentation (cfg.suite2p_path, local disk):
 PlaneSegmentation (ALL suite2p ROIs) and the same two RoiResponseSeries as engert
 (full-resolution traces, analysed, and suite2p's F.npy, provenance; see
-pipeline/paradigms/engert.py and pipeline/ophys_extraction.py). No tiff slicing: each medaka
-trial was segmented on its own and has one tiff.
+pipeline/paradigms/engert.py and pipeline/ophys_extraction.py). Since 2026-10-07 the six medaka
+trials share one segmentation (suite2p over all six tiffs), so, as for engert, cfg.tiff_name
+picks this trial's frames and the ROIs are the same cells in every trial.
 """
 import os
 
@@ -19,8 +20,8 @@ def run_processing(cfg):
     iscell = np.load(os.path.join(suite2p_dir, "iscell.npy"), allow_pickle=True)
     ops    = ophys_extraction.load_ops(suite2p_dir)
 
-    print(f"[medaka] {cfg.name}: full-resolution traces")
-    tr = ophys_extraction.trial_traces(suite2p_dir)
+    print(f"[medaka] {cfg.name}: full-resolution traces of {cfg.tiff_name or 'all tiffs'}")
+    tr = ophys_extraction.trial_traces(suite2p_dir, cfg.tiff_name or None)
 
     nwbfile = nwb_io.create_nwbfile(cfg)
     ps = nwb_io.write_imaging_plane_and_rois(
