@@ -88,6 +88,9 @@ EXAMPLES = ["engert_20220221_magnet", "engert_20220914_fish2_magneto_0",
 C_K = {5: "#0d366b", 10: "#3987e5", 20: "#86b6ef"}     # ordinal blue ramp, coarse = dark
 OUT_CSV = _HERE / "results_nonstationarity.csv"
 OUT_NPZ = _HERE / "results_nonstationarity_examples.npz"
+OUT_QUAL = _HERE / "results_nonstationarity_roi_quality.csv"
+C_GROUP = {BATCHES[0]: "#8a8a8a", BATCHES[1]: "#eb6834", BATCHES[2]: "#2a78d6",
+           BATCHES[3]: "#1baf7a"}
 # NS_DATA_DIR: read the NWB files and the parquet from another checkout's data/ (they are
 # untracked, so a git worktree has none of its own).
 _DATA = Path(os.environ.get("NS_DATA_DIR", _REPO / "data"))
@@ -474,6 +477,76 @@ def summary(d):
                       f"{n0}/{m0} others ({n0 / max(m0, 1):.3f}), Fisher p = {pf:.2g}")
 
 
+def roi_quality(names):
+    """P(iscell) and npix of every ROI (PlaneSegmentation row = suite2p ROI index), from each
+    experiment's NWB file; cached in OUT_QUAL."""
+    if OUT_QUAL.exists():
+        return pd.read_csv(OUT_QUAL)
+    from pipeline import nwb_io
+    rows = []
+    for name in names:
+        cfg = sv.schema.load_experiment(str(_REPO / "experiments" / f"{name}.yml"))
+        io, nwbfile = nwb_io.read_nwbfile(cfg.nwb_path())
+        try:
+            _, roi_df = nwb_io.read_roi_data(nwbfile)
+        finally:
+            io.close()
+        rows.append(pd.DataFrame(dict(experiment=name, roi=np.arange(len(roi_df)),
+                                      p_iscell=roi_df["p_iscell"].values,
+                                      npix=roi_df["npix"].values)))
+    q = pd.concat(rows, ignore_index=True)
+    q.to_csv(OUT_QUAL, index=False)
+    return q
+
+
+def fig_quality(d, q, out, K=10):
+    """Block-shuffle p of each metric against the ROI's npix and P(iscell), every real ROI,
+    coloured by recording group, with the median p per decile of x."""
+    r = d[~d.synthetic].merge(q, on=["experiment", "roi"], how="left")
+    assert r.npix.notna().all(), "ROIs without a PlaneSegmentation row"
+    xs = [("npix", "ROI size (pixels)", True), ("p_iscell", "P(iscell)", False)]
+    fig, axes = plt.subplots(len(xs), len(METRICS), figsize=(13, 7.2), sharey=True)
+    for a, (xc, xlab, logx) in enumerate(xs):
+        for b, (k, lab) in enumerate(METRICS):
+            ax = axes[a, b]
+            c = f"p_block_{k}_{K}"
+            for g in BATCHES:
+                sub = r[(r.batch == g) & r[c].notna()]
+                ax.scatter(sub[xc], sub[c], s=2, color=C_GROUP[g], alpha=0.25, lw=0,
+                           rasterized=True)
+            # Median p per decile of x within each group: the groups differ in both ROI size
+            # and nonstationarity, so a pooled curve would mostly show group composition.
+            for g in BATCHES:
+                sub = r[(r.batch == g) & r[c].notna()]
+                edges = np.unique(np.quantile(sub[xc], np.linspace(0, 1, 11)))
+                mid, med = [], []
+                for lo, hi in zip(edges[:-1], edges[1:]):
+                    sel = (sub[xc] >= lo) & (sub[xc] <= hi)
+                    mid.append(np.median(sub.loc[sel, xc]))
+                    med.append(np.median(sub.loc[sel, c]))
+                ax.plot(mid, med, color="white", lw=3.2, zorder=4)
+                ax.plot(mid, med, color=C_GROUP[g], lw=1.6, marker="o", ms=3, zorder=5)
+                print(f"  Spearman {xc} vs {c}, {g}: {stats.spearmanr(sub[xc], sub[c])[0]:+.2f}")
+            ax.axhline(ALPHA, color=C_INK, lw=0.8, ls="--", zorder=3)
+            ax.set_yscale("log")
+            ax.set_ylim(8e-4, 1.05)
+            if logx:
+                ax.set_xscale("log")
+            _style(ax)
+            if a == 0:
+                ax.set_title(lab, fontsize=9, color=C_INK)
+            if b == 0:
+                ax.set_ylabel(f"block-shuffle p (K = {K})", fontsize=8)
+            ax.set_xlabel(xlab, fontsize=8)
+    h = [plt.Line2D([], [], marker="o", ls="", color=C_GROUP[g], label=g) for g in BATCHES]
+    h += [plt.Line2D([], [], color=C_MUTED, marker="o", ms=3, label="median p per decile of x"),
+          plt.Line2D([], [], color=C_INK, ls="--", label=f"p = {ALPHA}")]
+    fig.legend(handles=h, fontsize=7.5, frameon=False, ncol=6, loc="upper center")
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+
+
 def figures(d):
     ex = load_examples()
     name = EXAMPLES[2]
@@ -481,6 +554,7 @@ def figures(d):
     fig_metrics(d, ex, name, _HERE / "fig_ns_metrics.png")
     fig_null(d, ex, name, _HERE / "fig_ns_null.png")
     fig_population(d, _HERE / "fig_ns_population.png")
+    fig_quality(d, roi_quality(recordings()), _HERE / "fig_ns_roi_quality.png")
 
 
 def main():
