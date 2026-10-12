@@ -6,15 +6,24 @@ than a stationary trace's would?
 
 Write-up: docs/nonstationarity.md.
 
-Every trace is cut into K = 5, 10 and 20 equal chunks (the remainder frames at the end are
-dropped). In each chunk:
+Every trace is cut into K = 5, 10 and 20 equal chunks, each a whole number of cycles of the
+recording's analysis frequency f: L is the longest length <= N // K with f * L * T within 0.05
+cycles of a whole number (chunk_length; exact when T = 1 s). The frames after the K-th chunk are
+dropped. In the 2022 Q1 recordings (T = 1.0212 s) a cycle is not a whole number of frames, and the
+leftover (< 0.05 cycles) is removed by shifting the chunk's Fourier grid, as production
+fit_Fourier(align="shift") does (docs/fourier_grid_shift.md), so a coefficient sits exactly on f.
+In each chunk:
   cv2   CV^2 of the chunk's periodogram ordinates from 0.05 Hz to just below Nyquist, stimulus
-        bin excluded, each ordinate divided by that ROI's mean ordinate at the same frequency over
-        the K chunks (so a coloured spectrum doesn't inflate it). 1 for Gaussian noise.
+        coefficient excluded, each ordinate divided by that ROI's mean ordinate at the same
+        frequency over the K chunks (so a coloured spectrum doesn't inflate it). 1 for Gaussian
+        noise.
   rms   RMS about the whole trace's mean (level and amplitude together).
-  band  mean periodogram power in the NFC reference window: M = round(Q_frac * f / resolution)
-        bins either side of the stimulus bin at the chunk's own resolution (production's
-        bins_for_fraction, without its minimum-bins floor), stimulus bin excluded. NaN if M = 0.
+  band  mean periodogram power in the NFC reference window: the M = round(Q_frac * cycles)
+        coefficients adjacent to the stimulus coefficient on each side (production's
+        bins_for_fraction at the chunk's resolution, without its minimum-bins floor), stimulus
+        coefficient excluded. NaN if M = 0.
+
+Run from a git worktree with NS_DATA_DIR=<main checkout>/data (the NWB files are untracked).
 Across the K chunks the dispersion is std / mean (scale-free). Its null comes from 1,000
 replicates of each of two shuffles of the whole trace, one permutation per replicate shared by
 all ROIs of a recording:
@@ -67,6 +76,7 @@ N_REP = 1000
 BATCH = 25
 BLOCK_S = 10.0
 F_MIN = 0.05
+CYCLE_TOL = 0.05     # cycles; as fit_Fourier's whole_cycle_length (keeps >= 99.2% of the power)
 N_SYNTH = 20
 ALPHA = 0.05
 BATCHES = ["zebrafish 0.4 Hz (2022 Q1)", "zebrafish 0.3 Hz", "zebrafish 0.1 Hz", "medaka 0.1 Hz"]
@@ -78,7 +88,18 @@ C_K = {5: "#0d366b", 10: "#3987e5", 20: "#86b6ef"}     # ordinal blue ramp, coar
 C_FULL = "#b0b0b0"
 OUT_CSV = _HERE / "results_nonstationarity.csv"
 OUT_NPZ = _HERE / "results_nonstationarity_examples.npz"
-PARQUET = _REPO / "data" / "manuscript" / "all_fourier_df.parquet"
+# NS_DATA_DIR: read the NWB files and the parquet from another checkout's data/ (they are
+# untracked, so a git worktree has none of its own).
+_DATA = Path(os.environ.get("NS_DATA_DIR", _REPO / "data"))
+PARQUET = _DATA / "manuscript" / "all_fourier_df.parquet"
+if "NS_DATA_DIR" in os.environ:
+    _load_experiment = sv.schema.load_experiment
+
+    def _load_with_data_dir(path):
+        cfg = _load_experiment(path)
+        cfg.data_dir = str(_DATA)
+        return cfg
+    sv.schema.load_experiment = _load_with_data_dir
 
 
 # ------------------------------------------------------------------ recordings
@@ -105,23 +126,42 @@ def describe(name, f):
 
 
 # ------------------------------------------------------------------ metrics
+def chunk_length(N, K, f, T):
+    """(L, cycles, delta): the longest chunk L <= N // K frames that holds a whole number of
+    stimulus cycles, f * L * T, to within CYCLE_TOL; delta is what's left over (0 when T = 1 s,
+    where a cycle of 0.1 Hz is 10 frames and of 0.3 Hz 3 cycles per 10 frames)."""
+    for L in range(N // K, 0, -1):
+        kappa = f * L * T
+        if round(kappa) >= 1 and abs(kappa - round(kappa)) <= CYCLE_TOL:
+            return L, int(round(kappa)), kappa - round(kappa)
+    raise ValueError(f"no whole-cycle chunk for N={N}, K={K}, f={f}, T={T}")
+
+
 def chunk_metrics(X, T, f, qf, mu, K):
     """Per-chunk metrics of traces X (..., ROI, N): dict name -> (..., ROI, K), and the number
-    of reference-window bins."""
-    L = X.shape[-1] // K
+    of reference-window bins. Chunks hold whole stimulus cycles (chunk_length); a leftover
+    below CYCLE_TOL is removed by shifting the chunk's Fourier grid by delta bins, as production
+    fit_Fourier(align="shift") does, so a coefficient sits exactly on f and the reference window is
+    its adjacent coefficients."""
+    L, kappa, delta = chunk_length(X.shape[-1], K, f, T)
     C = X[..., :K * L].reshape(*X.shape[:-1], K, L)
     rms = np.sqrt(np.mean((C - mu[:, None, None]) ** 2, -1))
-    P = np.abs(sfft.rfft(C - C.mean(-1, keepdims=True), axis=-1)) ** 2 / L
-    xf = np.fft.rfftfreq(L, T)
-    idx = np.arange(len(xf))
-    k0 = int(np.argmin(np.abs(xf - f)))
-    sel = (xf >= F_MIN) & (idx != k0)
-    if L % 2 == 0:
-        sel[-1] = False
+    C = C - C.mean(-1, keepdims=True)
+    nb = L // 2 + 1
+    if abs(delta) < 1e-9:
+        Y = sfft.rfft(C, axis=-1)
+    else:
+        n = np.arange(L)
+        Y = sfft.fft(C * np.exp(-2j * np.pi * delta * n / L).astype(np.complex64), axis=-1)[..., :nb]
+    P = np.abs(Y) ** 2 / L
+    idx = np.arange(nb)
+    xf = (idx + delta) / (L * T)
+    k0 = kappa
+    sel = (xf >= F_MIN) & (idx != k0) & (idx < L / 2)
     with np.errstate(invalid="ignore", divide="ignore"):
         W = P[..., sel] / P[..., sel].mean(-3, keepdims=True)
         cv2 = W.var(-1) / W.mean(-1) ** 2
-    Mc = int(round(qf * f * L * T))
+    Mc = int(round(qf * kappa))
     band = (np.abs(idx - k0) <= Mc) & (idx != k0)
     bp = P[..., band].mean(-1) if band.any() else np.full(rms.shape, np.nan)
     return dict(cv2=cv2, rms=rms, band=bp), int(band.sum())
@@ -191,7 +231,9 @@ def run(name):
         for K in KS:
             d[f"obs_{k}_{K}"] = obs[k, K]
             if k == "band":
+                L, kappa, delta = chunk_length(N, K, f, T)
                 d[f"nbins_band_{K}"] = nbins[K]
+                d[f"L_{K}"], d[f"cycles_{K}"], d[f"delta_{K}"] = L, kappa, delta
             for nl in NULLS:
                 z = null[nl, k, K]
                 d[f"p_{nl}_{k}_{K}"] = (1 + (z >= obs[k, K]).sum(0)) / (1 + N_REP)
@@ -200,7 +242,7 @@ def run(name):
     ex = None
     if name in EXAMPLES:
         n = len(F)
-        ex = dict(F=F, roi=roi, T=T,
+        ex = dict(F=F, roi=roi, T=T, f=f,
                   **{f"series_{k}_{K}": series[k, K][:n] for k, _ in METRICS for K in KS},
                   **{f"null_{nl}_{k}_{K}": null[nl, k, K][:, :n]
                      for nl in NULLS for k, _ in METRICS for K in KS})
@@ -251,10 +293,10 @@ def example_roi(d, ex, name):
     return int(np.argsort(cv)[int(0.95 * (len(cv) - 1))])
 
 
-def _chunk_lines(ax, N, T):
+def _chunk_lines(ax, N, T, f):
     for K, top in ((20, 0.33), (10, 0.66), (5, 1.0)):
-        L = N // K
-        for c in range(1, K):
+        L = chunk_length(N, K, f, T)[0]
+        for c in range(1, K + 1):
             ax.axvline(c * L * T / 60, ymin=0, ymax=top, color=C_K[K], lw=1.0 if K == 5 else 0.7,
                        zorder=3)
 
@@ -267,7 +309,7 @@ def fig_procedure(d, ex, out):
         y, T = e["F"][i], float(e["T"])
         t = np.arange(len(y)) * T / 60
         ax.plot(t, y, color=C_INK, lw=0.4, zorder=2)
-        _chunk_lines(ax, len(y), T)
+        _chunk_lines(ax, len(y), T, float(e["f"]))
         ax.set_xlim(0, t[-1])
         b = describe(name, 0.4 if "20220221" in name else (0.3 if "0914" in name else 0.1))[0]
         ax.set_title(f"{b}: {name}, ROI {int(e['roi'][i])}", fontsize=8, loc="left", color=C_INK)
@@ -290,7 +332,7 @@ def fig_metrics(d, ex, name, out):
     for ax, (k, lab) in zip(axes, METRICS):
         for K in KS:
             v = e[f"series_{k}_{K}"][i]
-            L = N // K
+            L = chunk_length(N, K, float(e["f"]), T)[0]
             edges = np.arange(K + 1) * L * T / 60
             ax.stairs(v, edges, color=C_K[K], lw=1.6 if K == 5 else 1.1, label=f"K = {K}",
                       baseline=None)
@@ -399,20 +441,31 @@ def summary(d):
     print("\nmedian share p < 0.05 per recording, block null:")
     cols = [f"p_block_{k}_{K}" for k, _ in METRICS for K in KS]
     print(real.groupby(["batch", "visual", "coil"])[cols].median().round(2).to_string())
-    print("\nreference-window bins per chunk:")
-    print(d[~d.synthetic].groupby("batch")[[f"nbins_band_{K}" for K in KS]].agg(["min", "max"]))
+    print("\nchunks (frames L, whole cycles, leftover delta, frames used), reference-window bins:")
+    cols = [c for K in KS for c in (f"L_{K}", f"cycles_{K}", f"delta_{K}", f"nbins_band_{K}")]
+    t = d[~d.synthetic].groupby(["batch", "N", "freq"])[cols].first()
+    for K in KS:
+        t[f"used_{K}"] = K * t[f"L_{K}"]
+    print(t.round(3).to_string())
+    print("\nsuspects (production p < 0.01 at the recording's analysis frequency) vs other ROIs,"
+          " share with block p < 0.05:")
     r = d[~d.synthetic & d.p_1F.notna()]
-    sus = r.p_1F < 0.01
-    print(f"\nsuspects (1F p < 0.01): {sus.sum()} of {len(r)}")
-    for k, _ in METRICS:
-        for K in (10,):
-            c = f"p_block_{k}_{K}"
-            ok = r[c].notna()
-            a = ((r[c] < ALPHA) & sus & ok).sum(); b = (sus & ok).sum()
-            c2 = ((r[c] < ALPHA) & ~sus & ok).sum(); d2 = (~sus & ok).sum()
-            pf = stats.fisher_exact([[a, b - a], [c2, d2 - c2]])[1]
-            print(f"  {k} K={K}: nonstationary {a}/{b} suspects ({a / max(b, 1):.2f}) vs "
-                  f"{c2}/{d2} others ({c2 / max(d2, 1):.2f}), Fisher p = {pf:.2g}")
+    groups = [("magnetic frequency, no visual stimulus", (r.freq > 0.02) & ~r.visual),
+              ("magnetic frequency, grating trials", (r.freq > 0.02) & r.visual),
+              ("grating frequency 1/60 Hz (2022 Q1 visual)", r.freq < 0.02)]
+    for gname, g in groups:
+        x = r[g]
+        sus = x.p_1F < 0.01
+        print(f"  {gname}: {sus.sum()} suspects of {len(x)} ROIs")
+        for k, _ in METRICS:
+            for K in KS:
+                c = f"p_block_{k}_{K}"
+                ok = x[c].notna()
+                n1 = ((x[c] < ALPHA) & sus & ok).sum(); m1 = (sus & ok).sum()
+                n0 = ((x[c] < ALPHA) & ~sus & ok).sum(); m0 = (~sus & ok).sum()
+                pf = stats.fisher_exact([[n1, m1 - n1], [n0, m0 - n0]])[1]
+                print(f"    {k:5s} K={K:2d}: {n1}/{m1} suspects ({n1 / max(m1, 1):.3f}) vs "
+                      f"{n0}/{m0} others ({n0 / max(m0, 1):.3f}), Fisher p = {pf:.2g}")
 
 
 def figures(d):
