@@ -1,6 +1,6 @@
 # Nonstationarity of the imaging traces
 
-**Date:** 2026-10-12. **Branch:** `nonstationarity-nested` (first version: `nonstationarity-doc`). **Script:** `docs/nonstationarity/nonstationarity.py --workers 24` (~20 min on 24 cores; `--figures-only` replots). **Related:** [`fourier_grid_shift.md`](fourier_grid_shift.md) (the shifted Fourier grid used here for the 2022 Q1 chunks).
+**Date:** 2026-10-12. **Branch:** `nonstationarity-block-only` (earlier: `nonstationarity-doc`, `nonstationarity-nested`). **Script:** `docs/nonstationarity/nonstationarity.py --workers 24` (~20 min on 24 cores; `--figures-only` replots). **Related:** [`fourier_grid_shift.md`](fourier_grid_shift.md) (the shifted Fourier grid used here for the 2022 Q1 chunks).
 
 **Question.** Do a ROI's statistics change within a recording more than they would in a stationary trace with the same values and the same short-range autocorrelation? fit_Fourier's null assumes they don't.
 
@@ -60,15 +60,15 @@ Everywhere else at least 92% of the frames are used.
 - A raw std carries the trace's units, so it can't be compared across ROIs.
 - The per-ROI p-value is essentially the same either way, because shuffling doesn't change the mean.
 
-**Null.** The dispersion's null comes from 1,000 replicates of each of two shuffles of the whole trace. Within a recording, every ROI shares the same permutation in a given replicate.
-- **Full shuffle:** every frame is permuted. This destroys short-range autocorrelation as well as slow structure, so it tests "independent frames", not only "stationary".
-- **Block shuffle:** contiguous 10 s blocks are permuted. This keeps the values and the autocorrelation within 10 s and destroys only slower structure.
-- p = (1 + number of replicates with dispersion ≥ observed) / 1001. The smallest possible p is therefore 0.001.
+**Null: block shuffle.** The dispersion's null comes from 1,000 block shuffles of the whole trace.
+- **How:** contiguous 10 s blocks are permuted. This keeps the values and the autocorrelation within 10 s, and destroys only slower structure.
+- **Shared permutations:** within a recording, every ROI gets the same permutation in a given replicate.
+- **p-value:** p = (1 + number of replicates with dispersion ≥ observed) / 1001, so the smallest possible p is 0.001.
 
-**Control.** In each recording, 20 ROIs were replaced by stationary Gaussian AR(1) traces with the same lag-1 autocorrelation and variance, 1,000 traces in all, and run through the same procedure. Rows with `synthetic=True` in the results table.
-- **Block shuffle:** p < 0.05 in 4.0–8.0% of these traces across the nine metric × K conditions, i.e. calibrated. RMS is slightly high, 7–8%.
-- **Full shuffle:** CV² is flagged in 11% and RMS in 20–33%. These traces are stationary by construction, so the full shuffle over-rejects through autocorrelation alone.
-- **The block shuffle is therefore the null used below.**
+**Control.** In each recording, 20 ROIs were replaced by stationary Gaussian AR(1) traces with the same lag-1 autocorrelation and variance, 1,000 traces in all, and run through the same procedure (rows with `synthetic=True` in the results table).
+- **The block shuffle is calibrated on them:** p < 0.05 in 4.0–8.0% of these traces across the nine metric × K conditions. RMS is slightly high, at 7–8%.
+- **Why not permute every frame:** shuffling single frames destroys short-range autocorrelation along with slow structure, so it tests "independent frames" rather than "stationary". On the same stationary AR(1) traces it flags CV² in 11% and RMS in 20–33%, so it over-rejects through autocorrelation alone.
+- **What's still computed:** the script still computes the frame shuffle for this check; its columns are `p_full_*` in the results table. It is not used anywhere else in this report.
 
 ## The procedure on example traces
 
@@ -82,13 +82,13 @@ Everywhere else at least 92% of the frames are used.
 
 ![Null distributions](nonstationarity/fig_ns_null.png)
 
-<sub>**Figure 3. Where the same ROI's dispersions sit on the two nulls.** Rows: metric. Columns: K. Histograms: dispersion (std/mean across chunks) in 1,000 shuffles, 40 bins; grey = full shuffle, blue = block shuffle (shade = K); legends give each null's p. Black: observed. CV² is typical (block p = 0.35–0.85). RMS is beyond all or nearly all replicates (block p ≤ 0.002). Reference-window power is in the top 1–4% (block p = 0.014–0.037).</sub>
+<sub>**Figure 3. Where the same ROI's dispersions sit on the block-shuffle null.** Rows: metric. Columns: K. Histograms: dispersion (std/mean across chunks) in 1,000 block shuffles, 40 bins; shade = K; legends give p. Black: observed. CV² is typical (block p = 0.35–0.85). RMS is beyond all or nearly all replicates (block p ≤ 0.002). Reference-window power is in the top 1–4% (block p = 0.014–0.037).</sub>
 
 ## Population
 
 ![Population](nonstationarity/fig_ns_population.png)
 
-<sub>**Figure 4. Share of ROIs whose dispersion has p < 0.05, per recording.** Columns: metric. Top row: full-shuffle null. Bottom row: block-shuffle null. Within each group, colour = K (dark = 5, medium = 10, light = 20). Filled circles: recordings without a visual stimulus. Open triangles: recordings with the grating. AR(1) control: the synthetic traces pooled per recording group, one point per group and K. Dashed: 0.05, the share expected when every ROI is stationary.</sub>
+<sub>**Figure 4. Share of ROIs whose dispersion has block-shuffle p < 0.05, per recording.** Columns: metric. Within each group, colour = K (dark = 5, medium = 10, light = 20). Filled circles: recordings without a visual stimulus. Open triangles: recordings with the grating. AR(1) control: the synthetic traces pooled per recording group, one point per group and K. Dashed: 0.05, the share expected when every ROI is stationary.</sub>
 
 **Table 2.** Share of ROIs with block-null p < 0.05 (all 33,339 ROIs).
 

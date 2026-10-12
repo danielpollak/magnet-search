@@ -86,7 +86,6 @@ SHORT = {BATCHES[0]: "zfish 0.4 Hz\n(2022 Q1)", BATCHES[1]: "zfish 0.3 Hz",
 EXAMPLES = ["engert_20220221_magnet", "engert_20220914_fish2_magneto_0",
             "engert_20221001_fish2_magneto_0", "medaka_fish3_8dpf_magneto_0"]
 C_K = {5: "#0d366b", 10: "#3987e5", 20: "#86b6ef"}     # ordinal blue ramp, coarse = dark
-C_FULL = "#b0b0b0"
 OUT_CSV = _HERE / "results_nonstationarity.csv"
 OUT_NPZ = _HERE / "results_nonstationarity_examples.npz"
 # NS_DATA_DIR: read the NWB files and the parquet from another checkout's data/ (they are
@@ -366,11 +365,11 @@ def fig_null(d, ex, name, out):
         for b, K in enumerate(KS):
             ax = axes[a, b]
             o = r[f"obs_{k}_{K}"]
-            for nl, c in (("full", C_FULL), ("block", C_K[K])):
+            for nl, c in (("block", C_K[K]),):   # full shuffle not shown: it over-rejects
                 z = e[f"null_{nl}_{k}_{K}"][:, i]
                 z = z[np.isfinite(z)]
                 if len(z):
-                    ax.hist(z, bins=40, color=c, alpha=0.8 if nl == "block" else 0.9, lw=0,
+                    ax.hist(z, bins=40, color=c, alpha=0.85, lw=0,
                             label=f"{nl} shuffle, {_p(r[f'p_{nl}_{k}_{K}'])}")
             if np.isfinite(o):
                 ax.axvline(o, color=C_INK, lw=1.4, label="observed")
@@ -401,12 +400,13 @@ def shares(d):
 
 def fig_population(d, out):
     s = shares(d)
-    fig, axes = plt.subplots(len(NULLS), len(METRICS), figsize=(13, 6.5), sharey=True)
+    fig, axes = plt.subplots(1, len(METRICS), figsize=(13, 3.8), sharey=True)
     rng = np.random.default_rng(0)
     groups = BATCHES + ["AR(1) control"]
-    for a, nl in enumerate(NULLS):
+    nl = "block"   # the full shuffle over-rejects stationary AR(1) traces (summary), so not shown
+    for a in (0,):
         for b, (k, lab) in enumerate(METRICS):
-            ax = axes[a, b]
+            ax = axes[b]
             for gi, g in enumerate(groups):
                 sub = s[s.synthetic] if g == groups[-1] else s[(s.batch == g) & ~s.synthetic]
                 for ki, K in enumerate(KS):
@@ -425,13 +425,13 @@ def fig_population(d, out):
             if a == 0:
                 ax.set_title(lab, fontsize=9, color=C_INK)
             if b == 0:
-                ax.set_ylabel(f"{nl} shuffle\nshare of ROIs with p < {ALPHA}", fontsize=8)
+                ax.set_ylabel(f"share of ROIs with p < {ALPHA}", fontsize=8)
     h = [plt.Line2D([], [], marker="o", ls="", color=C_K[K], label=f"K = {K}") for K in KS]
     h += [plt.Line2D([], [], marker="o", ls="", color=C_MUTED, label="no visual stimulus"),
           plt.Line2D([], [], marker="^", ls="", mfc="none", mec=C_MUTED, label="visual stimulus"),
           plt.Line2D([], [], color=C_INK, ls="--", label=f"expected {ALPHA}")]
     fig.legend(handles=h, fontsize=7, frameon=False, ncol=6, loc="upper center")
-    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    fig.tight_layout(rect=(0, 0, 1, 0.90))
     fig.savefig(out, dpi=150)
     plt.close(fig)
 
