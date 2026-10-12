@@ -2278,7 +2278,7 @@ def boundarize_and_nestle(ax, x=True, y=True, xprec=1, yprec=1, x_offset=0, y_of
 
 def plot_spectrum(ax:plt.Axes.axes, fou_alt:np.complex64, win, stimulus_frequency,
     stimulus_frequency_power:np.complex64, legend=False, central_tendency=False,
-    dot_color="black", stem_color="blue", sigma_color=None):
+    dot_color="black", stem_color="blue", sigma_color=None, dot_alpha=0.85):
     """Plots the spectrum of a fourier transformed signal around some frequency of interest
     Parameters
     ----------
@@ -2302,6 +2302,8 @@ def plot_spectrum(ax:plt.Axes.axes, fou_alt:np.complex64, win, stimulus_frequenc
         own default cycle color, matching original behavior) -- pass an
         explicit color (e.g. "gray") when `dot_color` would otherwise clash
         with it (e.g. when `dot_color` is also blue-ish).
+    dot_alpha : optional
+        Opacity of the off-frequency |c_n| scatter. Defaults to 0.85.
     """
     # sgm_c is the literal NFC denominator (get_sgm/get_NFC in
     # fourier_analysis, and the manuscript's own
@@ -2318,15 +2320,20 @@ def plot_spectrum(ax:plt.Axes.axes, fou_alt:np.complex64, win, stimulus_frequenc
     # bin, not real/imag scattered separately -- see get_sgm), so the
     # off-frequency scatter now plots the same quantity, |fou_alt|, putting
     # every marker in this panel on a consistent "modulus" footing.
-    ax.plot(win, np.abs(fou_alt), ".", color=dot_color, alpha=0.85, markersize=1, label=r"$|c_n|$")
+    ax.plot(win, np.abs(fou_alt), ".", color=dot_color, alpha=dot_alpha, markersize=1, label=r"$|c_n|$")
 
+    # The stem and its |c_s| dot sit BEHIND the off-frequency scatter
+    # (zorder 1.5 < the scatter's default 2), so the stem line doesn't cover
+    # any |c_n| point it passes through. The dot is opaque with no edge: at
+    # alpha < 1 its edge composited over its own face read as a grey ring.
     markerline, stemline, baseline = ax.stem(
         [stimulus_frequency], np.abs(stimulus_frequency_power), stem_color, bottom=sgm_c)
 
-    ax.plot([stimulus_frequency], np.abs(stimulus_frequency_power), stem_color, marker="o", alpha=.8, markersize=4,label=r"$|c_s|$")
-    plt.setp(stemline, linewidth=1, color=stem_color)
-    plt.setp(markerline, markersize=2, linewidth=1, color=stem_color)
-    plt.setp(baseline, linewidth=2, color=stem_color)
+    ax.plot([stimulus_frequency], np.abs(stimulus_frequency_power), stem_color, marker="o",
+            markersize=4, markeredgewidth=0, zorder=1.5, label=r"$|c_s|$")
+    plt.setp(stemline, linewidth=1, color=stem_color, zorder=1.5)
+    plt.setp(markerline, visible=False)  # the dot above is the marker
+    plt.setp(baseline, linewidth=2, color=stem_color, zorder=1.5)
 
     ylim = ax.get_ylim()
     ax.set_ylim((0, ylim[1]))
