@@ -117,6 +117,29 @@ Everywhere else at least 92% of the frames are used.
   - CV² does not differ (p = 0.78).
   - Coil condition and acquisition order are confounded, though. The two conditions are separate acquisitions. Medaka's no-magnet folder is named `14844_after`, so it was recorded later; the order is unknown for the zebrafish.
 
+## Nonstationarity barely depends on ROI size or P(iscell)
+
+**The question.** Could nonstationarity be an ROI-quality effect, for example small or doubtful ROIs whose traces wander? ROI size is the number of pixels in the suite2p mask (npix ≥ 10 in production). P(iscell) is suite2p's classifier probability (> 0.5 in production).
+
+![ROI quality](nonstationarity/fig_ns_roi_quality.png)
+
+<sub>**Figure 5. Block-shuffle p (K = 10) of each metric against ROI size (top, log scale) and P(iscell) (bottom), for every ROI.** Dots: ROIs, coloured by recording group. Lines: median p per decile of x, within each group. Dashed: p = 0.05; lower = more nonstationary. Vertical stripes are integer pixel counts. The row at p = 0.001 is the floor (beyond all 1,000 shuffles).</sub>
+
+**Table 4.** Spearman correlation between each ROI property and the block-shuffle p (K = 10), within each recording group. Negative means larger or more cell-like ROIs are more nonstationary.
+
+| | 2022 Q1 | 0.3 Hz zebrafish | 0.1 Hz zebrafish | medaka |
+|---|---|---|---|---|
+| ROI size, CV² | −0.03 | +0.01 | +0.02 | +0.06 |
+| ROI size, RMS | −0.13 | +0.02 | −0.10 | −0.14 |
+| ROI size, reference-window power | −0.04 | +0.08 | −0.03 | −0.03 |
+| P(iscell), CV² | −0.01 | +0.02 | +0.00 | +0.03 |
+| P(iscell), RMS | −0.06 | −0.09 | −0.04 | −0.05 |
+| P(iscell), reference-window power | −0.03 | −0.09 | −0.01 | −0.05 |
+
+- **All correlations are weak,** with |ρ| ≤ 0.14. ROI quality explains almost none of the nonstationarity.
+- **Where there is a trend, it runs the other way from the worry.** Larger ROIs and ROIs that look more like cells are slightly *more* nonstationary in RMS (the 2022 Q1, 0.1 Hz zebrafish and medaka groups). That fits real cells with more signal, whose slow changes in activity are easier to detect, rather than junk ROIs.
+- **Pooled across groups, the RMS curve against ROI size has a hump. It comes from the mix of groups, not from size.** The 2022 Q1 ROIs are much larger (median 67 pixels, against 15–25 elsewhere) and less nonstationary than the 0.3 Hz and 0.1 Hz zebrafish. That's why the figure draws one median curve per group.
+
 ## The suspects are not more nonstationary than the other ROIs
 
 **The question.** Are ROIs with a significant production test (p < 0.01 at the recording's analysis frequency, current parquet) flagged more often than the other ROIs of the same kind of test?
@@ -153,3 +176,4 @@ Outputs (gitignored, next to the script):
   - the chunk length, number of cycles and leftover per K;
   - the production p-value at the analysis frequency.
 - `results_nonstationarity_examples.npz`: the four example recordings' traces, chunk series and null replicates.
+- `results_nonstationarity_roi_quality.csv`: P(iscell) and npix of every ROI, read from the NWB files (Figure 5).
