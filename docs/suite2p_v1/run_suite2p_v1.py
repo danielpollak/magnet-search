@@ -22,6 +22,11 @@ the ORIGINAL suite2p/plane0/ output):
 4. Refuses to run unless data_path, save_path0, fast_disk (and every other path it writes to)
    are local: not starting with // or \\\\, not containing "datanas", not on a network drive,
    and inside <local-root>.
+   With --scale K, suite2p reads x K copies of the tiffs (<run-name>/tiffs_xK/) instead: in
+   the photon-starved medaka movies (pixel values 99-306) suite2p's reference image has only
+   ~6 grey levels after its uint16 halving, norm_frames clips everything to about one value,
+   and registration returns the same shift for every frame. 2022_10_02-fish1's tiffs were
+   saved x256 and register normally; x128 does the same for medaka (2026-10-07).
 5. Runs suite2p.run_s2p and records runtime, GPU, versions and per-file frame counts in
    settings_used.json. The original NAS plane0 files' sizes and mtimes are recorded before and
    after the run and must be unchanged.
@@ -333,6 +338,22 @@ def copy_tiffs(src_dir, names, dst_dir, local_root):
         print(f"  copied {n} ({size / 1e9:.2f} GB, {time.time() - t:.0f} s)")
 
 
+def scale_tiffs(src_dir, names, dst_dir, k, local_root):
+    """Write uint16 copies of the tiffs multiplied by k; refuse if any pixel would overflow."""
+    import tifffile
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    assert_local(dst_dir, local_root)
+    for n in names:
+        dst = dst_dir / n
+        assert_local(dst, local_root)
+        with tifffile.TiffFile(Path(src_dir) / n) as tf:
+            a = np.stack([p.asarray() for p in tf.pages])
+        if a.dtype != np.uint16 or int(a.max()) * k > 65535:
+            raise ValueError(f"{n}: {a.dtype}, max {a.max()}: x{k} would not fit in uint16")
+        tifffile.imwrite(dst, (a.astype(np.uint32) * k).astype(np.uint16))
+        print(f"  scaled {n} x{k} (max {a.max()} -> {int(a.max()) * k})")
+
+
 def tiff_nframes(path):
     import tifffile
     with tifffile.TiffFile(path) as tf:
@@ -354,6 +375,9 @@ def main():
     ap.add_argument("--force", action="store_true",
                     help="delete an existing local output/ folder and rerun from scratch")
     ap.add_argument("--dry-run", action="store_true", help="build and print settings; no copy, no run")
+    ap.add_argument("--scale", type=int, default=1,
+                    help="run suite2p on uint16 copies of the tiffs multiplied by this factor "
+                         "(written to <run-name>/tiffs_x<scale>/); see step 4 above")
     ap.add_argument("--delete-tiffs", action="store_true",
                     help="delete the local tiff copies after a successful run")
     a = ap.parse_args()
@@ -373,7 +397,8 @@ def main():
     run_name = a.run_name or Path(a.session).name
     run_dir = Path(a.local_root) / run_name
     tiff_dir, out_dir = run_dir / "tiffs", run_dir / "output"
-    for p in (run_dir, tiff_dir, out_dir):
+    s2p_tiff_dir = run_dir / f"tiffs_x{a.scale}" if a.scale != 1 else tiff_dir
+    for p in (run_dir, tiff_dir, s2p_tiff_dir, out_dir):
         assert_local(p, a.local_root)
 
     old = np.load(plane0 / "ops.npy", allow_pickle=True).item()
@@ -391,7 +416,11 @@ def main():
         mapping.append(dict(old_key="batch_size", old_value=_py(old.get("batch_size")),
                             v1_key="registration.batch_size", v1_value=a.reg_batch_size,
                             note="overridden on the command line (GPU memory)"))
-    db.update(data_path=[str(tiff_dir)], save_path0=str(out_dir), fast_disk=str(out_dir),
+    if a.scale != 1:
+        mapping.append(dict(old_key="(tiffs)", old_value="as acquired", v1_key="db.data_path",
+                            v1_value=f"tiffs_x{a.scale}",
+                            note=f"suite2p reads the tiffs multiplied by {a.scale} (--scale)"))
+    db.update(data_path=[str(s2p_tiff_dir)], save_path0=str(out_dir), fast_disk=str(out_dir),
               file_list=names, save_folder="suite2p")
     assert_all_local(db, a.local_root)
 
@@ -406,7 +435,8 @@ def main():
     run_dir.mkdir(parents=True, exist_ok=True)
     have = sum((tiff_dir / n).stat().st_size for n in names
                if (tiff_dir / n).exists() and (tiff_dir / n).stat().st_size == sizes[n])
-    need = (sum(sizes.values()) - have) + sum(sizes.values()) + SAFETY_MARGIN_GB * 1e9
+    need = ((sum(sizes.values()) - have) + sum(sizes.values()) * (2 if a.scale != 1 else 1)
+            + SAFETY_MARGIN_GB * 1e9)
     free = shutil.disk_usage(run_dir).free
     print(f"disk: {free / 1e9:.0f} GB free, need ~{need / 1e9:.1f} GB "
           f"(tiffs {sum(sizes.values()) / 1e9:.1f} GB + binary + {SAFETY_MARGIN_GB:.0f} GB margin)")
@@ -423,8 +453,10 @@ def main():
     fp_before = nas_fingerprint(plane0)
     t0 = time.time()
     copy_tiffs(session_dir, names, tiff_dir, a.local_root)
+    if a.scale != 1:
+        scale_tiffs(tiff_dir, names, s2p_tiff_dir, a.scale, a.local_root)
     t_copy = time.time() - t0
-    fpf_new = [tiff_nframes(tiff_dir / n) for n in names]
+    fpf_new = [tiff_nframes(s2p_tiff_dir / n) for n in names]
     if fpf_new != fpf_old:
         print(f"WARNING: tiff frame counts {fpf_new} differ from the old ops' frames_per_file {fpf_old}")
 
@@ -461,7 +493,7 @@ def main():
                             __import__("importlib.metadata").metadata.version("suite2p")),
         torch_version=torch.__version__, torch_device=settings["torch_device"], gpu=gpu,
         python=sys.version, date=str(datetime.datetime.now()),
-        tiffs=names, frames_per_file_old=fpf_old, frames_per_file_tiff=fpf_new,
+        tiffs=names, tiff_scale=a.scale, frames_per_file_old=fpf_old, frames_per_file_tiff=fpf_new,
         nframes_v1=_py(new_ops.get("nframes")),
         tiff_bytes=sum(sizes.values()),
         output_bytes=sum(f.stat().st_size for f in p0.iterdir() if f.is_file()),
