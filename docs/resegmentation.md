@@ -260,7 +260,7 @@ python docs/resegmentation/seg_video.py --examples                   # suite2p1.
 - `s2p_corrected_int_x64\`, a duplicate of the production run;
 - the test run `2022_09_14-fish2_cytoGCaMP\s2p_corrected_x64_max30000\`.
 
-The duplicate, the test run, and the variants' tiffs and `data.bin` are not needed by any script and can be deleted. `analyze.py` needs only the variants' `stat.npy`, `iscell.npy`, `ops.npy` and `F.npy`, and `segment.py --tiffs-only` rewrites their tiffs.
+The duplicate, the test run, and the variants' tiffs and `data.bin` were deleted on 2026-10-12; no script needs them. `analyze.py` needs only the variants' `stat.npy`, `iscell.npy`, `ops.npy` and `F.npy`, and `segment.py --tiffs-only` rewrites their tiffs.
 
 Logs are in `C:\Users\dan\suite2p_v1_custom_reg\logs\`.
 

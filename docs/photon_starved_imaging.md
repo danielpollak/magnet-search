@@ -134,4 +134,4 @@ The nonstationarity left after the fixes has to come from somewhere. The evidenc
 NS_DATA_DIR=<checkout>/data python docs/photon_starved/summary.py   # magneto2, ~2 min; reads the NAS (medaka 0.10.1 runs), read-only
 ```
 
-The pre-switch parquet is the source of the "before" Fig 2 row. It is read from `C:\Users\dan\nwb_backup_pre_reseg_2026-10-12\all_fourier_df.parquet` if that still exists.
+The "before" Fig 2 row came from the pre-switch parquet. Its backup was deleted on 2026-10-12, so a rerun keeps the "before" rows already in `results_fig2.csv`.

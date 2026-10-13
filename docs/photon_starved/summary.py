@@ -106,8 +106,9 @@ BEFORE_PARQUET = Path("C:/Users/dan/nwb_backup_pre_reseg_2026-10-12/all_fourier_
 
 
 def fig2_counts():
-    """Fig 2's flagged sessions and the zebrafish neuron count, from the production parquet and,
-    if the pre-switch backup still exists, from the parquet before the zebrafish re-segmentation."""
+    """Fig 2's flagged sessions and the zebrafish neuron count, from the production parquet and from
+    the parquet before the zebrafish re-segmentation (its backup was deleted after this ran on
+    2026-10-12; the "before" rows already in results_fig2.csv are then kept)."""
     repo = _HERE.parents[1]
     sys.path.insert(0, str(repo))
     sys.path.insert(0, str(repo / "pipeline" / "manuscript"))
@@ -127,7 +128,12 @@ def fig2_counts():
                              zebrafish_flagged=" ".join(sorted(k for k, f in flags.items() if f and "engert" in k)),
                              zebrafish_neurons=d[d.species == "zebrafish"].groupby(["ID", "date", "id"]).ngroups))
     out = pd.DataFrame(rows)
-    out.to_csv(_HERE / "results_fig2.csv", index=False)
+    old = _HERE / "results_fig2.csv"
+    if not BEFORE_PARQUET.exists() and old.exists():
+        # the pre-switch parquet was deleted on 2026-10-12; keep the "before" rows computed from it
+        prev = pd.read_csv(old)
+        out = pd.concat([prev[prev.when == "before"], out], ignore_index=True)
+    out.to_csv(old, index=False)
     print(out.drop(columns="zebrafish_flagged").to_string(index=False))
 
 
