@@ -20,7 +20,11 @@ Two halves, two conda envs:
     2. without the lossy steps, in float32 throughout: the full-resolution trace. Its warp is
        `transform_data` minus the final `.short()`, and is checked on every batch to give
        suite2p's int16 frames bit for bit once truncated.
-  Writes `F_full.npy` (n_rois, n_frames, float32, raw tiff units) and `fullres_check.json`
+  A session run with suite2p's registration off (the photon-starved zebrafish, whose tiffs are
+  drift corrected before suite2p reads them; docs/resegmentation.md) is extracted the same way
+  with no warp: the lossy path is then the halving alone.
+  Writes `F_full.npy` (n_rois, n_frames, float32, units of the tiffs suite2p read: x64 for the
+  scaled sessions) and `fullres_check.json`
   next to suite2p's outputs, and `meanImg_full.npy`, the mean of the full-resolution registered
   movie (suite2p's own meanImg is the mean of the truncated movie: in photon-starved sessions it
   is almost flat and the fish outline fails on it). With `--neuropil` it also writes `Fneu_full.npy`, each ROI's
@@ -176,13 +180,17 @@ def extract_session(plane0, device="cuda", log=print, neuropil=False):
     Ly, Lx = int(ops["Ly"]), int(ops["Lx"])
     W = roi_weights(stat, Ly, Lx)
     Wn = neuropil_weights(stat, ops) if neuropil else None
-    blocks = nonrigid.make_blocks(Ly=Ly, Lx=Lx, block_size=reg["block_size"]) if reg["nonrigid"] else None
+    registered = "yoff" in ops       # False when suite2p ran with do_registration = 0
+    blocks = (nonrigid.make_blocks(Ly=Ly, Lx=Lx, block_size=reg["block_size"])
+              if reg["nonrigid"] and registered else None)
     dev = torch.device(device)
     tiff_dir = [os.path.dirname(str(f)) for f in ops["file_list"]][0]
 
     def register(frames, first, lossy):
         """frames (n, Ly, Lx) on dev -> registered frames, as suite2p's shift_frames does."""
         n = len(frames)
+        if not registered:
+            return frames
         yoff, xoff = ops["yoff"][first:first + n], ops["xoff"][first:first + n]
         out = torch.stack([torch.roll(f, shifts=(-int(dy), -int(dx)), dims=(0, 1))
                            for f, dy, dx in zip(frames, yoff, xoff)], dim=0)
@@ -241,7 +249,7 @@ def extract_session(plane0, device="cuda", log=print, neuropil=False):
                                f"(max error {nerr:.3g} > {ntol:.3g})")
         np.save(os.path.join(plane0, NEU_FILE), np.concatenate(nfull, axis=1).astype(np.float32))
         log(f"  neuropil check passed: max error {nerr:.2g} (tolerance {ntol:.2g}) -> {NEU_FILE}")
-    check = dict(passed=bool(err <= tol), max_err=err, tolerance=tol,
+    check = dict(passed=bool(err <= tol), max_err=err, tolerance=tol, registered=registered,
                  frames_float_warp_checked=n_copy_checked, n_rois=len(stat),
                  n_frames=int(F_full.shape[1]), suite2p_version=suite2p.version,
                  torch_version=torch.__version__, device=str(dev))

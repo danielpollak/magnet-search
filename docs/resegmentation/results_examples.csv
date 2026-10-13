@@ -1,0 +1,5 @@
+session,trial,roi,tag,rule
+2022_09_15-fish1_cytoGCaMP,magneto_0,33,reseg_corrected_int,selected ROI near production ROI 58 whose trace matches it best (r = 0.33)
+2022_09_14-fish2_cytoGCaMP,magneto_1,696,reseg_corrected_int,"grating responder holding 4 kept production ROIs (6 in all), most photons per frame"
+2022_10_01-fish2_cytoGCaMP,magneto_1,75,reseg_corrected_int,"grating responder holding 3 kept production ROIs (3 in all), most photons per frame"
+2022_10_02-fish2_cytoGCaMP,magneto_1,79,reseg_corrected_int,"grating responder holding 2 kept production ROIs (3 in all), most photons per frame"
