@@ -27,6 +27,9 @@ the ORIGINAL suite2p/plane0/ output):
    ~6 grey levels after its uint16 halving, norm_frames clips everything to about one value,
    and registration returns the same shift for every frame. 2022_10_02-fish1's tiffs were
    saved x256 and register normally; x128 does the same for medaka (2026-10-07).
+   With --shifts (and --scale), each frame is first moved back by a measured drift, rounded to
+   whole pixels, and suite2p's registration is switched off: the photon-starved zebrafish,
+   which suite2p can't register even scaled (docs/resegmentation.md, 2026-10-12).
    With --add-session (repeatable), the tiffs of further sessions are appended, in order, so
    suite2p segments them as one movie and every trial shares one set of ROIs. Settings still
    come from --session's ops. Used for the six medaka trials (2026-10-07), whose separate
@@ -342,11 +345,26 @@ def copy_tiffs(src_dir, names, dst_dir, local_root):
         print(f"  copied {n} ({size / 1e9:.2f} GB, {time.time() - t:.0f} s)")
 
 
-def scale_tiffs(src_dir, names, dst_dir, k, local_root):
-    """Write uint16 copies of the tiffs multiplied by k; refuse if any pixel would overflow."""
+def shift_whole_pixels(frame, dy, dx):
+    """out(p) = frame(p + (dy, dx)), whole pixels; pixels shifted in from outside the frame get
+    the frame's median (the camera offset in these photon-starved movies). No interpolation,
+    so every pixel keeps its photon counts."""
+    out = np.full_like(frame, np.median(frame))
+    H, W = frame.shape
+    ys, yd = (slice(dy, None), slice(0, H - dy)) if dy >= 0 else (slice(0, dy), slice(-dy, None))
+    xs, xd = (slice(dx, None), slice(0, W - dx)) if dx >= 0 else (slice(0, dx), slice(-dx, None))
+    out[yd, xd] = frame[ys, xs]
+    return out
+
+
+def scale_tiffs(src_dir, names, dst_dir, k, local_root, shifts=None):
+    """Write uint16 copies of the tiffs multiplied by k; refuse if any pixel would overflow.
+    With `shifts` (dy, dx per frame of the concatenated movie, in file order), each frame is
+    first moved back by its shift rounded to whole pixels (shift_whole_pixels)."""
     import tifffile
     dst_dir.mkdir(parents=True, exist_ok=True)
     assert_local(dst_dir, local_root)
+    first = 0
     for n in names:
         dst = dst_dir / n
         assert_local(dst, local_root)
@@ -354,8 +372,18 @@ def scale_tiffs(src_dir, names, dst_dir, k, local_root):
             a = np.stack([p.asarray() for p in tf.pages])
         if a.dtype != np.uint16 or int(a.max()) * k > 65535:
             raise ValueError(f"{n}: {a.dtype}, max {a.max()}: x{k} would not fit in uint16")
+        if shifts is not None:
+            dy = np.round(shifts[0][first:first + len(a)]).astype(int)
+            dx = np.round(shifts[1][first:first + len(a)]).astype(int)
+            if len(dy) != len(a):
+                raise ValueError(f"{n}: the shifts cover {len(dy)} of its {len(a)} frames")
+            a = np.stack([shift_whole_pixels(f, y, x) for f, y, x in zip(a, dy, dx)])
+        first += len(a)
         tifffile.imwrite(dst, (a.astype(np.uint32) * k).astype(np.uint16))
-        print(f"  scaled {n} x{k} (max {a.max()} -> {int(a.max()) * k})")
+        print(f"  scaled {n} x{k} (max {a.max()} -> {int(a.max()) * k})"
+              + (" after whole-pixel drift correction" if shifts is not None else ""))
+    if shifts is not None and first != len(shifts[0]):
+        raise ValueError(f"the shifts cover {len(shifts[0])} frames, the tiffs {first}")
 
 
 def tiff_nframes(path):
@@ -385,6 +413,11 @@ def main():
     ap.add_argument("--scale", type=int, default=1,
                     help="run suite2p on uint16 copies of the tiffs multiplied by this factor "
                          "(written to <run-name>/tiffs_x<scale>/); see step 4 above")
+    ap.add_argument("--shifts",
+                    help="npz with per-frame drift dy, dx (px) of the concatenated movie, as "
+                         "docs/custom_registration/measure.py writes it: each frame is moved back "
+                         "by it, rounded to whole pixels, before scaling, and suite2p's "
+                         "registration is switched off (needs --scale; docs/resegmentation.md)")
     ap.add_argument("--delete-tiffs", action="store_true",
                     help="delete the local tiff copies after a successful run")
     a = ap.parse_args()
@@ -435,6 +468,17 @@ def main():
         mapping.append(dict(old_key="batch_size", old_value=_py(old.get("batch_size")),
                             v1_key="registration.batch_size", v1_value=a.reg_batch_size,
                             note="overridden on the command line (GPU memory)"))
+    shifts = None
+    if a.shifts:
+        if a.scale == 1:
+            ap.error("--shifts needs --scale")
+        z = np.load(a.shifts)
+        shifts = (np.asarray(z["dy"], float), np.asarray(z["dx"], float))
+        settings["run"]["do_registration"] = 0
+        mapping.append(dict(old_key="do_registration", old_value=_py(old.get("do_registration")),
+                            v1_key="run.do_registration", v1_value=0,
+                            note=f"the tiffs are drift corrected beforehand (--shifts {a.shifts}, "
+                                 f"whole pixels); suite2p's own registration fails on these movies"))
     if a.scale != 1:
         mapping.append(dict(old_key="(tiffs)", old_value="as acquired", v1_key="db.data_path",
                             v1_value=f"tiffs_x{a.scale}",
@@ -474,7 +518,7 @@ def main():
     for src in dict.fromkeys(source.values()):
         copy_tiffs(src, [n for n in names if source[n] == src], tiff_dir, a.local_root)
     if a.scale != 1:
-        scale_tiffs(tiff_dir, names, s2p_tiff_dir, a.scale, a.local_root)
+        scale_tiffs(tiff_dir, names, s2p_tiff_dir, a.scale, a.local_root, shifts)
     t_copy = time.time() - t0
     fpf_new = [tiff_nframes(s2p_tiff_dir / n) for n in names]
     if fpf_new != fpf_old:
@@ -514,7 +558,7 @@ def main():
                             __import__("importlib.metadata").metadata.version("suite2p")),
         torch_version=torch.__version__, torch_device=settings["torch_device"], gpu=gpu,
         python=sys.version, date=str(datetime.datetime.now()),
-        tiffs=names, tiff_scale=a.scale, frames_per_file_old=fpf_old, frames_per_file_tiff=fpf_new,
+        tiffs=names, tiff_scale=a.scale, drift_shifts=a.shifts, frames_per_file_old=fpf_old, frames_per_file_tiff=fpf_new,
         nframes_v1=_py(new_ops.get("nframes")),
         tiff_bytes=sum(sizes.values()),
         output_bytes=sum(f.stat().st_size for f in p0.iterdir() if f.is_file()),
