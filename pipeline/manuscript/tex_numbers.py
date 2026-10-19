@@ -5,7 +5,7 @@ manuscript cites them via \\importnumber{key} instead of hand-copied digits.
 All numbers live in one generated file, `numbers.tex` at the Overleaf clone
 root, which main.tex pulls in once with `\\input{numbers}`. Each producing
 script/notebook owns its own `% BEGIN <source>` ... `% END <source>` block
-and only ever rewrites that block, so neuron_counts.ipynb and fig2.py (etc.)
+and only ever rewrites that block, so neuron_counts.py and fig2.py (etc.)
 can each update their own numbers without clobbering anyone else's.
 
 Usage (from any manuscript script/notebook):
