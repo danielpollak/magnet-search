@@ -4,8 +4,9 @@ p-/q-value uniformity figure.
 "Canonical" below means the occurrence-wave version of Fig 3 (page 1 of
 Fig3_supp_buckets.pdf): buckets = occurrence waves; quadrants = all neurons /
 pigeon / pigeon HP / top 10% most sensitive pigeon HP. It used to be page 1
-here too (dropped 2026-10-19, the pages below renumbered); the PDF's page
-numbers are printed at the bottom of each page.
+here too, and page 2 was the same buckets as per-bucket ECDF-deviation stacks
+(both dropped 2026-10-19, the pages below renumbered); the PDF's page numbers
+are printed at the bottom of each page.
 
 Page 1 Quadrants = species; buckets = stimulus FREQUENCY. A neuron that
         appears more than once at the same frequency contributes its first row
@@ -13,51 +14,49 @@ Page 1 Quadrants = species; buckets = stimulus FREQUENCY. A neuron that
         "<f> Hz repeats" bucket for that frequency (see `bucket_by_frequency`)
         -- so no first-occurrence bucket ever counts the same neuron twice,
         and the repeat rows are still shown rather than dropped.
-Page 2  Canonical buckets again, but the sorted-p-value panel is replaced by a
-        stack of per-bucket ECDF-deviation mini-axes in the style of Fig 1's
-        ECDF-deviation inset: ECDF(p) - p, a bootstrap 95% CI band, and the
-        uniform null at 0. The sorted-q-value panel below is unchanged.
-Page 3  Quadrants = species; buckets = BRAIN REGION. A unit repeated within
+Page 2  Quadrants = species; buckets = BRAIN REGION. A unit repeated within
         the same region is kept only the first time (unlike page 1, repeats
         are dropped, not re-bucketed) -- region is a property of the
         electrode, not of the recording, so a unit's 2nd row in the same
         region carries no new region information.
-Page 4  Canonical quadrants again, but buckets are EQUAL-SIZED: rows are dealt
+Page 3  Canonical quadrants again, but buckets are EQUAL-SIZED: rows are dealt
         round-robin so every bucket ends up within one row of N/B, with no
         unit twice in a bucket (see `bucket_round_robin`). This is the same
         population as the canonical figure with the same number of buckets,
         rebalanced -- its occurrence waves shrink from thousands of units to a
         few hundred, which makes the
         later buckets' apparent deviation mostly small-n noise.
-Page 5  Page 4 with one more constraint: bucket size roughly EQUAL ACROSS
+Page 4  Page 3 with one more constraint: bucket size roughly EQUAL ACROSS
         the two halves too, not just within each (see
         `matched_round_robin`). Magnetic may drop up to ~2% of its rows to
-        enlarge its buckets toward A/V's page-4 size; where that isn't
+        enlarge its buckets toward A/V's page-3 size; where that isn't
         enough, A/V takes more (smaller) buckets to meet it.
-Page 6  Page 4's equal-sized buckets in page 2's ECDF-deviation rendering --
-        the pairing that makes the per-bucket CI bands comparable to each
-        other, since every band is now computed from the same n.
-Page 7  The full cross-tabulation: one quadrant per (species, brain area) pair
+Page 5  Page 3's equal-sized buckets, the sorted-p-value panel replaced by a
+        stack of per-bucket ECDF-deviation mini-axes in the style of Fig 1's
+        inset: ECDF(p) - p over the null's 95% binomial band, uniform null at
+        0. Equal sizes give every row the same band. The sorted-q-value
+        panel below is unchanged.
+Page 6  The full cross-tabulation: one quadrant per (species, brain area) pair
         -- 13 of them under the current annotations, on a 3-wide grid, all
         seven species included -- x magnetic vs. A/V x frequency buckets. A
         pair that never got a given stimulus gets an axes labelled "not
         presented" rather than a silent blank; Owl, which has units but no
         Fourier p-value at all, gets "no p-values" (see `_blank_reason`).
 
-Pages 8-11 are two readings of one question -- does brain area matter -- kept
+Pages 7-10 are two readings of one question -- does brain area matter -- kept
 side by side because which one answers it depends on whether you want each
 region judged on its own or the regions judged against each other:
 
-Page 8  Pigeon, one panel per brain area, that area's units pooled into a
+Page 7  Pigeon, one panel per brain area, that area's units pooled into a
         single bucket. Regions compared ACROSS panels, each on its own axes.
-Page 9 The same for every (species, area) pair -- i.e. page 7's panels with
+Page 8 The same for every (species, area) pair -- i.e. page 6's panels with
         the frequency split collapsed.
-Page 10 Pigeon, ONE panel, brain areas as buckets overplotted on shared axes.
+Page 9 Pigeon, ONE panel, brain areas as buckets overplotted on shared axes.
         Regions directly comparable.
-Page 11 The same for all species, bucketed by (species, area) rather than by
+Page 10 The same for all species, bucketed by (species, area) rather than by
         bare area -- see `bucket_by_species_area` for why the pair matters.
-Page 12 One panel, one bucket per species, each unit counted exactly once.
-Page 13 Canonical quadrants, ONE bucket per half holding every observation,
+Page 11 One panel, one bucket per species, each unit counted exactly once.
+Page 12 Canonical quadrants, ONE bucket per half holding every observation,
         drawn with an occurrence bootstrap: each draw keeps every
         neuron once but picks WHICH of its recordings at random
         (`statistics.iter_occurrence_draws`), so repeat recordings are used
@@ -72,11 +71,10 @@ population's colormap, so shade never crosses the two halves.
 
 Requires:
   data/manuscript/all_fourier_df.parquet  (run python pipeline/aggregate.py first)
-  ecdfbounds library
 
 Usage:
     python pipeline/manuscript/fig3_variants.py
-    python pipeline/manuscript/fig3_variants.py --pages 1 3
+    python pipeline/manuscript/fig3_variants.py --pages 1 2
     python pipeline/manuscript/fig3_variants.py --out-dir figs/paper
 """
 import argparse
@@ -97,7 +95,6 @@ from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.lines import Line2D
 import numpy as np
 import pandas as pd
-from ecdfbounds import bootstrap_ecdf_band
 
 from magpyneto2 import statistics
 import fig3
@@ -131,8 +128,14 @@ FREQ_KEY_DECIMALS = 2
 
 N_BOOT = 1000
 
-# Colormap position used for EVERY bucket in an ECDF-deviation stack (pages 2
-# and 6), instead of the shade ramp the sorted-p/q panels use. Those panels
+# Panels with at most this many buckets take their shades from this part of
+# fig3.cmap_to_black's ramp (0 = light tint, 0.5 = saturated hue, 1 = black)
+# instead of all of it -- see `_shades`.
+NARROW_SHADES_MAX_N = 5
+NARROW_SHADES_RANGE = (0.3, 0.65)
+
+# Colormap position used for EVERY bucket in an ECDF-deviation stack (page 5),
+# instead of the shade ramp the sorted-p/q panels use. Those panels
 # overplot all buckets on one axes, where varying shade is the only thing
 # separating them; a stack gives each bucket its own axes, so there the ramp
 # conveys nothing and only costs legibility -- the light end of Blues/Oranges
@@ -145,13 +148,13 @@ ECDF_SHADE = 0.9
 # artifact of parquet row order (same reasoning as fig3_supp2's RANDOM_SEED).
 RR_SEED = 0
 
-# Page 5's budget for magnetic rows dropped to enlarge its buckets toward the
+# Page 4's budget for magnetic rows dropped to enlarge its buckets toward the
 # A/V bucket size -- see `matched_round_robin`. ~2% admits the 9-bucket split
 # in every canonical quadrant (1.2-1.5% dropped: only units with a 10th
 # recording lose a row) but not 8 buckets (3.8-5.6%).
 RR_MAX_DROP_FRAC = 0.02
 
-# Columns for page 7's species x area grid. 3 gives a roughly portrait page for
+# Columns for page 6's species x area grid. 3 gives a roughly portrait page for
 # the current 13 (species, area) pairs; the row count follows from the pair
 # count, so this is the only knob that needs touching if the annotations grow.
 SPECIES_AREA_NCOLS = 3
@@ -223,7 +226,7 @@ def bucket_round_robin(df, n_buckets=None, seed=RR_SEED):
     `n_buckets` defaults to the busiest unit's row count, which is the smallest
     B for which the above can hold -- and, for the canonical populations, is
     also exactly the number of occurrence waves the canonical figure uses, so
-    page 4 is its buckets rebalanced rather than a different
+    page 3 is its buckets rebalanced rather than a different
     number of them. A smaller B is accepted but cannot be honoured in full:
     rows past a unit's B-th have nowhere to go without duplicating it, so they
     are dropped and the count is printed.
@@ -273,7 +276,7 @@ def bucket_round_robin(df, n_buckets=None, seed=RR_SEED):
 
 
 def matched_round_robin(neg, pos, seed=RR_SEED, max_drop_frac=RR_MAX_DROP_FRAC):
-    """Page 5: `bucket_round_robin` for both halves, with bucket COUNTS
+    """Page 4: `bucket_round_robin` for both halves, with bucket COUNTS
     re-chosen so the magnetic and A/V bucket sizes match.
 
     Rows kept at B buckets are sum over units of min(rows, B): a unit with more
@@ -281,7 +284,7 @@ def matched_round_robin(neg, pos, seed=RR_SEED, max_drop_frac=RR_MAX_DROP_FRAC):
     bigger buckets but some rows dropped (`bucket_round_robin` prints how
     many). More buckets is free, but dilutes. The two halves trade off as:
 
-    1. A/V starts as on page 4 (bucket count = its busiest unit's row count):
+    1. A/V starts as on page 3 (bucket count = its busiest unit's row count):
        the largest A/V bucket size available without dropping any A/V rows.
     2. Magnetic may use any bucket count that drops at most `max_drop_frac` of
        its rows, and takes whichever of those lands closest to A/V's size.
@@ -364,6 +367,14 @@ def _population_frames(all_fourier_df):
 
 
 def _shades(cmap_name, n):
+    # With few buckets the full tint-to-black ramp puts them at its extremes
+    # (a washed-out tint next to black); a narrower stretch around the
+    # saturated hue reads better. A lone bucket takes the middle of that
+    # stretch rather than fig3's black.
+    if 0 < n <= NARROW_SHADES_MAX_N:
+        ramp = fig3.cmap_to_black(cmap_name)
+        pos = np.linspace(*NARROW_SHADES_RANGE, n) if n > 1 else [np.mean(NARROW_SHADES_RANGE)]
+        return list(ramp(pos))
     return fig3.shades_to_black(cmap_name, n)
 
 
@@ -371,10 +382,10 @@ def _drop_empty(buckets):
     return [(lab, g) for lab, g in buckets if len(g) > 0]
 
 
-# -- Sorted p/q panel (pages 1 and 3) -----------------------------------------
+# -- Sorted p/q panel (pages 1 and 2) -----------------------------------------
 
 def _bucket_legend(ax, labels, colors, loc="upper left"):
-    """Bucket identity is the entire point of pages 1 and 3, so unlike the
+    """Bucket identity is the entire point of pages 1 and 2, so unlike the
     canonical figure (whose buckets are an ordered wave index that the shade
     ramp already conveys) these need a real key. `loc="upper left"` is safe on
     a sorted-p-value axes specifically: a sorted curve runs from the bottom
@@ -432,7 +443,7 @@ def _condition_subset(pop, cond_filter, percentile, sens_col):
 def _blank_reason(buckets, pval_col):
     """Why a quadrant half has nothing to draw, or None if it does.
 
-    Two genuinely different cases, which page 7 puts side by side:
+    Two genuinely different cases, which page 6 puts side by side:
     "not presented" is a species/area that never got that stimulus (every
     magnetic-only species' A/V half), while "no p-values" is a population that
     exists but has no Fourier p-value at all -- Owl, whose 972 rows come from
@@ -546,7 +557,7 @@ def _plot_bucket_quadrant(fig, cell, neg_buckets, pos_buckets, title, letter,
 
 # Per-quadrant geometry in INCHES, plus the page margins around the grid.
 # Absolute rather than figure-fraction because these pages range from a 2x2
-# (pages 1/3/4/5) to a 3x5 (page 7): a fraction that leaves the right gap on an
+# (pages 1/2/3/4) to a 3x5 (page 6): a fraction that leaves the right gap on an
 # 11x7in page leaves a 2.5in canyon on a 17x17in one. Values reproduce page
 # 2's original proportions, which were tuned by eye on the 2x2.
 QUAD_W_IN, QUAD_H_IN = 4.1, 2.48      # one quadrant's own 2x2 block
@@ -582,7 +593,7 @@ def _grid_figure(n_panels, ncols, scale=1.0):
 
 
 def _panel_letters(n):
-    """A..Z then AA, AB, ... -- page 7 needs 13, and a future cut could need
+    """A..Z then AA, AB, ... -- page 6 needs 13, and a future cut could need
     more than 26.
     """
     from string import ascii_uppercase as AZ
@@ -683,7 +694,7 @@ def build_condition_bucket_page(all_fourier_df, bucket_fn, suptitle,
 
     `paired_bucket_fn(neg, pos) -> (neg_buckets, pos_buckets)`, if given,
     replaces `bucket_fn` for bucketings where one half's buckets depend on the
-    other's (page 5's `matched_round_robin`).
+    other's (page 4's `matched_round_robin`).
     """
     neg, pos = _population_frames(all_fourier_df)
 
@@ -713,20 +724,19 @@ def build_condition_bucket_page(all_fourier_df, bucket_fn, suptitle,
     return fig
 
 
-# -- ECDF-deviation stack (page 2) --------------------------------------------
+# -- ECDF-deviation stack (page 5) --------------------------------------------
 
-def _ecdf_deviation(pvals, n_boot=N_BOOT, alpha=0.05):
-    """ECDF(p) - p at each sorted p-value, with a pointwise bootstrap band
-    expressed in the same deviation units. Identical construction to Fig 1's
-    ECDF-deviation inset.
+def _ecdf_deviation(pvals):
+    """ECDF(p) - p at each sorted p-value, plus the number of finite p-values.
+    Same construction as Fig 1's ECDF-deviation inset.
     """
     pvals = np.asarray(pvals, dtype=float)
     pvals = pvals[np.isfinite(pvals)]
     if len(pvals) < 2:
         return None
-    x, lower, upper = bootstrap_ecdf_band(pvals, n_boot=n_boot, alpha=alpha)
+    x = np.sort(pvals)
     e = np.arange(1, len(x) + 1) / len(x)
-    return x, e - x, lower - x, upper - x
+    return x, e - x, len(x)
 
 
 def _nice_step(span, frac=1 / 3):
@@ -798,7 +808,7 @@ def _share_stack_ylims(*stacks):
 
 
 def _plot_ecdf_dev_stack(fig, cell, buckets, cmap, xlabel=True, ylabel=None,
-                         pval_col="p_value", n_boot=N_BOOT):
+                         pval_col="p_value"):
     """One mini-axes per bucket, stacked and sharing x (p-value) and y
     (deviation). Sharing y is what makes the stack readable as a single
     comparison -- the buckets differ by orders of magnitude in n, so letting
@@ -827,13 +837,14 @@ def _plot_ecdf_dev_stack(fig, cell, buckets, cmap, xlabel=True, ylabel=None,
         ax = fig.add_subplot(inner[i], sharex=axs[0] if axs else None,
                              sharey=axs[0] if axs else None)
         axs.append(ax)
-        dev = _ecdf_deviation(g[pval_col].values, n_boot=n_boot)
+        dev = _ecdf_deviation(g[pval_col].values)
         ax.axhline(0, color=FP.COLOR_NULL, linestyle="--",
                    linewidth=FP.LW_REFERENCE, alpha=0.7)
         if dev is not None:
-            x, d, lo, hi = dev
-            ax.fill_between(x, lo, hi, color=color, alpha=FP.ALPHA_CONFIDENCE,
-                            linewidth=0, rasterized=True)
+            x, d, n = dev
+            # The null's 95% binomial band, as in Figs 1 and 2 (was a
+            # bootstrap band around the curve until 2026-10-19).
+            statistics.plot_binomial_ecdf_band(ax, n)
             ax.plot(x, d, color=color, linewidth=FP.LW_TRACE)
         # Bucket label sits OUTSIDE the axes, on the right. Inside, it landed
         # on top of the curve for any bucket with a real deviation -- exactly
@@ -871,7 +882,7 @@ def _apply_percentile(buckets, percentile, sens_col):
 
     Deliberately per-bucket, matching `fig3.plot_uniform_p`'s own handling of
     its `percentile` argument, so the ECDF stack and the sorted-q-value panel
-    below it show the same neurons. Page 2's top-10% quadrant originally
+    below it show the same neurons. The top-10% quadrant originally
     passed `percentile` to `plot_uniform_p` only, which left its ECDF stack
     showing the whole unfiltered population -- a quadrant whose two halves
     disagreed about which neurons it was about.
@@ -889,7 +900,7 @@ def _apply_percentile(buckets, percentile, sens_col):
 
 
 def _plot_ecdf_quadrant(fig, cell, neg_buckets, pos_buckets, title, letter,
-                        pval_col="p_value", sens_col="sens", n_boot=N_BOOT):
+                        pval_col="p_value", sens_col="sens"):
     """Same quadrant geometry as the canonical figure -- magnetic left, A/V
     right, p-row on top, q-row below -- with the p-row replaced by the
     per-bucket ECDF-deviation stack. Height ratio favours the top row because
@@ -904,9 +915,9 @@ def _plot_ecdf_quadrant(fig, cell, neg_buckets, pos_buckets, title, letter,
 
     neg_axs = _plot_ecdf_dev_stack(fig, inner[0, 0], neg_buckets, "Blues",
                                    ylabel="ECDF deviation from uniform null",
-                                   pval_col=pval_col, n_boot=n_boot)
+                                   pval_col=pval_col)
     pos_axs = _plot_ecdf_dev_stack(fig, inner[0, 1], pos_buckets, "Oranges",
-                                   pval_col=pval_col, n_boot=n_boot)
+                                   pval_col=pval_col)
     # Magnetic and A/V on one y range, so their deviations compare directly;
     # scale bars only once that range is final (they'd be identical anyway).
     _share_stack_ylims(neg_axs, pos_axs)
@@ -936,7 +947,7 @@ def _plot_ecdf_quadrant(fig, cell, neg_buckets, pos_buckets, title, letter,
 
 def fig3_conditions():
     """The canonical figure's four quadrant definitions, kept in one place so
-    page 2 cannot drift from the canonical figure.
+    the ECDF page cannot drift from the canonical figure.
     """
     return [
         ("All neurons across all species", None, None),
@@ -948,13 +959,13 @@ def fig3_conditions():
 
 
 def build_ecdf_page(all_fourier_df, bucket_fn=None, suptitle=None,
-                    pval_col="p_value", sens_col="sens", n_boot=N_BOOT):
+                    pval_col="p_value", sens_col="sens"):
     """The canonical figure's quadrants, drawn as per-bucket ECDF-deviation
     mini-axes. The page is taller than the others because the A/V population
     has 18 buckets, i.e. 18 stacked mini-axes per quadrant half.
 
-    `bucket_fn=None` buckets by occurrence wave (page 2). Any other bucketing
-    is passed as a callable (page 6 passes `bucket_round_robin`).
+    `bucket_fn=None` buckets by occurrence wave (no current page). Any other bucketing
+    is passed as a callable (page 5 passes `bucket_round_robin`).
 
     The two differ in where the sensitivity percentile has to be applied,
     which is why this isn't one code path:
@@ -997,17 +1008,16 @@ def build_ecdf_page(all_fourier_df, bucket_fn=None, suptitle=None,
         _plot_ecdf_quadrant(fig, outer[orow, ocol],
                             _quadrant_buckets(neg_base, cond_filter, percentile),
                             _quadrant_buckets(pos_base, cond_filter, percentile),
-                            title, letter, pval_col=pval_col, sens_col=sens_col,
-                            n_boot=n_boot)
+                            title, letter, pval_col=pval_col, sens_col=sens_col)
 
     if suptitle is None:
         suptitle = ("Canonical buckets, drawn as per-bucket ECDF deviation "
-                    "(95% bootstrap CI; dashed line = uniform null)")
+                    "(gray: null 95% binomial band; dashed line = uniform null)")
     fig.suptitle(suptitle, fontsize=FP.FS_BODY + 2, fontweight="bold", y=0.995)
     return fig
 
 
-# -- Occurrence bootstrap, single bucket (page 13) ---------------------------
+# -- Occurrence bootstrap, single bucket (page 12) ---------------------------
 
 def _occurrence_bootstrap_curves(df, pval_col="p_value", n_boot=N_BOOT, seed=0,
                                  alpha=0.05):
@@ -1112,12 +1122,12 @@ def _plot_occurrence_quadrant(fig, cell, neg_df, pos_df, title, letter,
 
 def build_occurrence_bootstrap_page(all_fourier_df, pval_col="p_value",
                                     sens_col="sens", n_boot=N_BOOT):
-    """Page 13: canonical quadrants, one bucket per half, an
+    """Page 12: canonical quadrants, one bucket per half, an
     occurrence bootstrap (see `_occurrence_bootstrap_curves`).
 
     Every observation stays in (no dedup) -- the bootstrap is what keeps each
     neuron counted once per draw. The top-10% quadrant therefore takes one
-    global sensitivity threshold over all its rows, as page 4 does.
+    global sensitivity threshold over all its rows, as page 3 does.
     """
     neg, pos = _population_frames(all_fourier_df)
 
@@ -1154,33 +1164,30 @@ def build_pages(all_fourier_df, pages, out_path: Path, n_boot=N_BOOT):
                     "Species x stimulus frequency "
                     "(repeat unit x frequency rows split into per-frequency 'repeats')")
             elif page == 2:
-                fig = build_ecdf_page(all_fourier_df, n_boot=n_boot)
-            elif page == 3:
                 fig = build_bucket_page(
                     all_fourier_df, bucket_by_area,
                     "Species x brain region "
                     "(repeat unit x region rows dropped after the first)")
-            elif page == 4:
+            elif page == 3:
                 fig = build_condition_bucket_page(
                     all_fourier_df, bucket_round_robin,
                     "Canonical quadrants, equal-sized buckets "
                     "(units dealt round-robin, one recording per unit per bucket)",
                     legend=False)
-            elif page == 5:
+            elif page == 4:
                 fig = build_condition_bucket_page(
                     all_fourier_df, None,
                     "Canonical quadrants, equal-sized buckets matched across "
                     "magnetic and A/V (magnetic drops <= 2% of rows; A/V "
                     "buckets added where needed to match)",
                     legend=False, paired_bucket_fn=matched_round_robin)
-            elif page == 6:
+            elif page == 5:
                 fig = build_ecdf_page(
                     all_fourier_df, bucket_fn=bucket_round_robin,
                     suptitle="Equal-sized buckets, drawn as per-bucket ECDF "
-                             "deviation (95% bootstrap CI; dashed line = "
-                             "uniform null)",
-                    n_boot=n_boot)
-            elif page == 7:
+                             "deviation (gray: null 95% binomial band; dashed "
+                             "line = uniform null)")
+            elif page == 6:
                 fig = build_grid_bucket_page(
                     all_fourier_df, species_area_panels(all_fourier_df),
                     bucket_by_frequency,
@@ -1188,7 +1195,7 @@ def build_pages(all_fourier_df, pages, out_path: Path, n_boot=N_BOOT):
                     "(species, area) pair, magnetic vs. A/V, bucketed by "
                     "frequency",
                     ncols=SPECIES_AREA_NCOLS)
-            elif page == 8:
+            elif page == 7:
                 fig = build_grid_bucket_page(
                     all_fourier_df, area_panels(all_fourier_df, "Pigeon"),
                     bucket_by_area,
@@ -1197,38 +1204,42 @@ def build_pages(all_fourier_df, pages, out_path: Path, n_boot=N_BOOT):
                     # 2-wide, not 3: pigeon has exactly 3 areas, and one row of
                     # 3 makes a 16x4in strip rather than a page.
                     ncols=2, legend=False)
-            elif page == 9:
+            elif page == 8:
                 fig = build_grid_bucket_page(
                     all_fourier_df, species_area_panels(all_fourier_df),
                     bucket_by_area,
                     "All species, one panel per brain area "
                     "(each area pooled into a single bucket)",
                     ncols=SPECIES_AREA_NCOLS, legend=False)
-            elif page == 10:
+            elif page == 9:
                 fig = build_grid_bucket_page(
                     all_fourier_df,
                     [("Pigeon", lambda d: d.species == "Pigeon")],
                     bucket_by_area,
                     "Pigeon, brain areas as buckets on shared axes",
                     ncols=1, scale=2.2)
-            elif page == 11:
+            elif page == 10:
                 fig = build_grid_bucket_page(
                     all_fourier_df, [("All species", None)],
                     bucket_by_species_area,
                     "All species, (species, brain area) pairs as buckets "
                     "on shared axes",
                     ncols=1, scale=2.2)
-            elif page == 12:
+            elif page == 11:
                 fig = build_grid_bucket_page(
                     all_fourier_df, [("All species", None)],
                     bucket_by_species,
                     "Species as buckets on shared axes "
                     "(units appearing more than once dropped after the first)",
                     ncols=1, scale=2.2)
-            elif page == 13:
+            elif page == 12:
                 fig = build_occurrence_bootstrap_page(all_fourier_df, n_boot=n_boot)
             else:
                 raise ValueError(f"unknown page {page}")
+            # No top/right frame on any axes, insets included.
+            for ax in fig.axes:
+                for a in [ax, *ax.child_axes]:
+                    a.spines[["top", "right"]].set_visible(False)
             # Page id at the bottom (equal to the PDF page with the default --pages).
             fig.text(0.5, -0.02, str(page), ha="center", va="top",
                      fontsize=FP.FS_TITLE)
@@ -1246,10 +1257,10 @@ def main():
     parser.add_argument("--parquet", default=FP.PARQUET_PATH,
                         help=f"Path to all_fourier_df.parquet (default: {FP.PARQUET_PATH})")
     parser.add_argument("--pages", type=int, nargs="+",
-                        default=list(range(1, 14)),
-                        help="Which pages to render, in order (default: 1-13)")
+                        default=list(range(1, 13)),
+                        help="Which pages to render, in order (default: 1-12)")
     parser.add_argument("--n-boot", type=int, default=N_BOOT,
-                        help="Bootstrap replicates for the ECDF CI bands (pages 2, 6, 13)")
+                        help="Bootstrap replicates for the ECDF CI bands (page 12)")
     args = parser.parse_args([] if in_notebook else None)
 
     out_dir = Path(args.out_dir)
