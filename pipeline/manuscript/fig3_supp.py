@@ -2,7 +2,7 @@
 2F harmonic (`2f_p_value`/`sens_2f`) instead of Fig3's 1F (`p_value`/`sens`).
 
 Reuses fig3.py's `plot_fig3` unchanged (see its `pval_col`/`sens_col`/`out_name`/
-`suptitle` parameters) -- same waves, same conditions, same layout, just reading
+`suptitle` parameters) -- same buckets, same conditions, same layout, just reading
 the 2F columns instead of the 1F ones. `all_fourier_df`'s `2f_p_value`/`sens_2f`
 are NaN for any (rec, freq) group with no paired 2F harmonic (e.g. medaka's
 independent mag/visual groups, or 2F skipped past Nyquist -- see CLAUDE.md);
@@ -52,7 +52,7 @@ def main():
     print(f"Loading {args.parquet} ...")
     all_fourier_df = pd.read_parquet(args.parquet)
     plot_fig3(all_fourier_df, out_dir, pval_col="2f_p_value", sens_col="sens_2f",
-              out_name="Fig3_supp.pdf", suptitle="2F harmonic", buckets="waves")
+              out_name="Fig3_supp.pdf", suptitle="2F harmonic")
 
 
 if __name__ == "__main__":

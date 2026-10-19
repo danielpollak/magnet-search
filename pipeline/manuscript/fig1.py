@@ -106,13 +106,13 @@ import pandas as pd
 from scipy import ndimage
 
 import colorcet  # noqa: F401 -- import side effect registers "cet_*" colormaps with matplotlib
-from ecdfbounds import bootstrap_ecdf_band
 from magpyneto2 import statistics
 from magpyneto2.statistics import normalized_Fourier_CDF
 from pipeline import nwb_io
 from pipeline.schema import load_experiment
 
 import format_parameters as FP
+import tex_numbers
 #%%
 # ── NAS paths (only used by fig1_extract_raw_snippets.py, not this script) ──
 # (Unlike 20230414_firstsite's stale YAML `folder:` root in a previous
@@ -683,6 +683,14 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     exemplar_p_mag = float(1 - normalized_Fourier_CDF(np.array([exemplar_NFC]))[0])
     exemplar_p_vis = float(1 - normalized_Fourier_CDF(np.array([exemplar_NFC_vis]))[0])
 
+    # Cited in the Fig 1 caption via \importnumber (see tex_numbers.py).
+    tex_numbers.write_numbers("fig1", {
+        "nfc_exemplar_mag": f"{exemplar_NFC:.2f}",
+        "nfc_exemplar_vis": f"{exemplar_NFC_vis:.2f}",
+        "n_neurons_fig1_mag": len(mag_NFC),
+        "n_neurons_fig1_vis": len(vis_NFC),
+    })
+
     def _fmt_p(p):
         return "p<0.001" if p < 0.001 else f"p={p:.2g}"
 
@@ -709,17 +717,15 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     # the autoscale that follows lands on the union of the two curves+bands.
     ecdf_vis_ax.sharey(ecdf_mag_ax)
 
-    # Plot mag K-S diagnostic: ECDF(x) - x with 95% CI
-    mag_x, mag_lower, mag_upper = bootstrap_ecdf_band(mag_pvals, alpha=0.05)
+    # Plot mag K-S diagnostic: ECDF(x) - x, over the null's 95% binomial band
+    # (no bootstrap band since 2026-10-19, as in Fig 2 C/D)
+    mag_x = np.sort(mag_pvals)
     # Empirical ECDF at sorted points
     mag_ecdf = (np.arange(1, len(mag_pvals) + 1)) / len(mag_pvals)
     # K-S deviation: empirical ECDF minus theoretical (uniform) CDF
     mag_ks_dev = mag_ecdf - mag_x
-    mag_ks_lower = mag_lower - mag_x
-    mag_ks_upper = mag_upper - mag_x
     statistics.plot_binomial_ecdf_band(ecdf_mag_ax, len(mag_pvals))
     ecdf_mag_ax.plot(mag_x, mag_ks_dev, color=FP.COLOR_MAG, linewidth=FP.LW_TRACE)
-    ecdf_mag_ax.fill_between(mag_x, mag_ks_lower, mag_ks_upper, color=FP.COLOR_MAG, alpha=FP.ALPHA_CONFIDENCE)
     ecdf_mag_ax.axhline(0, color=FP.COLOR_NULL, linestyle="--", linewidth=FP.LW_REFERENCE, alpha=0.6)
     # Exemplar unit's own p-value, marked the same way across both ECDF
     # panels -- a downward triangle above the x-axis, same convention as
@@ -738,17 +744,14 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     ecdf_mag_ax.spines["top"].set_visible(False)
     ecdf_mag_ax.spines["right"].set_visible(False)
 
-    # Plot visual K-S diagnostic: ECDF(x) - x with 95% CI
-    vis_x, vis_lower, vis_upper = bootstrap_ecdf_band(vis_pvals, alpha=0.05)
+    # Plot visual K-S diagnostic: ECDF(x) - x, over the null's 95% binomial band
+    vis_x = np.sort(vis_pvals)
     # Empirical ECDF at sorted points
     vis_ecdf = (np.arange(1, len(vis_pvals) + 1)) / len(vis_pvals)
     # K-S deviation: empirical ECDF minus theoretical (uniform) CDF
     vis_ks_dev = vis_ecdf - vis_x
-    vis_ks_lower = vis_lower - vis_x
-    vis_ks_upper = vis_upper - vis_x
     statistics.plot_binomial_ecdf_band(ecdf_vis_ax, len(vis_pvals))
     ecdf_vis_ax.plot(vis_x, vis_ks_dev, color=FP.COLOR_VIS, linewidth=FP.LW_TRACE)
-    ecdf_vis_ax.fill_between(vis_x, vis_ks_lower, vis_ks_upper, color=FP.COLOR_VIS, alpha=FP.ALPHA_CONFIDENCE)
     ecdf_vis_ax.axhline(0, color=FP.COLOR_NULL, linestyle="--", linewidth=FP.LW_REFERENCE, alpha=0.6)
     # exemplar_p_vis is tiny (~1e-14, NFC=7.79) -- right at the left edge of
     # the (0,1) x-axis, same place its own bar sits in vis_dist_ax's ECDF
