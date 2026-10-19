@@ -1147,7 +1147,7 @@ def build_pages(all_fourier_df, pages, out_path: Path, n_boot=N_BOOT):
                 # Re-rendered through fig3's own code path rather than copied,
                 # so page 1 is the canonical figure by construction.
                 fig = fig3.plot_fig3(all_fourier_df, out_path.parent,
-                                     out_name=None,
+                                     out_name=None, buckets="waves",
                                      suptitle="Canonical Fig 3 "
                                               "(buckets = occurrence waves)")
             elif page == 2:

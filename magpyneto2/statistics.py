@@ -1770,37 +1770,15 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
                     arrow_tail = label_top + small_gap * 2.5
                     arrow_head = arrow_tail + small_gap * 3
 
-                    # Keep the whole tower inside the visible frame when
-                    # there's room to (2026-08-28) -- when a bar's anchor
-                    # sits close to ylim[1] and its label is tall (e.g. a
-                    # combined 1F+2F stack), the arrow could otherwise land
-                    # above ylim[1], where annotation_clip's default
-                    # behavior stops clipping it -- it doesn't vanish, it
-                    # just floats above the panel's own frame, which looks
-                    # like a missing arrow. Shift the whole tower down to
-                    # clear -- but capped at how far text_y itself can drop
-                    # before the label gets closer to the anchor than
-                    # small_gap. The previous cap (`arrow_tail - text_y`)
-                    # measured the wrong thing -- the space between the
-                    # label and its OWN arrow, not the space between the
-                    # label and the bar below it -- so a tall combined-label
-                    # tower could still be shoved down far enough to
-                    # overlap the confidence-bound bar it's meant to sit
-                    # above. Past this floor, let the tower float above
-                    # ylim[1] instead (Text and Annotation both still
-                    # render outside the axes' data limits by default).
-                    max_y = ylim[1] - 0.3
-                    if arrow_head > max_y:
-                        max_shift = max(0.0, anchor_gap - small_gap)
-                        excess = min(arrow_head - max_y, max_shift)
-                        arrow_tail -= excess
-                        arrow_head -= excess
-                        t2.set_position((counter - 0.5, t2.get_position()[1] - excess))
-                        if t1 is not None:
-                            t1.set_position((counter - 0.5, t1.get_position()[1] - excess))
-
+                    # A tall tower is free to run past ylim[1] into the
+                    # space above the panel, beside its title (2026-10-18):
+                    # that keeps ylim tight on the bulk of the data without
+                    # dropping any overflow count. annotation_clip=False,
+                    # since by default an arrow whose head lies above the
+                    # axes is not drawn at all.
                     conf_ax.annotate("", xytext=(counter - 0.5, arrow_tail), xy=(counter - 0.5, arrow_head),
-                                      arrowprops=dict(arrowstyle="-|>", color="k", edgecolor=None))
+                                      arrowprops=dict(arrowstyle="-|>", color="k", edgecolor=None),
+                                      annotation_clip=False)
                 
                 if label_recs:
                     conf_ax.text(counter, 10, rec.split('\\')[-1].split('/')[-1], ha="center", rotation=90)
@@ -1912,8 +1890,12 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
     conf_ax.set_ylim(ylim)
     conf_ax.set_ylabel("# Suspects");
 
-    # Remove negative xticks
-    conf_ax.set_yticks(conf_ax.get_yticks()[conf_ax.get_yticks() >= 0])
+    # Keep only the ticks inside [0, ylim[1]] -- the locator also returns
+    # one above ylim[1], and set_yticks would widen ylim to include it,
+    # leaving that tick above the end of the spine (set below).
+    _yt = conf_ax.get_yticks()
+    conf_ax.set_yticks(_yt[(_yt >= 0) & (_yt <= ylim[1])])
+    conf_ax.set_ylim(ylim)
     # Suspect counts are discrete -- no decimal points on the y axis.
     conf_ax.set_yticklabels([f"{int(y)}" for y in conf_ax.get_yticks()])
 
@@ -2114,10 +2096,18 @@ def get_poscontrols_negresults(all_fourier_df:pd.DataFrame):
     # experimenter's email on this point.
     medaka_trial0_no_visual = np.array(
         [rec.endswith("magneto_0.tif") for rec in all_fourier_df.rec.values])
-    fish_pos_control = all_fourier_df.loc[include_fish
+    fish_visual = all_fourier_df.loc[include_fish
         & np.array(["nostim" not in rec for rec in all_fourier_df.rec.values])
         & (all_fourier_df.freq.values < 0.02) # include 1/60 Hz, 0.016667 Hz
         & ~medaka_trial0_no_visual, :]
+    # Since 2026-10-18 (user's decision) a fish recording in which the coil
+    # also ran (2022 Q1 visualmagnet, magneto_1/2 of the 0.3/0.1 Hz zebrafish
+    # and medaka) is not a positive control either: only the visual-only
+    # recordings (2022 Q1 visual, no_magneto_1/2) are. It stays out of the
+    # magnetic population too (fish_visual_recs below).
+    _coil_on_re = re.compile(r"visualmagnet|(^|_)(?<!no_)magneto_\d+")
+    fish_pos_control = fish_visual.loc[
+        ~np.array([bool(_coil_on_re.search(rec)) for rec in fish_visual.rec.values]), :]
 
     # Combine fish and not fish
     all_pos_control = pd.concat([
@@ -2181,9 +2171,10 @@ def get_poscontrols_negresults(all_fourier_df:pd.DataFrame):
     # (medaka's 0.1 Hz suspects in grating trials are grating-responsive cells).
     # So any fish rec that is a visual positive control above (2022 Q1
     # visualmagnet, trials 1-2 of the 0.3/0.1 Hz zebrafish and medaka) is
-    # dropped here; its visual row stays a positive control.
+    # dropped here; its visual row stays a positive control only if the coil
+    # was off (see fish_pos_control above).
     _magnet_trial_re = re.compile(r"(^|_)(visual)?(magnet|magneto_\d+)(_[ab])?(\.tif)?$")
-    fish_visual_recs = set(fish_pos_control.rec)
+    fish_visual_recs = set(fish_visual.rec)
     fish_mag_exp = all_fourier_df.loc[
         include_fish
         & np.array(["nostim" not in rec for rec in all_fourier_df.rec.values])
@@ -2911,9 +2902,21 @@ def storey_qvalues(pvals, lambda_=0.5):
         qvals: array of q-values
         pi0: estimated proportion of true nulls
     """
-    pvals = np.asarray(pvals)
+    pvals = np.asarray(pvals, dtype=float)
+
+    # NaN p-values (e.g. the owl rows, whose precomputed pickle has NFC but no
+    # p-value) get a NaN q-value and are left out of pi0 and the ranks --
+    # otherwise a single NaN turns every q-value in the call into NaN.
+    finite = np.isfinite(pvals)
+    if not finite.all():
+        qvals = np.full(len(pvals), np.nan)
+        pi0 = np.nan
+        if finite.any():
+            qvals[finite], pi0 = storey_qvalues(pvals[finite], lambda_=lambda_)
+        return qvals, pi0
+
     N = len(pvals)
-    
+
     # Estimate pi0 from the tail of the p-value distribution
     pi0 = np.mean(pvals > lambda_) / (1 - lambda_)
     pi0 = min(pi0, 1.0)  # ensure valid probability

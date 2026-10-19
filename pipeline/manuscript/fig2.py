@@ -1,4 +1,4 @@
-"""Fig 2 — excess-count barplots and NFC distributions for all neurons.
+﻿"""Fig 2 â€” excess-count barplots and NFC distributions for all neurons.
 
 Requires:
   data/manuscript/all_fourier_df.parquet  (run python pipeline/aggregate.py first)
@@ -28,10 +28,11 @@ import pandas as pd
 from magpyneto2 import statistics
 
 import format_parameters as FP
+import tex_numbers
 
 
 
-def _fix_excess_legend(ax, ncol=3, loc=None):
+def _fix_excess_legend(ax, ncol=3, loc=None, bbox_to_anchor=None):
     handles, labels = ax.get_legend_handles_labels()
     # Dedup by DISPLAY label, keeping only the first handle for each --
     # rounding alone (as before) just gave two near-identical-looking rows
@@ -43,7 +44,7 @@ def _fix_excess_legend(ax, ncol=3, loc=None):
     for h, lbl in zip(handles, labels):
         try:
             val = float(lbl)
-            if val < 0.02:          # 1/60 Hz → 0.016
+            if val < 0.02:          # 1/60 Hz â†’ 0.016
                 new_lbl = "0.016"
             else:                   # round to 2 decimals, drop trailing .0
                 new_lbl = f"{round(val, 2):g}"
@@ -51,15 +52,17 @@ def _fix_excess_legend(ax, ncol=3, loc=None):
             new_lbl = lbl
         deduped.setdefault(new_lbl, h)
     legend_kw = dict(title="freq (Hz)", ncol=ncol,
-                     fontsize=FP.FS_LEGEND, title_fontsize=FP.FS_LEGEND, frameon=False)
+                     fontsize=FP.FS_LEGEND, title_fontsize=FP.FS_LEGEND)
     if loc is not None:
         legend_kw["loc"] = loc
+    if bbox_to_anchor is not None:
+        legend_kw["bbox_to_anchor"] = bbox_to_anchor
     ax.legend(list(deduped.values()), list(deduped.keys()), **legend_kw)
 
 
 def _plot_pvalue_ecdf_deviation(ax, df, color):
-    """Deviation of a pooled p-value ECDF from uniform, with a bootstrap band
-    (colored) and the 95% binomial band expected under the null (gray).
+    """Deviation of a pooled p-value ECDF from uniform (bootstrap center), with
+    the 95% binomial band expected under the null (gray).
 
     Mirrors the ECDF insets in Fig1 E/F (see fig1.py), and replaces what used
     to be a pooled NFC histogram with a null-PDF overlay.
@@ -77,13 +80,13 @@ def _plot_pvalue_ecdf_deviation(ax, df, color):
     is resampled rather than fixed at whichever row happened to come first --
     see statistics.bootstrap_occurrence_ecdf_band.
     """
-    x, lower, upper, center = statistics.bootstrap_occurrence_ecdf_band(
+    x, _, _, center = statistics.bootstrap_occurrence_ecdf_band(
         df, value_col="p_value", alpha=0.05, seed=0)
 
-    # Null reference: 95% binomial band for this many unique neurons.
+    # Null reference: 95% binomial band for this many unique neurons. The
+    # bootstrap band itself is not drawn (2026-10-18), only its center.
     statistics.plot_binomial_ecdf_band(ax, df.groupby(list(statistics.UNIQUE_NEURON_KEY)).ngroups)
     ax.plot(x, center, color=color, linewidth=FP.LW_TRACE)
-    ax.fill_between(x, lower, upper, color=color, alpha=FP.ALPHA_CONFIDENCE)
     ax.axhline(0, color=FP.COLOR_NULL, linestyle="--", linewidth=FP.LW_REFERENCE, alpha=0.6)
 
     ax.set_xlabel("p-value")
@@ -168,21 +171,19 @@ def plot_fig2(all_fourier_df, out_dir: Path):
     # each -- see statistics.freq_color_map.
     freq_levels = np.concatenate([all_neg_res.freq.unique(), all_pos_control.freq.unique()])
 
-    statistics.plot_excess_counts(ax_A, all_neg_res, ylim=(-15, 35), freq_levels=freq_levels)
+    statistics.plot_excess_counts(ax_A, all_neg_res, ylim=(-15, 25), freq_levels=freq_levels)
     _fix_excess_legend(ax_A, ncol=7, loc="upper left")
     num_exp_A = all_neg_res.groupby(["species", "area", "rec"]).ngroups
     print(f"Subfig A (magnetic): {num_exp_A} experiments")
 
-    # stagger_area_labels=False: unlike panel A, B's areas (wulst/CB/HP/WB)
-    # are spaced widely enough that alternating labels above/below the area
-    # line isn't needed, so every label just goes below it.
-    # ylim[1]=45 (was 35): gives combined 1F+2F overflow labels (e.g.
-    # zebrafish's "699/150"/"672/308") enough headroom that the
-    # keep-inside-frame clamp in plot_excess_counts never has to engage at
-    # all for them.
-    statistics.plot_excess_counts(ax_B, all_pos_control, ylim=(-15, 45),
-                                  stagger_area_labels=False, freq_levels=freq_levels)
-    _fix_excess_legend(ax_B, ncol=3, loc="upper center")
+    # Staggered area labels, as in A: since the coil-on fish recordings left
+    # this panel (2026-10-18), medaka has two bars and its "whole brain" ran
+    # into zebrafish's.
+    # Overflow counts (arrow + number) run above the panel, beside its
+    # title, so ylim only has to fit the bars themselves.
+    statistics.plot_excess_counts(ax_B, all_pos_control, ylim=(-15, 30),
+                                  freq_levels=freq_levels)
+    _fix_excess_legend(ax_B, ncol=2, loc="upper center", bbox_to_anchor=(0.7, 1))
     num_exp_B = all_pos_control.groupby(["species", "area", "rec"]).ngroups
     print(f"Subfig B (visual & auditory): {num_exp_B} experiments")
 
@@ -226,25 +227,25 @@ def plot_fig2(all_fourier_df, out_dir: Path):
     pos_control_F = flag_sessions_with_excess_suspects(all_pos_control, freq_harmonic=1)
     pos_control_2F = flag_sessions_with_excess_suspects(all_pos_control, freq_harmonic=2)
 
-    print(f"\n% sessions with excess suspects (F):")
-    if len(neg_res_F) > 0:
-        print(f"  Magnetic:          {sum(neg_res_F)/len(neg_res_F)*100:.1f}% ({len(neg_res_F)} sessions)")
-    else:
-        print(f"  Magnetic:          no data")
-    if len(pos_control_F) > 0:
-        print(f"  Visual & auditory: {sum(pos_control_F)/len(pos_control_F)*100:.1f}% ({len(pos_control_F)} sessions)")
-    else:
-        print(f"  Visual & auditory: no data")
-
-    print(f"\n% sessions with excess suspects (2F):")
-    if len(neg_res_2F) > 0:
-        print(f"  Magnetic:          {sum(neg_res_2F)/len(neg_res_2F)*100:.1f}% ({len(neg_res_2F)} sessions)")
-    else:
-        print(f"  Magnetic:          no data")
-    if len(pos_control_2F) > 0:
-        print(f"  Visual & auditory: {sum(pos_control_2F)/len(pos_control_2F)*100:.1f}% ({len(pos_control_2F)} sessions)")
-    else:
-        print(f"  Visual & auditory: no data")
+    # Also exported to the manuscript's numbers.tex (see tex_numbers.py), e.g.
+    # \importnumber{pct_flagged_magnetic_F} for the share of Fig 2A
+    # experiments above the 95% bound.
+    numbers = {}
+    for harmonic, flags_mag, flags_pos in [("F", neg_res_F, pos_control_F),
+                                           ("2F", neg_res_2F, pos_control_2F)]:
+        print(f"\n% sessions with excess suspects ({harmonic}):")
+        for pop, label, flags in [("magnetic", "Magnetic:         ", flags_mag),
+                                  ("poscontrol", "Visual & auditory:", flags_pos)]:
+            if len(flags) == 0:
+                print(f"  {label} no data")
+                continue
+            pct = sum(flags) / len(flags) * 100
+            print(f"  {label} {pct:.1f}% ({sum(flags)} of {len(flags)} sessions)")
+            numbers[f"n_flagged_{pop}_{harmonic}"] = sum(flags)
+            numbers[f"pct_flagged_{pop}_{harmonic}"] = f"{pct:.1f}"
+        numbers[f"n_experiments_magnetic_{harmonic}"] = len(flags_mag)
+        numbers[f"n_experiments_poscontrol_{harmonic}"] = len(flags_pos)
+    tex_numbers.write_numbers("fig2", numbers)
     print(f"Unique dates: {all_neg_res['date'].nunique()}  "
           f"areas: {all_neg_res['area'].nunique()}  "
           f"species: {all_neg_res['species'].nunique()}")

@@ -52,7 +52,7 @@ def main():
     print(f"Loading {args.parquet} ...")
     all_fourier_df = pd.read_parquet(args.parquet)
     plot_fig3(all_fourier_df, out_dir, pval_col="2f_p_value", sens_col="sens_2f",
-              out_name="Fig3_supp.pdf", suptitle="2F harmonic")
+              out_name="Fig3_supp.pdf", suptitle="2F harmonic", buckets="waves")
 
 
 if __name__ == "__main__":
