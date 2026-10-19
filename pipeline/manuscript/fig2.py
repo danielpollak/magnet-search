@@ -61,8 +61,8 @@ def _fix_excess_legend(ax, ncol=3, loc=None, bbox_to_anchor=None):
 
 
 def _plot_pvalue_ecdf_deviation(ax, df, color):
-    """Deviation of a pooled p-value ECDF from uniform (bootstrap center), with
-    the 95% binomial band expected under the null (gray).
+    """Deviation of a pooled p-value ECDF from uniform, with the 95% binomial
+    band expected under the null (gray). Returns the number of p-values.
 
     Mirrors the ECDF insets in Fig1 E/F (see fig1.py), and replaces what used
     to be a pooled NFC histogram with a null-PDF overlay.
@@ -75,18 +75,18 @@ def _plot_pvalue_ecdf_deviation(ax, df, color):
     curve that would be correct for all of it. The old overlay implicitly
     assumed one.
 
-    `df` is the PRE-dedup frame: every observation of every neuron. Neurons are
-    still counted once per draw, but which of their observations they contribute
-    is resampled rather than fixed at whichever row happened to come first --
-    see statistics.bootstrap_occurrence_ecdf_band.
+    `df` holds one row per neuron, its first recording -- the same bucket as
+    Fig 3A (2026-10-19; previously every recording, with an occurrence
+    bootstrap over which one each neuron contributes). Rows without a p-value
+    (owl, precomputed) are left out, as in Fig 3.
     """
-    x, _, _, center = statistics.bootstrap_occurrence_ecdf_band(
-        df, value_col="p_value", alpha=0.05, seed=0)
+    p = np.sort(df["p_value"].to_numpy(dtype=float))
+    p = p[np.isfinite(p)]
+    x = statistics.ECDF_P_GRID
+    deviation = np.searchsorted(p, x, side="right") / len(p) - x
 
-    # Null reference: 95% binomial band for this many unique neurons. The
-    # bootstrap band itself is not drawn (2026-10-18), only its center.
-    statistics.plot_binomial_ecdf_band(ax, df.groupby(list(statistics.UNIQUE_NEURON_KEY)).ngroups)
-    ax.plot(x, center, color=color, linewidth=FP.LW_TRACE)
+    statistics.plot_binomial_ecdf_band(ax, len(p))
+    ax.plot(x, deviation, color=color, linewidth=FP.LW_TRACE)
     ax.axhline(0, color=FP.COLOR_NULL, linestyle="--", linewidth=FP.LW_REFERENCE, alpha=0.6)
 
     ax.set_xlabel("p-value")
@@ -94,6 +94,7 @@ def _plot_pvalue_ecdf_deviation(ax, df, color):
     ax.set_xlim((0, 1))
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
+    return len(p)
 
 
 def flag_sessions_with_excess_suspects(df, freq_harmonic=1):
@@ -187,18 +188,17 @@ def plot_fig2(all_fourier_df, out_dir: Path):
     num_exp_B = all_pos_control.groupby(["species", "area", "rec"]).ngroups
     print(f"Subfig B (visual & auditory): {num_exp_B} experiments")
 
-    # Pre-dedup frames: the bootstrap handles double-counting itself, so all
-    # 69,987 observations are used rather than only each neuron's first row.
-    # The deduped frames are still what the panel titles count (unique neurons).
-    _plot_pvalue_ecdf_deviation(ax_C, all_neg_res, FP.COLOR_MAG)
-    _plot_pvalue_ecdf_deviation(ax_D, all_pos_control, FP.COLOR_VIS)
+    # Each neuron's first recording, i.e. Fig 3A's bucket; N counts the
+    # neurons with a p-value.
+    n_C = _plot_pvalue_ecdf_deviation(ax_C, all_fourier_df_unique_neg_res, FP.COLOR_MAG)
+    n_D = _plot_pvalue_ecdf_deviation(ax_D, all_unique_pos_control, FP.COLOR_VIS)
     # D shares C's y-axis, so it carries neither the tick labels nor the label.
     ax_D.set_ylabel("")
 
     ax_A.set_title("Magnetic stimulation", fontsize=FP.FS_TITLE)
     ax_B.set_title("Visual & auditory stimulation", fontsize=FP.FS_TITLE)
-    ax_C.set_title(f"Magnetic (N={len(all_fourier_df_unique_neg_res)})", fontsize=FP.FS_TITLE)
-    ax_D.set_title(f"Visual & auditory (N={len(all_unique_pos_control)})", fontsize=FP.FS_TITLE)
+    ax_C.set_title(f"Magnetic (N={n_C})", fontsize=FP.FS_TITLE)
+    ax_D.set_title(f"Visual & auditory (N={n_D})", fontsize=FP.FS_TITLE)
 
     ax_A.annotate("A", xy=(-0.05, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
     ax_B.annotate("B", xy=(-0.05, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
