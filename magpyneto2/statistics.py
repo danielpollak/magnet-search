@@ -1770,37 +1770,15 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
                     arrow_tail = label_top + small_gap * 2.5
                     arrow_head = arrow_tail + small_gap * 3
 
-                    # Keep the whole tower inside the visible frame when
-                    # there's room to (2026-08-28) -- when a bar's anchor
-                    # sits close to ylim[1] and its label is tall (e.g. a
-                    # combined 1F+2F stack), the arrow could otherwise land
-                    # above ylim[1], where annotation_clip's default
-                    # behavior stops clipping it -- it doesn't vanish, it
-                    # just floats above the panel's own frame, which looks
-                    # like a missing arrow. Shift the whole tower down to
-                    # clear -- but capped at how far text_y itself can drop
-                    # before the label gets closer to the anchor than
-                    # small_gap. The previous cap (`arrow_tail - text_y`)
-                    # measured the wrong thing -- the space between the
-                    # label and its OWN arrow, not the space between the
-                    # label and the bar below it -- so a tall combined-label
-                    # tower could still be shoved down far enough to
-                    # overlap the confidence-bound bar it's meant to sit
-                    # above. Past this floor, let the tower float above
-                    # ylim[1] instead (Text and Annotation both still
-                    # render outside the axes' data limits by default).
-                    max_y = ylim[1] - 0.3
-                    if arrow_head > max_y:
-                        max_shift = max(0.0, anchor_gap - small_gap)
-                        excess = min(arrow_head - max_y, max_shift)
-                        arrow_tail -= excess
-                        arrow_head -= excess
-                        t2.set_position((counter - 0.5, t2.get_position()[1] - excess))
-                        if t1 is not None:
-                            t1.set_position((counter - 0.5, t1.get_position()[1] - excess))
-
+                    # A tall tower is free to run past ylim[1] into the
+                    # space above the panel, beside its title (2026-10-18):
+                    # that keeps ylim tight on the bulk of the data without
+                    # dropping any overflow count. annotation_clip=False,
+                    # since by default an arrow whose head lies above the
+                    # axes is not drawn at all.
                     conf_ax.annotate("", xytext=(counter - 0.5, arrow_tail), xy=(counter - 0.5, arrow_head),
-                                      arrowprops=dict(arrowstyle="-|>", color="k", edgecolor=None))
+                                      arrowprops=dict(arrowstyle="-|>", color="k", edgecolor=None),
+                                      annotation_clip=False)
                 
                 if label_recs:
                     conf_ax.text(counter, 10, rec.split('\\')[-1].split('/')[-1], ha="center", rotation=90)
@@ -1912,8 +1890,12 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
     conf_ax.set_ylim(ylim)
     conf_ax.set_ylabel("# Suspects");
 
-    # Remove negative xticks
-    conf_ax.set_yticks(conf_ax.get_yticks()[conf_ax.get_yticks() >= 0])
+    # Keep only the ticks inside [0, ylim[1]] -- the locator also returns
+    # one above ylim[1], and set_yticks would widen ylim to include it,
+    # leaving that tick above the end of the spine (set below).
+    _yt = conf_ax.get_yticks()
+    conf_ax.set_yticks(_yt[(_yt >= 0) & (_yt <= ylim[1])])
+    conf_ax.set_ylim(ylim)
     # Suspect counts are discrete -- no decimal points on the y axis.
     conf_ax.set_yticklabels([f"{int(y)}" for y in conf_ax.get_yticks()])
 

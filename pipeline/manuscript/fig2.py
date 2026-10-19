@@ -1,4 +1,4 @@
-"""Fig 2 — excess-count barplots and NFC distributions for all neurons.
+﻿"""Fig 2 â€” excess-count barplots and NFC distributions for all neurons.
 
 Requires:
   data/manuscript/all_fourier_df.parquet  (run python pipeline/aggregate.py first)
@@ -43,7 +43,7 @@ def _fix_excess_legend(ax, ncol=3, loc=None):
     for h, lbl in zip(handles, labels):
         try:
             val = float(lbl)
-            if val < 0.02:          # 1/60 Hz → 0.016
+            if val < 0.02:          # 1/60 Hz â†’ 0.016
                 new_lbl = "0.016"
             else:                   # round to 2 decimals, drop trailing .0
                 new_lbl = f"{round(val, 2):g}"
@@ -58,8 +58,8 @@ def _fix_excess_legend(ax, ncol=3, loc=None):
 
 
 def _plot_pvalue_ecdf_deviation(ax, df, color):
-    """Deviation of a pooled p-value ECDF from uniform, with a bootstrap band
-    (colored) and the 95% binomial band expected under the null (gray).
+    """Deviation of a pooled p-value ECDF from uniform (bootstrap center), with
+    the 95% binomial band expected under the null (gray).
 
     Mirrors the ECDF insets in Fig1 E/F (see fig1.py), and replaces what used
     to be a pooled NFC histogram with a null-PDF overlay.
@@ -77,13 +77,13 @@ def _plot_pvalue_ecdf_deviation(ax, df, color):
     is resampled rather than fixed at whichever row happened to come first --
     see statistics.bootstrap_occurrence_ecdf_band.
     """
-    x, lower, upper, center = statistics.bootstrap_occurrence_ecdf_band(
+    x, _, _, center = statistics.bootstrap_occurrence_ecdf_band(
         df, value_col="p_value", alpha=0.05, seed=0)
 
-    # Null reference: 95% binomial band for this many unique neurons.
+    # Null reference: 95% binomial band for this many unique neurons. The
+    # bootstrap band itself is not drawn (2026-10-18), only its center.
     statistics.plot_binomial_ecdf_band(ax, df.groupby(list(statistics.UNIQUE_NEURON_KEY)).ngroups)
     ax.plot(x, center, color=color, linewidth=FP.LW_TRACE)
-    ax.fill_between(x, lower, upper, color=color, alpha=FP.ALPHA_CONFIDENCE)
     ax.axhline(0, color=FP.COLOR_NULL, linestyle="--", linewidth=FP.LW_REFERENCE, alpha=0.6)
 
     ax.set_xlabel("p-value")
@@ -168,7 +168,7 @@ def plot_fig2(all_fourier_df, out_dir: Path):
     # each -- see statistics.freq_color_map.
     freq_levels = np.concatenate([all_neg_res.freq.unique(), all_pos_control.freq.unique()])
 
-    statistics.plot_excess_counts(ax_A, all_neg_res, ylim=(-15, 35), freq_levels=freq_levels)
+    statistics.plot_excess_counts(ax_A, all_neg_res, ylim=(-15, 25), freq_levels=freq_levels)
     _fix_excess_legend(ax_A, ncol=7, loc="upper left")
     num_exp_A = all_neg_res.groupby(["species", "area", "rec"]).ngroups
     print(f"Subfig A (magnetic): {num_exp_A} experiments")
@@ -176,11 +176,9 @@ def plot_fig2(all_fourier_df, out_dir: Path):
     # stagger_area_labels=False: unlike panel A, B's areas (wulst/CB/HP/WB)
     # are spaced widely enough that alternating labels above/below the area
     # line isn't needed, so every label just goes below it.
-    # ylim[1]=45 (was 35): gives combined 1F+2F overflow labels (e.g.
-    # zebrafish's "699/150"/"672/308") enough headroom that the
-    # keep-inside-frame clamp in plot_excess_counts never has to engage at
-    # all for them.
-    statistics.plot_excess_counts(ax_B, all_pos_control, ylim=(-15, 45),
+    # Overflow counts (arrow + number) run above the panel, beside its
+    # title, so ylim only has to fit the bars themselves.
+    statistics.plot_excess_counts(ax_B, all_pos_control, ylim=(-15, 30),
                                   stagger_area_labels=False, freq_levels=freq_levels)
     _fix_excess_legend(ax_B, ncol=3, loc="upper center")
     num_exp_B = all_pos_control.groupby(["species", "area", "rec"]).ngroups
