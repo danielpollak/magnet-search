@@ -28,6 +28,7 @@ import pandas as pd
 from magpyneto2 import statistics
 
 import format_parameters as FP
+import tex_numbers
 
 
 
@@ -226,25 +227,25 @@ def plot_fig2(all_fourier_df, out_dir: Path):
     pos_control_F = flag_sessions_with_excess_suspects(all_pos_control, freq_harmonic=1)
     pos_control_2F = flag_sessions_with_excess_suspects(all_pos_control, freq_harmonic=2)
 
-    print(f"\n% sessions with excess suspects (F):")
-    if len(neg_res_F) > 0:
-        print(f"  Magnetic:          {sum(neg_res_F)/len(neg_res_F)*100:.1f}% ({len(neg_res_F)} sessions)")
-    else:
-        print(f"  Magnetic:          no data")
-    if len(pos_control_F) > 0:
-        print(f"  Visual & auditory: {sum(pos_control_F)/len(pos_control_F)*100:.1f}% ({len(pos_control_F)} sessions)")
-    else:
-        print(f"  Visual & auditory: no data")
-
-    print(f"\n% sessions with excess suspects (2F):")
-    if len(neg_res_2F) > 0:
-        print(f"  Magnetic:          {sum(neg_res_2F)/len(neg_res_2F)*100:.1f}% ({len(neg_res_2F)} sessions)")
-    else:
-        print(f"  Magnetic:          no data")
-    if len(pos_control_2F) > 0:
-        print(f"  Visual & auditory: {sum(pos_control_2F)/len(pos_control_2F)*100:.1f}% ({len(pos_control_2F)} sessions)")
-    else:
-        print(f"  Visual & auditory: no data")
+    # Also exported to the manuscript's numbers.tex (see tex_numbers.py), e.g.
+    # \importnumber{pct_flagged_magnetic_F} for the share of Fig 2A
+    # experiments above the 95% bound.
+    numbers = {}
+    for harmonic, flags_mag, flags_pos in [("F", neg_res_F, pos_control_F),
+                                           ("2F", neg_res_2F, pos_control_2F)]:
+        print(f"\n% sessions with excess suspects ({harmonic}):")
+        for pop, label, flags in [("magnetic", "Magnetic:         ", flags_mag),
+                                  ("poscontrol", "Visual & auditory:", flags_pos)]:
+            if len(flags) == 0:
+                print(f"  {label} no data")
+                continue
+            pct = sum(flags) / len(flags) * 100
+            print(f"  {label} {pct:.1f}% ({sum(flags)} of {len(flags)} sessions)")
+            numbers[f"n_flagged_{pop}_{harmonic}"] = sum(flags)
+            numbers[f"pct_flagged_{pop}_{harmonic}"] = f"{pct:.1f}"
+        numbers[f"n_experiments_magnetic_{harmonic}"] = len(flags_mag)
+        numbers[f"n_experiments_poscontrol_{harmonic}"] = len(flags_pos)
+    tex_numbers.write_numbers("fig2", numbers)
     print(f"Unique dates: {all_neg_res['date'].nunique()}  "
           f"areas: {all_neg_res['area'].nunique()}  "
           f"species: {all_neg_res['species'].nunique()}")
