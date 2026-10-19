@@ -31,7 +31,7 @@ import format_parameters as FP
 
 
 
-def _fix_excess_legend(ax, ncol=3, loc=None):
+def _fix_excess_legend(ax, ncol=3, loc=None, bbox_to_anchor=None):
     handles, labels = ax.get_legend_handles_labels()
     # Dedup by DISPLAY label, keeping only the first handle for each --
     # rounding alone (as before) just gave two near-identical-looking rows
@@ -51,9 +51,11 @@ def _fix_excess_legend(ax, ncol=3, loc=None):
             new_lbl = lbl
         deduped.setdefault(new_lbl, h)
     legend_kw = dict(title="freq (Hz)", ncol=ncol,
-                     fontsize=FP.FS_LEGEND, title_fontsize=FP.FS_LEGEND, frameon=False)
+                     fontsize=FP.FS_LEGEND, title_fontsize=FP.FS_LEGEND)
     if loc is not None:
         legend_kw["loc"] = loc
+    if bbox_to_anchor is not None:
+        legend_kw["bbox_to_anchor"] = bbox_to_anchor
     ax.legend(list(deduped.values()), list(deduped.keys()), **legend_kw)
 
 
@@ -173,14 +175,14 @@ def plot_fig2(all_fourier_df, out_dir: Path):
     num_exp_A = all_neg_res.groupby(["species", "area", "rec"]).ngroups
     print(f"Subfig A (magnetic): {num_exp_A} experiments")
 
-    # stagger_area_labels=False: unlike panel A, B's areas (wulst/CB/HP/WB)
-    # are spaced widely enough that alternating labels above/below the area
-    # line isn't needed, so every label just goes below it.
+    # Staggered area labels, as in A: since the coil-on fish recordings left
+    # this panel (2026-10-18), medaka has two bars and its "whole brain" ran
+    # into zebrafish's.
     # Overflow counts (arrow + number) run above the panel, beside its
     # title, so ylim only has to fit the bars themselves.
     statistics.plot_excess_counts(ax_B, all_pos_control, ylim=(-15, 30),
-                                  stagger_area_labels=False, freq_levels=freq_levels)
-    _fix_excess_legend(ax_B, ncol=3, loc="upper center")
+                                  freq_levels=freq_levels)
+    _fix_excess_legend(ax_B, ncol=2, loc="upper center", bbox_to_anchor=(0.7, 1))
     num_exp_B = all_pos_control.groupby(["species", "area", "rec"]).ngroups
     print(f"Subfig B (visual & auditory): {num_exp_B} experiments")
 

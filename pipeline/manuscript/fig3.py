@@ -8,6 +8,10 @@ shown for contrast — non-uniform, left-skewed p-values.
 Requires:
   data/manuscript/all_fourier_df.parquet  (run python pipeline/aggregate.py first)
 
+Fig3.pdf shows each neuron once (its first recording); Fig3_supp_buckets.pdf
+shows every recording, split into occurrence waves (page 1) and pooled
+(page 2) -- see plot_fig3's `buckets`.
+
 Usage:
     python pipeline/manuscript/fig3.py
     python pipeline/manuscript/fig3.py --out-dir figs/paper
@@ -27,6 +31,7 @@ if not in_notebook:
     matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
+from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.colors import LinearSegmentedColormap
 import numpy as np
 import pandas as pd
@@ -223,6 +228,7 @@ def _add_qval_inset(ax, wave_sorted_qvals, wave_colors, n_inset=50, x0_frac=0.35
     # Pad the left edge so points sitting right at x=0 aren't squashed against
     # the inset's own y-axis spine.
     axins.set_xlim(-0.05 * n_inset, n_inset)
+    axins.spines[["top", "right"]].set_visible(False)
     # Inset x-tick labels at ~90% of the main axes' tick label size (FP.FS_BODY,
     # set globally via matplotlib.rc("font", ...) in plot_fig3) -- readable
     # against the inset's cramped width without visually competing with the
@@ -278,7 +284,11 @@ def plot_uniform_p(waves, axes, percentile=None, colors=None, pval_col="p_value"
             wave_df = wave_df.loc[wave_df[sens_col] > pct]
         if len(wave_df) == 0:
             continue
+        # Units with no p-value (the owl's precomputed rows; for 2F, recordings
+        # with no paired 2F fit) have no place on a sorted p/q axis, and would
+        # otherwise stretch the "Unit" axis past the last plotted point.
         pval = wave_df[pval_col].values
+        pval = pval[np.isfinite(pval)]
         if len(pval) == 0:
             continue
         qval, pi0 = statistics.storey_qvalues(pval, lambda_=0.5)
@@ -313,24 +323,40 @@ def plot_uniform_p(waves, axes, percentile=None, colors=None, pval_col="p_value"
 
 
 def plot_fig3(all_fourier_df, out_dir: Path, pval_col="p_value", sens_col="sens",
-              out_name="Fig3.pdf", suptitle=None):
+              out_name="Fig3.pdf", suptitle=None, buckets="largest"):
     """`pval_col`/`sens_col`/`out_name`/`suptitle`: overridden by fig3_supp.py to
     reuse this exact function for the 2F-harmonic version of this figure
-    ("2f_p_value"/"sens_2f"/"Fig3_supp.pdf") -- defaults reproduce the original
-    1F Fig3.pdf byte-for-byte, so `main()` below is unaffected.
+    ("2f_p_value"/"sens_2f"/"Fig3_supp.pdf").
+
+    `buckets`: which recordings each panel shows (2026-10-18).
+      "largest" -- Fig3.pdf: only each panel's largest occurrence wave (every
+          neuron's first recording, so each neuron counted once).
+      "waves"   -- every occurrence wave, one shade each (Fig3.pdf before
+          2026-10-18; now page 1 of Fig3_supp_buckets.pdf).
+      "pooled"  -- every recording of every neuron in one bucket, each NFC
+          treated as an independent sample (page 2 of Fig3_supp_buckets.pdf).
     """
     waves, wave_df_l, pos_control_waves = split_into_occurrence_waves(all_fourier_df, pval_col=pval_col)
 
     font = {"family": FP.FONT_FAMILY, "size": FP.FS_BODY}
     matplotlib.rc("font", **font)
 
-    # Explicit, non-overlapping color families per population -- occurrence-wave
-    # index means "Nth magnet trial" for neg-result vs. "Nth stimulus condition"
-    # for pos-control, so the two are not comparable and must never share a color
-    # (see plot_uniform_p's docstring). Shade still varies by occurrence within
-    # each population, echoing FP.COLOR_MAG ("steelblue") / FP.COLOR_VIS ("coral").
-    neg_colors = shades_to_black("Blues", len(waves))
-    pos_colors = shades_to_black("Oranges", len(pos_control_waves))
+    if buckets == "waves":
+        # Explicit, non-overlapping color families per population -- occurrence-wave
+        # index means "Nth magnet trial" for neg-result vs. "Nth stimulus condition"
+        # for pos-control, so the two are not comparable and must never share a color
+        # (see plot_uniform_p's docstring). Shade still varies by occurrence within
+        # each population, echoing FP.COLOR_MAG ("steelblue") / FP.COLOR_VIS ("coral").
+        neg_colors = shades_to_black("Blues", len(waves))
+        pos_colors = shades_to_black("Oranges", len(pos_control_waves))
+    elif buckets == "pooled":
+        waves = [pd.concat(waves, ignore_index=True)]
+        pos_control_waves = [pd.concat(pos_control_waves, ignore_index=True)]
+        neg_colors, pos_colors = [FP.COLOR_MAG], [FP.COLOR_VIS]
+    elif buckets == "largest":
+        neg_colors, pos_colors = [FP.COLOR_MAG], [FP.COLOR_VIS]
+    else:
+        raise ValueError(f"unknown buckets={buckets!r}")
 
     # Each of the 4 conditions gets its own 2x2 quadrant: columns = negative-
     # result ("Magnetic") vs. positive-control ("Visual/Audio"), rows = p-values
@@ -370,10 +396,15 @@ def plot_fig3(all_fourier_df, out_dir: Path, pval_col="p_value", sens_col="sens"
         ax_p_neg.tick_params(labelbottom=False)
         ax_p_pos.tick_params(labelbottom=False, labelleft=False)
         ax_q_pos.tick_params(labelleft=False)
+        for ax in (ax_p_neg, ax_p_pos, ax_q_neg, ax_q_pos):
+            ax.spines[["top", "right"]].set_visible(False)
 
         neg_subset = waves if cond_filter is None else [w.loc[cond_filter(w)] for w in waves]
         pos_subset = pos_control_waves if cond_filter is None else \
             [w.loc[cond_filter(w)] for w in pos_control_waves]
+        if buckets == "largest":
+            neg_subset = [max(neg_subset, key=len)]
+            pos_subset = [max(pos_subset, key=len)]
 
         plot_uniform_p(neg_subset, [ax_p_neg, ax_q_neg], percentile=percentile, colors=neg_colors,
                        pval_col=pval_col, sens_col=sens_col, inset_ylim_bottom=1e-2)
@@ -394,7 +425,9 @@ def plot_fig3(all_fourier_df, out_dir: Path, pval_col="p_value", sens_col="sens"
                   ha="left", va="bottom", fontfamily="arial", fontsize=12, fontweight="bold")
 
     if suptitle:
-        fig.suptitle(suptitle, fontsize=FP.FS_BODY + 2, fontweight="bold", y=0.98)
+        # Above the quadrant titles (which sit at top + 0.04 = 0.94); at the
+        # old y=0.98 it ran into the A/B titles.
+        fig.suptitle(suptitle, fontsize=FP.FS_BODY + 2, fontweight="bold", y=1.0, va="bottom")
 
     if out_name is None:
         # Caller wants the Figure itself, not a file -- fig3_variants.py
@@ -423,6 +456,18 @@ def main():
     print(f"Loading {args.parquet} ...")
     all_fourier_df = pd.read_parquet(args.parquet)
     plot_fig3(all_fourier_df, out_dir)
+
+    # Supplement: the occurrence-wave version (Fig3.pdf before 2026-10-18) and
+    # the all-recordings-pooled version, one page each.
+    supp_path = out_dir / "Fig3_supp_buckets.pdf"
+    with PdfPages(supp_path) as pdf:
+        for buckets, suptitle in (
+                ("waves", "Each neuron's 1st, 2nd, ... recording as a separate bucket"),
+                ("pooled", "Every recording of every neuron pooled (each NFC an independent sample)")):
+            fig = plot_fig3(all_fourier_df, out_dir, out_name=None, suptitle=suptitle, buckets=buckets)
+            pdf.savefig(fig, bbox_inches="tight", dpi=FP.DPI)
+            plt.close(fig)
+    print(f"Saved {supp_path}")
 
 
 if __name__ == "__main__":
