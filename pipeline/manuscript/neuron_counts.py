@@ -300,6 +300,10 @@ numbers = {
     "n_individuals_best_estimate": summary.loc["TOTAL", "n_individuals_best_estimate"],
     "n_neurons_magnetic": summary.loc["TOTAL", "n_unique_neurons_magnetic"],
     "n_neurons_poscontrol": summary.loc["TOTAL", "n_unique_neurons_poscontrol"],
+    # (species, brain area) groups recorded under magnetic stimulation, and the
+    # distinct brain areas among them other than whole-brain imaging ("WB")
+    "n_area_groups_magnetic": post_fix_neg_res[["species", "area"]].drop_duplicates().shape[0],
+    "n_brain_areas_magnetic": post_fix_neg_res.loc[post_fix_neg_res.area != "WB", "area"].nunique(),
 }
 for species, row in summary.drop("TOTAL").iterrows():
     s = _slug(species)
