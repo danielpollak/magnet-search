@@ -547,7 +547,7 @@ def plot_fig4B_diagnostics(df, top_decile_mask, FOURIER_Q, bin_s, out_dir: Path)
 
 def main():
     parser = argparse.ArgumentParser(description="Fig4B banding diagnostics (four x-axis variants)")
-    parser.add_argument("--out-dir", default=FP.OUT_DIR, help="Output directory for the PDF")
+    parser.add_argument("--out-dir", default=FP.DIAGNOSTIC_DIR, help="Output directory for the PDF")
     parser.add_argument("--data-dir", default=FP.DATA_DIR, help="Directory containing pipeline output .nwb files")
     parser.add_argument("--experiments", nargs="*", default=None,
                         help="Explicit experiment names to pool (default: fig4's own auto-discovery)")

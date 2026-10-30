@@ -106,6 +106,7 @@ from pipeline import nwb_io
 from pipeline.schema import load_experiment
 
 import format_parameters as FP
+import tex_numbers
 
 # Anchored to this file's own location (repo_root/pipeline/manuscript/fig4.py
 # -> repo_root), not the process's CWD -- previously these were plain
@@ -375,6 +376,12 @@ QVALUE_FDR         = 0.05
 # are refined by an order of magnitude.
 _SWEEP_PARALLEL_MIN_CELLS = 500_000
 N_REPEATS          = 10  # independent random-pool draws averaged per (participation, amplitude) cell
+
+# Detection criterion for panels C/D: this many responders at q < 0.05 (the
+# dashed contour), and the amplitudes at which the manuscript quotes the
+# participation needed to reach it (exported to numbers.tex, see main).
+DETECTION_RESPONDERS = 10
+QUOTED_AMPLITUDES = (0.05, 0.10, 0.20)
 
 
 def discover_pigeon_hp_experiments(experiments_dir: Path):
@@ -973,6 +980,50 @@ def _responder_cell(task):
     }
 
 
+def detection_participation(resp_df, amplitude, level=DETECTION_RESPONDERS):
+    """Fraction of the population that must be modulated at `amplitude` for
+    the repeat-averaged responder count to reach `level` -- where panel C/D's
+    dashed contour crosses that amplitude's column. Linear interpolation
+    between the two participation grid points around the first crossing, as
+    matplotlib's contour does. NaN if the column never reaches `level`.
+
+    The averaged surface is not monotone in participation near the threshold
+    (10 repeats), so this is the first crossing, and only good to a few
+    percent: the participation grid steps by 2% and single repeats cross
+    several percent earlier than the average does.
+    """
+    amps = np.unique(resp_df["amplitude"])
+    a = amps[np.argmin(np.abs(amps - amplitude))]
+    col = (resp_df.loc[resp_df["amplitude"] == a]
+           .groupby("participation")["responders"].mean())
+    p, n = col.index.to_numpy(), col.to_numpy()
+    above = np.flatnonzero(n >= level)
+    if len(above) == 0:
+        return np.nan
+    i = above[0]
+    if i == 0:
+        return float(p[0])
+    return float(p[i - 1] + (level - n[i - 1]) / (n[i] - n[i - 1]) * (p[i] - p[i - 1]))
+
+
+def detection_numbers(resp_df, resp_df_top, n_units, n_top):
+    """The panel C/D numbers quoted in the Results, for numbers.tex:
+    population sizes, and at each QUOTED_AMPLITUDES amplitude the percentage
+    (whole percent) and number of units that must be modulated to reach
+    DETECTION_RESPONDERS responders. Keys look like `pct_detect_all_A05`
+    (A = 0.05) and `n_detect_top_A20`. Also the top decile's floor:
+    DETECTION_RESPONDERS as a percentage of it."""
+    numbers = {"n_units_fig4_all": n_units, "n_units_fig4_top": n_top,
+               "pct_detect_top_floor": f"{100 * DETECTION_RESPONDERS / n_top:.0f}"}
+    for pop, df, n in (("all", resp_df, n_units), ("top", resp_df_top, n_top)):
+        for a in QUOTED_AMPLITUDES:
+            frac = detection_participation(df, a)
+            tag = f"A{round(100 * a):02d}"
+            numbers[f"pct_detect_{pop}_{tag}"] = f"{100 * frac:.0f}"
+            numbers[f"n_detect_{pop}_{tag}"] = int(round(frac * n))
+    return numbers
+
+
 def compute_responder_df(spks, FOURIER_Q, workers=1, freq=FREQ, n_repeats=N_REPEATS):
     """Ports fig4_pilot.py's compute_responder_df onto this file's own
     (full, un-subsampled) pseudopopulation -- see module docstring.
@@ -1387,7 +1438,7 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
     # tick labels.) Mirrors the same call made on D's y-axis, which C's
     # y-label covers.
     fig.colorbar(im, ax=ax_heatmap)
-    contour_level = 10 # max(1, len(spks) // 10)
+    contour_level = DETECTION_RESPONDERS
     ax_heatmap.contour(pivot.columns, pivot.index, pivot.values, levels=[contour_level],
                         colors="white", linestyles="dashed")
     ax_heatmap.set_xlabel("5 Hz modulation amplitude (A)")
@@ -1414,7 +1465,7 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
         extent=[pivot_top.columns.min(), pivot_top.columns.max(), pivot_top.index.min(), pivot_top.index.max()],
     )
     fig.colorbar(im_top, ax=ax_heatmap_top, label="Number of responders (q < 0.05)")
-    contour_level_top = 10 # max(1, n_top // 10)
+    contour_level_top = DETECTION_RESPONDERS
     ax_heatmap_top.contour(pivot_top.columns, pivot_top.index, pivot_top.values, levels=[contour_level_top],
                            colors="white", linestyles="dashed")
     ax_heatmap_top.set_xlabel("5 Hz modulation amplitude (A)")
@@ -1551,6 +1602,9 @@ def main():
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    # --rec-boundaries / --panel-a-unit pages are diagnostics, not Fig4.pdf.
+    diag_dir = Path(FP.DIAGNOSTIC_DIR)
+    diag_dir.mkdir(parents=True, exist_ok=True)
     Path(FR_DF_CACHE).parent.mkdir(parents=True, exist_ok=True)
 
     experiments = args.experiments or discover_pigeon_hp_experiments(_EXPERIMENTS_DIR)
@@ -1604,6 +1658,10 @@ def main():
     # came from (panel A shows one unit, and each site has its own rec
     # tiling), so this resolves that site from the exemplar's own key rather
     # than assuming one.
+    # Cited in the Results via \importnumber (see tex_numbers.py).
+    tex_numbers.write_numbers("fig4", detection_numbers(
+        resp_df, resp_df_top, len(spks), len(top_decile_spks)))
+
     if not args.rec_boundaries and not args.panel_a_unit:
         plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
                   FOURIER_Q, out_dir, keys=keys)
@@ -1634,7 +1692,7 @@ def main():
         spk = spks[unit_i]
         fr = len(spk) / EQUAL_WINDOW_S
         safe = args.panel_a_unit.replace(":", "_")
-        out_path = out_dir / f"Fig4A_{safe}.pdf"
+        out_path = diag_dir / f"Fig4A_{safe}.pdf"
         fig = panel_A_page(
             spk, FOURIER_Q, rec_boundaries_s=rec_boundaries_s,
             title=f"{args.panel_a_unit}  --  {len(spk)} spikes over "
@@ -1651,7 +1709,7 @@ def main():
               f"t = {', '.join(f'{o:.1f}' for o in rec_boundaries_s)} s")
         return
 
-    out_path = out_dir / "Fig4_rec_boundaries.pdf"
+    out_path = diag_dir / "Fig4_rec_boundaries.pdf"
     example_i = example_unit_index(spks, keys=keys)
     # Page 1: the real figure, exemplar unit and all, with the marks added --
     # so the diagnostic pages that follow can be read against the panel A

@@ -58,6 +58,12 @@ from pathlib import Path as _Path
 _REPO_ROOT = _Path(__file__).resolve().parent.parent.parent
 
 OUT_DIR          = str(_REPO_ROOT / "figs" / "paper")
+# Supplementary figures, and diagnostic figures (not in the manuscript), go
+# one level down.
+SUPPLEMENT_DIR   = str(_REPO_ROOT / "figs" / "paper" / "supplement")
+DIAGNOSTIC_DIR   = str(_REPO_ROOT / "figs" / "paper" / "diagnostic")
+# Methods-appendix figures (and their source photos).
+APPENDIX_DIR     = str(_REPO_ROOT / "figs" / "paper" / "appendix")
 DATA_DIR         = str(_REPO_ROOT / "data")
 PARQUET_PATH     = str(_REPO_ROOT / "data" / "manuscript" / "all_fourier_df.parquet")
 

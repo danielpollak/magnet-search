@@ -8,7 +8,8 @@ shown for contrast — non-uniform, left-skewed p-values.
 Requires:
   data/manuscript/all_fourier_df.parquet  (run python pipeline/aggregate.py first)
 
-Fig3.pdf shows each neuron once (its first recording); Fig3_supp_buckets.pdf
+Fig3.pdf shows each neuron once (its recording closest to 3 Hz, see
+`one_recording_per_neuron`); Fig3S2_all_recordings.pdf
 shows every recording, split into occurrence waves (page 1) and pooled
 (page 2) -- see plot_fig3's `buckets`.
 
@@ -30,7 +31,6 @@ import matplotlib
 if not in_notebook:
     matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.ticker as mticker
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.colors import LinearSegmentedColormap
 import numpy as np
@@ -40,24 +40,25 @@ from magpyneto2 import statistics
 
 import format_parameters as FP
 
-# Narrowest zoom `_add_qval_inset` will draw. Below this the inset stops being
-# a magnification of anything -- and the box placement, which is derived from
-# the data at x0, degenerates. No panel in any current figure reaches it.
-MIN_INSET_N = 3
+# Sorted-q-value axes range, and the FDR threshold drawn on it (dashed line,
+# plus the responder count where each panel's curve crosses it). q-values
+# below Q_YLIM[0] (including the float64-underflow zeros of the most extreme
+# NFCs) fall off the bottom of the axes; the responder count still includes
+# them.
+Q_YLIM = (1e-4, 1)
+FDR = 0.05
 
-# Panels with more than LARGE_PANEL_N units widen the inset's zoom from its
-# default 50 to LARGE_PANEL_INSET_N units: with buckets thousands long, 50
-# units can end before a bucket's q-values have finished dropping away, so
-# buckets that fall precipitously just past unit 50 would be missed.
-LARGE_PANEL_N = 1500
-LARGE_PANEL_INSET_N = 100
+# Fig3.pdf's single-contribution selector: each neuron contributes the one
+# recording whose stimulus frequency is closest to this (see
+# `one_recording_per_neuron`).
+TARGET_FREQ = 3.0
 
 
 
 def cmap_to_black(cmap_name, floor=0.25):
     """`cmap_name`'s light tint -> saturated hue -> pure black, so the darkest
     shade in every Fig 3-family plot is black for maximum dynamic range. Shared
-    by fig3_variants / fig3_supp2 so every Fig 3 PDF uses the same ramp."""
+    by fig3s4_bucketings / fig3s3_reproducibility so every Fig 3 PDF uses the same ramp."""
     base = matplotlib.colormaps[cmap_name]
     return LinearSegmentedColormap.from_list(
         f"{cmap_name}_to_black", [base(floor), base(0.7), "black"])
@@ -82,9 +83,29 @@ def _split_into_waves(df, wave_groups=("species", "ID", "date", "id")):
     return [g.reset_index(drop=True) for _, g in df.groupby("occurrence")]
 
 
+def one_recording_per_neuron(waves, pval_col="p_value", target_freq=TARGET_FREQ,
+                             wave_groups=("species", "ID", "date", "id")):
+    """One row per neuron: the recording whose `freq` is closest to
+    `target_freq`, among the neuron's rows with a finite `pval_col` (so a
+    neuron isn't lost to a NaN 2F p-value when another recording has one).
+    Ties -- several recordings at the closest frequency, e.g. repeat trials --
+    go to the earliest occurrence, i.e. the row that `_split_into_waves` puts
+    in wave 0 when it is among them. The choice never looks at p-values.
+
+    Neurons recorded at one frequency only (all the fish, quail) keep their
+    first recording; for the fish, recorded below 1 Hz, "closest to 3 Hz" is
+    their highest frequency.
+    """
+    df = pd.concat(waves, ignore_index=True)  # wave order = occurrence order
+    df = df.loc[np.isfinite(pd.to_numeric(df[pval_col], errors="coerce"))]
+    dist = (df["freq"] - target_freq).abs()
+    df = df.iloc[np.argsort(dist.to_numpy(), kind="stable")]
+    return df.drop_duplicates(subset=list(wave_groups), keep="first").reset_index(drop=True)
+
+
 def split_into_occurrence_waves(all_fourier_df, pval_col="p_value"):
     """`pval_col`: which column to treat as the p-value for the Storey q-value
-    computation -- "p_value" (1F, default) or "2f_p_value" (see fig3_supp.py,
+    computation -- "p_value" (1F, default) or "2f_p_value" (see fig3s1_second_harmonic.py,
     which reuses this same function for the 2F-harmonic version of this
     figure). Occurrence-wave splitting itself (which row is a given neuron's
     1st/2nd/... magnetic trial) is structural and doesn't depend on this
@@ -109,139 +130,33 @@ def split_into_occurrence_waves(all_fourier_df, pval_col="p_value"):
     return waves, wave_df_l, pos_control_waves
 
 
-def _add_qval_inset(ax, wave_sorted_qvals, wave_colors, n_inset=50, x0_frac=0.35, margin=0.7,
-                     ylim_bottom=None, wave_bands=None):
-    """Add an inset to `ax` (a log-scale sorted-q-value axes) magnifying each
-    wave's first `n_inset` units -- the steep early rise is otherwise
-    compressed into a sliver of pixels against the full (often thousands-
-    long) neuron count. The inset gets its own independent y-limits (plain
-    autoscale on just the first `n_inset` points of each wave) rather than
-    matching the parent axes, so the actual vertical spread at that zoom
-    level is visible rather than stretched across the parent's full range.
-
-    Placement exploits every wave's curve being sorted (monotonic
-    non-decreasing): past some x0, a wave's value only ever increases, so its
-    minimum value for x >= x0 is exactly its value AT x0. A box whose top
-    edge sits at `margin * min-over-waves(value at x0)`, for x >= x0, is
-    therefore *guaranteed* not to intersect any wave's plotted curve -- this
-    is computed from the actual data being plotted, not a placement guess.
-
-    A wave's q-values can include NaNs (from NaN p-values -- e.g. `2f_p_value`
-    rows with no paired 2F harmonic, see fig3_supp.py), which `np.sort` pushes
-    to the tail of the sorted array. That tail isn't real, monotonic data, so
-    the "value at x0" guarantee above only holds within a wave's finite
-    (non-NaN) prefix -- `len(sq)` is not the right length to compare `x0`
-    against here, only the count of finite entries is.
-
-    `ylim_bottom`, if given, floors the inset's own (autoscaled) log-scale
-    y-axis -- used for the neg-result ("blue"/magnetic) inset, which
-    otherwise autoscales down to whatever its smallest plotted q-value
-    happens to be.
-
-    `wave_bands`, if given, is one `(lower, upper)` pair of arrays (or None)
-    per wave, shaded behind that wave's points -- fig3_variants' page 14
-    passes its per-rank bootstrap band. A band's LOWER edge sits below its
-    wave, so it is what the box has to clear: placement uses min(wave, lower)
-    at x0. That keeps the guarantee above because `lower` is sorted too (a
-    per-rank quantile of sorted draws is itself non-decreasing in rank).
-    """
-    if not wave_sorted_qvals:
+def draw_fdr_threshold(ax, sorted_qvals=None, color=None, fdr=FDR):
+    """Dashed line at q = `fdr` on a sorted-q-value axes; given the panel's
+    one sorted q-value curve, also a faint grey vertical line (behind the
+    data) from the x-axis up to where that curve crosses it, labelled at its
+    foot in `color` with the responder count (units at
+    q <= `fdr`). The crossing lies between the last unit at or below `fdr`
+    (x = n - 1) and the first one above it (x = n). With no responders only
+    the label is drawn. Call after the axes' y-limits are final."""
+    ax.axhline(fdr, color=FP.COLOR_NULL, linestyle="--", linewidth=FP.LW_REFERENCE)
+    if sorted_qvals is None:
         return
-    finite_lens = [np.sum(np.isfinite(sq)) for sq in wave_sorted_qvals]
-    max_n = max(finite_lens)
-    x0 = int(x0_frac * max_n)
-    if max_n > LARGE_PANEL_N:
-        n_inset = LARGE_PANEL_INSET_N
-    # Zoom width ADAPTS to the panel rather than being fixed at n_inset. The
-    # box's no-collision guarantee only holds for x >= x0, so a panel with
-    # fewer than roughly n_inset / x0_frac units (~143 at the defaults) used to
-    # get no inset at all -- the steep early rise is exactly as worth
-    # magnifying there, it just has to be magnified over a proportionately
-    # narrower window. Panels big enough for the full n_inset are unaffected,
-    # so this changes nothing about Fig3.pdf.
-    n_inset = min(n_inset, x0 - 1)
-    if n_inset < MIN_INSET_N:
-        return
-    if wave_bands is None:
-        wave_bands = [None] * len(wave_sorted_qvals)
-    ceilings = [sq[x0] if band is None else min(sq[x0], band[0][x0])
-                for sq, flen, band in zip(wave_sorted_qvals, finite_lens, wave_bands)
-                if flen > x0]
-    if not ceilings:
-        return
-    y1 = min(ceilings) * margin
-    if not np.isfinite(y1) or y1 <= 0:
-        return
-
-    parent_ylim_bottom, parent_ylim_top = ax.get_ylim()
-    log_lo, log_hi = np.log10(parent_ylim_bottom), np.log10(parent_ylim_top)
-    y1_frac = np.clip((np.log10(y1) - log_lo) / (log_hi - log_lo), 0.15, 0.85)
-
-    # Bottom offset (0.18, vs. 0.06 for the box's other edges) leaves the
-    # inset's own x-tick labels room to sit above the parent axes' bottom
-    # border -- too little clearance here lets them collide with the parent's
-    # "Unit" x-axis label just below it.
-    inset_bottom = 0.18
-    inset_top = y1_frac - 0.04
-    if inset_top - inset_bottom < 0.10:
-        return
-    # Nothing strictly positive in the zoomed-in prefix means every one of
-    # those q-values underflowed to exactly 0 (the float64 precision floor for
-    # the most extreme NFC, same artifact the parent axes' 1e-8 ylim floor
-    # guards against). A LOG-scale inset over that has nothing to draw at all,
-    # and matplotlib's "Data has no positive values" autoscale fallback leaves
-    # an empty box that reads as "no suspects here" -- the opposite of the
-    # truth. Draw it on a linear axis instead of skipping (see the `else`
-    # branch below): the points then render, which says what is actually true
-    # of them -- every one of these units is pinned at the precision floor,
-    # i.e. as significant as a float64 q-value can be.
-    prefix = np.concatenate([sq[:min(n_inset, len(sq))] for sq in wave_sorted_qvals])
-    has_positive = bool(np.any(np.isfinite(prefix) & (prefix > 0)))
-
-    axins = ax.inset_axes([x0_frac + 0.01, inset_bottom, 0.97 - (x0_frac + 0.01), inset_top - inset_bottom])
-    for sq, color, band in zip(wave_sorted_qvals, wave_colors, wave_bands):
-        n = min(n_inset, len(sq))
-        if band is not None:
-            axins.fill_between(np.arange(n), band[0][:n], band[1][:n], color=color,
-                               alpha=FP.ALPHA_CONFIDENCE, linewidth=0, rasterized=True)
-        axins.plot(np.arange(n), sq[:n], ".", color=color, alpha=FP.ALPHA_TRACE, markersize=FP.MS_DATA, markeredgewidth=0, rasterized=True)
-    if has_positive:
-        axins.set_yscale("log")
-        if ylim_bottom is not None:
-            axins.set_ylim(bottom=ylim_bottom)
-    else:
-        # `ylim_bottom` is deliberately NOT applied here -- it would floor the
-        # axis above the very points this branch exists to show.
-        #
-        # q-values are non-negative and `has_positive` is False, so every
-        # finite point in the zoom window is EXACTLY 0: there is no spread to
-        # resolve and no decade to label. A plain linear axis carrying a
-        # single "0" tick states the entire content of the inset. (A symlog
-        # axis, the obvious way to render zeros, instead labels every decade
-        # between `linthresh` and its autoscaled top -- a dozen-plus labels
-        # stacked inside a box a centimetre tall, illegible and saying
-        # nothing the one "0" doesn't.) The symmetric limits centre the row
-        # of points rather than pinning it to a spine.
-        axins.set_ylim(-1.0, 1.0)
-        axins.yaxis.set_major_locator(mticker.FixedLocator([0.0]))
-        axins.yaxis.set_minor_locator(mticker.NullLocator())
-    # Pad the left edge so points sitting right at x=0 aren't squashed against
-    # the inset's own y-axis spine.
-    axins.set_xlim(-0.05 * n_inset, n_inset)
-    axins.spines[["top", "right"]].set_visible(False)
-    # Inset x-tick labels at ~90% of the main axes' tick label size (FP.FS_BODY,
-    # set globally via matplotlib.rc("font", ...) in plot_fig3) -- readable
-    # against the inset's cramped width without visually competing with the
-    # parent axes' own labels.
-    axins.tick_params(axis="x", labelsize=FP.FS_BODY * 0.9)
-    # y-tick labels kept at the parent axes' full size -- there are only a
-    # couple of decade labels, so they don't crowd the inset the way the
-    # x-ticks would.
-    axins.tick_params(axis="y", labelsize=FP.FS_BODY)
+    n = int(np.sum(sorted_qvals <= fdr))
+    x_cross = n - 0.5
+    if n > 0:
+        # Behind the data (lines default to zorder 2), grey and faint: it
+        # marks the crossing, it isn't data.
+        ax.plot([x_cross, x_cross], [ax.get_ylim()[0], fdr], color=FP.COLOR_NULL,
+                alpha=FP.ALPHA_TRACE, linewidth=FP.LW_REFERENCE, zorder=1)
+    # At the foot of the line, on the x-axis, rather than at the crossing,
+    # where it sat on top of the curve.
+    ax.annotate(f"r = {n} (q ≤ {fdr:g})",(max(x_cross, 0), ax.get_ylim()[0]), xytext=(3, 3),
+                textcoords="offset points", ha="left", va="bottom",
+                fontsize=matplotlib.rcParams["xtick.labelsize"], color=color)
 
 
 def plot_uniform_p(waves, axes, percentile=None, colors=None, pval_col="p_value", sens_col="sens",
-                    inset_ylim_bottom=None):
+                    q_ylim=Q_YLIM, fdr=FDR):
     """`colors`, if given, must have one entry per entry of `waves` (same order,
     before the internal reversal) -- assigns an explicit color per occurrence-wave
     instead of relying on matplotlib's automatic per-Axes color cycle. This matters
@@ -253,13 +168,18 @@ def plot_uniform_p(waves, axes, percentile=None, colors=None, pval_col="p_value"
 
     `pval_col`/`sens_col`: which columns to treat as the p-value / sensitivity
     for this call -- "p_value"/"sens" (1F, default) or "2f_p_value"/"sens_2f"
-    (see fig3_supp.py's 2F-harmonic version of this figure).
+    (see fig3s1_second_harmonic.py's 2F-harmonic version of this figure).
 
-    `inset_ylim_bottom`: forwarded to `_add_qval_inset`'s `ylim_bottom` --
-    plot_fig3 passes 1e-2 for the neg-result (blue) call only.
+    `q_ylim`: (bottom, top) of the sorted-q-value axes.
+
+    `fdr`: if not None, the FDR threshold line, plus -- when the panel has a
+    single curve -- the responder count where it crosses (see
+    `draw_fdr_threshold`). With several curves (occurrence waves, variant
+    bucketings) only the threshold line is drawn; one count per bucket would
+    bury the panel.
 
     `axes[0]` (the sorted-p-value axes) may be None, in which case only the
-    sorted-q-value axes is drawn. fig3_variants.py's ECDF-deviation page
+    sorted-q-value axes is drawn. fig3s4_bucketings.py's ECDF-deviation page
     replaces the sorted-p-value panel with a stack of per-bucket
     ECDF-deviation mini-axes but keeps this exact q-value panel below it, so
     it needs the q half of this function without the p half.
@@ -270,7 +190,7 @@ def plot_uniform_p(waves, axes, percentile=None, colors=None, pval_col="p_value"
     # This used to track the LAST bucket plotted instead, which happens to be
     # the same thing for occurrence waves (wave 0 is plotted last and is
     # always the largest, since every neuron has a 1st recording) but is wrong
-    # for any other bucketing -- fig3_variants.py buckets by frequency and by
+    # for any other bucketing -- fig3s4_bucketings.py buckets by frequency and by
     # brain region, orderings under which the last-plotted bucket is routinely
     # not the widest, and the right-hand tick then landed mid-axes carrying a
     # label that disagreed with the axis limit it was supposed to mark.
@@ -311,30 +231,29 @@ def plot_uniform_p(waves, axes, percentile=None, colors=None, pval_col="p_value"
             ax.set_xticks([0, max_n])
             ax.set_xticklabels([0, max_n])
     axes[1].set_yscale("log")
-    # Floor the q-value axis at 1e-8 -- points below this are dominated by
-    # float64 precision-floor artifacts (1-CDF underflowing to exactly 0 for
-    # the most extreme NFC, see the dynamic null-distribution-support fix),
-    # not meaningfully distinguishable q-values, so let the axis actually
-    # show the interesting range instead of stretching to whatever the
-    # smallest underflowed point happens to be.
-    axes[1].set_ylim(bottom=1e-8)
-
-    _add_qval_inset(axes[1], wave_sorted_qvals, wave_colors, ylim_bottom=inset_ylim_bottom)
+    axes[1].set_ylim(*q_ylim)
+    if fdr is not None:
+        if len(wave_sorted_qvals) == 1:
+            draw_fdr_threshold(axes[1], wave_sorted_qvals[0], wave_colors[0], fdr=fdr)
+        else:
+            draw_fdr_threshold(axes[1], fdr=fdr)
 
 
 def plot_fig3(all_fourier_df, out_dir: Path, pval_col="p_value", sens_col="sens",
-              out_name="Fig3.pdf", suptitle=None, buckets="largest"):
-    """`pval_col`/`sens_col`/`out_name`/`suptitle`: overridden by fig3_supp.py to
+              out_name="Fig3.pdf", suptitle=None, buckets="one_per_neuron"):
+    """`pval_col`/`sens_col`/`out_name`/`suptitle`: overridden by fig3s1_second_harmonic.py to
     reuse this exact function for the 2F-harmonic version of this figure
-    ("2f_p_value"/"sens_2f"/"Fig3_supp.pdf").
+    ("2f_p_value"/"sens_2f"/"Fig3S1_second_harmonic.pdf").
 
     `buckets`: which recordings each panel shows (2026-10-18).
-      "largest" -- Fig3.pdf: only each panel's largest occurrence wave (every
-          neuron's first recording, so each neuron counted once).
+      "one_per_neuron" -- Fig3.pdf: each neuron counted once, by its
+          recording closest to TARGET_FREQ (`one_recording_per_neuron`,
+          2026-10-27; until then its first recording, i.e. the largest
+          occurrence wave).
       "waves"   -- every occurrence wave, one shade each (Fig3.pdf before
-          2026-10-18; now page 1 of Fig3_supp_buckets.pdf).
+          2026-10-18; now page 1 of Fig3S2_all_recordings.pdf).
       "pooled"  -- every recording of every neuron in one bucket, each NFC
-          treated as an independent sample (page 2 of Fig3_supp_buckets.pdf).
+          treated as an independent sample (page 2 of Fig3S2_all_recordings.pdf).
     """
     waves, wave_df_l, pos_control_waves = split_into_occurrence_waves(all_fourier_df, pval_col=pval_col)
 
@@ -353,7 +272,7 @@ def plot_fig3(all_fourier_df, out_dir: Path, pval_col="p_value", sens_col="sens"
         waves = [pd.concat(waves, ignore_index=True)]
         pos_control_waves = [pd.concat(pos_control_waves, ignore_index=True)]
         neg_colors, pos_colors = [FP.COLOR_MAG], [FP.COLOR_VIS]
-    elif buckets == "largest":
+    elif buckets == "one_per_neuron":
         neg_colors, pos_colors = [FP.COLOR_MAG], [FP.COLOR_VIS]
     else:
         raise ValueError(f"unknown buckets={buckets!r}")
@@ -402,12 +321,12 @@ def plot_fig3(all_fourier_df, out_dir: Path, pval_col="p_value", sens_col="sens"
         neg_subset = waves if cond_filter is None else [w.loc[cond_filter(w)] for w in waves]
         pos_subset = pos_control_waves if cond_filter is None else \
             [w.loc[cond_filter(w)] for w in pos_control_waves]
-        if buckets == "largest":
-            neg_subset = [max(neg_subset, key=len)]
-            pos_subset = [max(pos_subset, key=len)]
+        if buckets == "one_per_neuron":
+            neg_subset = [one_recording_per_neuron(neg_subset, pval_col=pval_col)]
+            pos_subset = [one_recording_per_neuron(pos_subset, pval_col=pval_col)]
 
         plot_uniform_p(neg_subset, [ax_p_neg, ax_q_neg], percentile=percentile, colors=neg_colors,
-                       pval_col=pval_col, sens_col=sens_col, inset_ylim_bottom=1e-2)
+                       pval_col=pval_col, sens_col=sens_col)
         plot_uniform_p(pos_subset, [ax_p_pos, ax_q_pos], percentile=percentile, colors=pos_colors,
                        pval_col=pval_col, sens_col=sens_col)
 
@@ -422,7 +341,7 @@ def plot_fig3(all_fourier_df, out_dir: Path, pval_col="p_value", sens_col="sens"
         fig.text((quad_pos.x0 + quad_pos.x1) / 2, quad_pos.y1 + 0.04, title,
                   ha="center", va="bottom", fontsize=FP.FS_BODY + 1, fontweight="bold")
         fig.text(quad_pos.x0, quad_pos.y1 + 0.04, letter,
-                  ha="left", va="bottom", fontfamily="arial", fontsize=12, fontweight="bold")
+                  ha="left", va="bottom", fontfamily="arial", fontsize=12)
 
     if suptitle:
         # Above the quadrant titles (which sit at top + 0.04 = 0.94); at the
@@ -430,7 +349,7 @@ def plot_fig3(all_fourier_df, out_dir: Path, pval_col="p_value", sens_col="sens"
         fig.suptitle(suptitle, fontsize=FP.FS_BODY + 2, fontweight="bold", y=1.0, va="bottom")
 
     if out_name is None:
-        # Caller wants the Figure itself, not a file -- fig3_variants.py
+        # Caller wants the Figure itself, not a file -- fig3s4_bucketings.py
         # renders page 1 of its multipage PDF through this exact function so
         # that page can't drift from the canonical figure, and writes it to
         # its own PdfPages instead of a standalone Fig3.pdf.
@@ -459,7 +378,9 @@ def main():
 
     # Supplement: the occurrence-wave version (Fig3.pdf before 2026-10-18) and
     # the all-recordings-pooled version, one page each.
-    supp_path = out_dir / "Fig3_supp_buckets.pdf"
+    supp_dir = Path(FP.SUPPLEMENT_DIR)
+    supp_dir.mkdir(parents=True, exist_ok=True)
+    supp_path = supp_dir / "Fig3S2_all_recordings.pdf"
     with PdfPages(supp_path) as pdf:
         for buckets, suptitle in (
                 ("waves", "Each neuron's 1st, 2nd, ... recording as a separate bucket"),

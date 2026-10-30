@@ -310,14 +310,14 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     for _ax, _lbl, _xoff in _row0:
         _pos = _ax.get_position()
         fig.text(_pos.x0 + _xoff * _pos.width, _label_y, _lbl,
-                 fontfamily="arial", fontsize=11, weight="bold")
+                 fontfamily="arial", fontsize=11)
 
-    mag_spectra_ax.annotate("D", xy=(-0.15, 1.1), xycoords="axes fraction", fontfamily="arial", fontsize=11, weight="bold")
-    mag_dist_ax.annotate("E", xy=(-0.15, 1.1), xycoords="axes fraction", fontfamily="arial", fontsize=11, weight="bold")
-    ecdf_ax.annotate("F", xy=(-0.03, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=11, weight="bold")
+    mag_spectra_ax.annotate("D", xy=(-0.15, 1.1), xycoords="axes fraction", fontfamily="arial", fontsize=11)
+    mag_dist_ax.annotate("E", xy=(-0.15, 1.1), xycoords="axes fraction", fontfamily="arial", fontsize=11)
+    ecdf_ax.annotate("F", xy=(-0.03, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=11)
 
-    wn_spectra_ax.annotate("G", xy=(-0.15, 1.1), xycoords="axes fraction", fontfamily="arial", fontsize=11, weight="bold")
-    wn_dist_ax.annotate("H", xy=(-0.15, 1.1), xycoords="axes fraction", fontfamily="arial", fontsize=11, weight="bold")
+    wn_spectra_ax.annotate("G", xy=(-0.15, 1.1), xycoords="axes fraction", fontfamily="arial", fontsize=11)
+    wn_dist_ax.annotate("H", xy=(-0.15, 1.1), xycoords="axes fraction", fontfamily="arial", fontsize=11)
     out_path = out_dir / "Fig1_auditory.pdf"
     fig.savefig(out_path, bbox_inches="tight", dpi=FP.DPI)
     print(f"Saved {out_path}")

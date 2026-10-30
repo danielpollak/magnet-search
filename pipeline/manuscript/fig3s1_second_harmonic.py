@@ -16,8 +16,8 @@ Requires:
   ecdfbounds library
 
 Usage:
-    python pipeline/manuscript/fig3_supp.py
-    python pipeline/manuscript/fig3_supp.py --out-dir figs/paper
+    python pipeline/manuscript/fig3s1_second_harmonic.py
+    python pipeline/manuscript/fig3s1_second_harmonic.py --out-dir figs/paper
 """
 import argparse
 from pathlib import Path
@@ -41,7 +41,7 @@ import format_parameters as FP
 
 def main():
     parser = argparse.ArgumentParser(description="Generate Fig 3 supplement (2F p/q-value uniformity)")
-    parser.add_argument("--out-dir", default=FP.OUT_DIR, help="Output directory for PDFs")
+    parser.add_argument("--out-dir", default=FP.SUPPLEMENT_DIR, help="Output directory for PDFs")
     parser.add_argument("--parquet", default=FP.PARQUET_PATH,
                         help=f"Path to all_fourier_df.parquet (default: {FP.PARQUET_PATH})")
     args = parser.parse_args([] if in_notebook else None)
@@ -52,7 +52,7 @@ def main():
     print(f"Loading {args.parquet} ...")
     all_fourier_df = pd.read_parquet(args.parquet)
     plot_fig3(all_fourier_df, out_dir, pval_col="2f_p_value", sens_col="sens_2f",
-              out_name="Fig3_supp.pdf", suptitle="2F harmonic")
+              out_name="Fig3S1_second_harmonic.pdf", suptitle="2F harmonic")
 
 
 if __name__ == "__main__":
