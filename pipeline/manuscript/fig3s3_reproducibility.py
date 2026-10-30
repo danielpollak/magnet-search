@@ -45,8 +45,8 @@ dynamically means this script keeps working (and stays honest about what it
 can show) as annotations evolve. Species/waves dropped by the filter are
 logged, not silently omitted.
 
-Two versions of the same grid are written. `Fig3_supp2.pdf` scatters one dot
-per neuron; `Fig3_supp2_density.pdf` replaces each panel's dots with a 2D
+Two versions of the same grid are written. `Fig3S3_reproducibility.pdf` scatters one dot
+per neuron; `Fig3S3_reproducibility_density.pdf` replaces each panel's dots with a 2D
 histogram of the same points (see the DENSITY_* constants). The density
 version exists because q-values pile up hard against q=1 -- exactly where the
 scatter overplots itself into a solid block -- so the dots alone can't say
@@ -56,19 +56,20 @@ x label, and each panel's pairwise-complete count plus its two pi0 estimates
 in that panel's title.
 
 Which recording ends up in which bucket is controlled by `--bucket-order`; the
-default randomizes it, so that a bucket is a random one of each neuron's own
-recordings rather than a stand-in for one particular recording. See
+default ("equal", since 2026-10-27) deals each species' recordings into
+equal-sized buckets at random, as Fig3S4_bucketings' page 3 does, rather than
+counting them off into occurrence-waves of shrinking size. See
 BUCKET_ORDER_HELP -- this matters a great deal for how a panel should be read.
 
 Requires:
   data/manuscript/all_fourier_df.parquet  (run python pipeline/aggregate.py first)
 
 Usage:
-    python pipeline/manuscript/fig3_supp2.py
-    python pipeline/manuscript/fig3_supp2.py --mode density
-    python pipeline/manuscript/fig3_supp2.py --qval-scope bucket
-    python pipeline/manuscript/fig3_supp2.py --bucket-order recording
-    python pipeline/manuscript/fig3_supp2.py --out-dir figs/paper
+    python pipeline/manuscript/fig3s3_reproducibility.py
+    python pipeline/manuscript/fig3s3_reproducibility.py --mode density
+    python pipeline/manuscript/fig3s3_reproducibility.py --qval-scope bucket
+    python pipeline/manuscript/fig3s3_reproducibility.py --bucket-order recording
+    python pipeline/manuscript/fig3s3_reproducibility.py --out-dir figs/paper
 """
 import argparse
 from collections import Counter
@@ -94,6 +95,7 @@ import pandas as pd
 
 from magpyneto2 import statistics
 from fig3 import _split_into_waves, cmap_to_black
+from fig3s4_bucketings import bucket_round_robin
 
 import format_parameters as FP
 
@@ -107,13 +109,26 @@ MIN_WAVES = 2
 
 QVAL_SCOPES = ("intersection", "bucket")
 
-BUCKET_ORDERS = ("random", "recording")
+BUCKET_ORDERS = ("equal", "random", "recording")
 RANDOM_SEED = 0
 
 BUCKET_ORDER_HELP = """\
 How a neuron's rows are assigned to buckets.
 
-"random" (default): the rows of each population are permuted before
+"equal" (default since 2026-10-27): equal-sized buckets, dealt round-robin
+per species and population exactly as Fig3S4_bucketings' page 3
+(`fig3s4_bucketings.bucket_round_robin`): rows shuffled, then dealt so that every
+bucket holds floor(N/B) or ceil(N/B) of that species' rows and no neuron sits
+in a bucket twice. B is the species' busiest neuron's row count, so no row is
+dropped. With "random" and "recording" below, bucket k holds only the neurons
+with more than k recordings, so the first bucket holds every neuron and the
+last a handful; here every bucket, and so every panel's axis, has the same
+weight. A neuron with m recordings occupies m cyclically consecutive buckets,
+so neighbouring buckets share more neurons than distant ones: panel n still
+varies, but no longer because one axis is "everyone" and the other "the
+neurons recorded k times".
+
+"random": the rows of each population are permuted before
 `_split_into_waves` counts them off, which gives every neuron a uniformly
 random ordering of its own recordings. Bucket k is then "a random one of this
 neuron's recordings", and the same recording lands in different buckets for
@@ -132,9 +147,9 @@ interchangeable repeats. Under "random" the two axes of a panel are
 statistically exchangeable, so a symmetric cloud is the correct null
 expectation and a departure from symmetry means something.
 
-Bucket SIZES are identical either way -- a neuron with k rows occupies buckets
-0..k-1 whatever order they are in -- so only each bucket's recording
-composition changes, not the per-bucket or per-panel n."""
+Bucket SIZES are identical between "random" and "recording" -- a neuron with
+k rows occupies buckets 0..k-1 whatever order they are in -- so only each
+bucket's recording composition changes, not the per-bucket or per-panel n."""
 
 QVAL_SCOPE_HELP = """\
 Which set of neurons each axis' Storey correction runs over.
@@ -163,13 +178,25 @@ panel, so only within-panel comparisons are meaningful -- which is the only
 comparison these panels are actually making."""
 
 
+def _round_robin_buckets(source_df, pval_col, seed):
+    """`source_df`'s rows with a p-value, each species dealt into equal-sized
+    buckets by `fig3s4_bucketings.bucket_round_robin`; bucket index in
+    "occurrence", as `_split_into_waves` would set it."""
+    source_df = source_df.loc[source_df[pval_col].notna()]
+    dealt = []
+    for _, species_df in source_df.groupby("species", sort=True):
+        for b, (_, g) in enumerate(bucket_round_robin(species_df, seed=seed)):
+            dealt.append(g.drop(columns="_rr").assign(occurrence=b))
+    return dealt
+
+
 def build_wave_pivot(all_fourier_df, pval_col="p_value", population="neg",
-                     bucket_order="random", seed=RANDOM_SEED):
+                     bucket_order="equal", seed=RANDOM_SEED):
     """Raw p-values pivoted into one row per neuron (`WAVE_GROUPS` key) and one
     column per occurrence-wave (a "bucket").
 
     `bucket_order` selects how rows are counted off into buckets; see
-    BUCKET_ORDER_HELP. `seed` only matters for `bucket_order="random"`.
+    BUCKET_ORDER_HELP. `seed` matters for "equal" and "random".
 
     Deliberately stops short of the Storey correction: which neurons a q-value
     should be corrected over depends on the panel it is drawn in, not on the
@@ -193,12 +220,16 @@ def build_wave_pivot(all_fourier_df, pval_col="p_value", population="neg",
     """
     all_neg_res, all_pos_control, _ = statistics.get_poscontrols_negresults(all_fourier_df)
     source_df = all_neg_res if population == "neg" else all_pos_control
-    if bucket_order == "random":
-        # One global permutation is enough: restricted to any single neuron's
-        # rows it is a uniformly random ordering of exactly those rows, which
-        # is what `_split_into_waves`'s per-neuron cumcount then counts off.
-        source_df = source_df.sample(frac=1.0, random_state=seed)
-    waves = _split_into_waves(source_df, wave_groups=WAVE_GROUPS)
+    if bucket_order == "equal":
+        waves = _round_robin_buckets(source_df, pval_col, seed)
+    else:
+        if bucket_order == "random":
+            # One global permutation is enough: restricted to any single
+            # neuron's rows it is a uniformly random ordering of exactly those
+            # rows, which is what `_split_into_waves`'s per-neuron cumcount
+            # then counts off.
+            source_df = source_df.sample(frac=1.0, random_state=seed)
+        waves = _split_into_waves(source_df, wave_groups=WAVE_GROUPS)
 
     wave_df_l = [w.loc[w[pval_col].notna()] for w in waves]
     wave_df_l = [w for w in wave_df_l if len(w)]
@@ -591,9 +622,9 @@ def _plot_triangle_grid(plot_df_neg, plot_df_pos, cols_neg, cols_pos, title, mod
     return fig
 
 
-def plot_fig3_supp2(all_fourier_df, out_dir: Path, out_name="Fig3_supp2.pdf",
+def plot_fig3s3_reproducibility(all_fourier_df, out_dir: Path, out_name="Fig3S3_reproducibility.pdf",
                     mode="scatter", pivots=None, qval_scope="intersection",
-                    bucket_order="random", seed=RANDOM_SEED):
+                    bucket_order="equal", seed=RANDOM_SEED):
     """One page per species (plus a "capped" second page, see below), written
     to `out_dir / out_name`. `mode` and `qval_scope` are passed straight
     through to `_plot_triangle_grid`. `pivots` optionally supplies an
@@ -634,7 +665,7 @@ def plot_fig3_supp2(all_fourier_df, out_dir: Path, out_name="Fig3_supp2.pdf",
                 neg_species_df, pos_species_df, cols_neg, cols_pos,
                 f"{species}: comparing q-values across buckets\n"
                 f"magnetic n={len(neg_species_df)}, visual n={len(pos_species_df)}"
-                f"  (q-values corrected per {qval_scope}; buckets ordered at {bucket_order})",
+                f"  (q-values corrected per {qval_scope}; buckets: {bucket_order})",
                 mode=mode, qval_scope=qval_scope)
             if fig is None:
                 print(f"  Skipping {species}: no plottable bucket pairs after all filters")
@@ -662,7 +693,7 @@ def plot_fig3_supp2(all_fourier_df, out_dir: Path, out_name="Fig3_supp2.pdf",
                 neg_species_df, pos_species_df, cols_neg_capped, cols_pos_capped,
                 f"{species}: comparing q-values across buckets (capped to {capped_n} buckets)\n"
                 f"magnetic n={len(neg_species_df)}, visual n={len(pos_species_df)}"
-                f"  (q-values corrected per {qval_scope}; buckets ordered at {bucket_order})",
+                f"  (q-values corrected per {qval_scope}; buckets: {bucket_order})",
                 mode=mode, qval_scope=qval_scope)
             if fig_capped is None:
                 print(f"  Skipping {species} capped page: no plottable bucket pairs at {capped_n} buckets")
@@ -680,17 +711,17 @@ def main():
     parser = argparse.ArgumentParser(
         description="Generate Fig 3 supplement 2 (q-value reproducibility across recordings, by species)",
         formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument("--out-dir", default=FP.OUT_DIR, help="Output directory for PDFs")
+    parser.add_argument("--out-dir", default=FP.DIAGNOSTIC_DIR, help="Output directory for PDFs")
     parser.add_argument("--parquet", default=FP.PARQUET_PATH,
                         help=f"Path to all_fourier_df.parquet (default: {FP.PARQUET_PATH})")
     parser.add_argument("--mode", choices=["scatter", "density", "both"], default="both",
                         help="Which version(s) to render (default: both)")
     parser.add_argument("--qval-scope", choices=QVAL_SCOPES, default="intersection",
                         help=QVAL_SCOPE_HELP)
-    parser.add_argument("--bucket-order", choices=BUCKET_ORDERS, default="random",
+    parser.add_argument("--bucket-order", choices=BUCKET_ORDERS, default="equal",
                         help=BUCKET_ORDER_HELP)
     parser.add_argument("--seed", type=int, default=RANDOM_SEED,
-                        help=f"Permutation seed for --bucket-order random (default: {RANDOM_SEED})")
+                        help=f"Permutation seed for --bucket-order equal/random (default: {RANDOM_SEED})")
     args = parser.parse_args([] if in_notebook else None)
 
     out_dir = Path(args.out_dir)
@@ -704,10 +735,10 @@ def main():
                    for p in ("neg", "pos"))
     modes = ["scatter", "density"] if args.mode == "both" else [args.mode]
     for mode in modes:
-        out_name = "Fig3_supp2.pdf" if mode == "scatter" else "Fig3_supp2_density.pdf"
+        out_name = "Fig3S3_reproducibility.pdf" if mode == "scatter" else "Fig3S3_reproducibility_density.pdf"
         print(f"Rendering {mode} version (q-values corrected per {args.qval_scope}, "
-              f"buckets ordered at {args.bucket_order}) ...")
-        plot_fig3_supp2(all_fourier_df, out_dir, out_name=out_name, mode=mode, pivots=pivots,
+              f"buckets: {args.bucket_order}) ...")
+        plot_fig3s3_reproducibility(all_fourier_df, out_dir, out_name=out_name, mode=mode, pivots=pivots,
                         qval_scope=args.qval_scope, bucket_order=args.bucket_order,
                         seed=args.seed)
 

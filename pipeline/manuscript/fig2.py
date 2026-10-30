@@ -29,6 +29,7 @@ from magpyneto2 import statistics
 
 import format_parameters as FP
 import tex_numbers
+from fig3 import one_recording_per_neuron
 
 
 
@@ -75,9 +76,10 @@ def _plot_pvalue_ecdf_deviation(ax, df, color):
     curve that would be correct for all of it. The old overlay implicitly
     assumed one.
 
-    `df` holds one row per neuron, its first recording -- the same bucket as
-    Fig 3A (2026-10-19; previously every recording, with an occurrence
-    bootstrap over which one each neuron contributes). Rows without a p-value
+    `df` holds one row per neuron, its recording closest to 3 Hz -- the same
+    bucket as Fig 3A (`fig3.one_recording_per_neuron`, 2026-10-27; from
+    2026-10-19 its first recording, before that every recording, with an
+    occurrence bootstrap over which one each neuron contributes). Rows without a p-value
     (owl, precomputed) are left out, as in Fig 3.
     """
     p = np.sort(df["p_value"].to_numpy(dtype=float))
@@ -142,13 +144,13 @@ def plot_fig2(all_fourier_df, out_dir: Path):
     print(f"DEBUG - Frequencies in all_neg_res: {sorted(all_neg_res['freq'].unique())}")
     print(f"DEBUG - Frequencies in all_pos_control: {sorted(all_pos_control['freq'].unique())}")
 
-    # Dedup key includes "ID" (subject), not just "date" -- see
-    # get_poscontrols_negresults's own dedup for why "date"+"id" alone
-    # collides different animals recorded on the same calendar date.
-    all_fourier_df_unique_neg_res = all_neg_res.drop_duplicates(
-        subset=["species", "ID", "date", "id"], keep="first")
-    all_unique_pos_control = all_pos_control.drop_duplicates(
-        subset=["species", "ID", "date", "id"], keep="first")
+    # One recording per neuron for C/D, chosen exactly as in Fig 3: the one
+    # closest to 3 Hz, ties to the first. Its neuron key includes "ID"
+    # (subject), not just "date" -- see get_poscontrols_negresults's own
+    # dedup for why "date"+"id" alone collides different animals recorded on
+    # the same calendar date.
+    all_fourier_df_unique_neg_res = one_recording_per_neuron([all_neg_res])
+    all_unique_pos_control = one_recording_per_neuron([all_pos_control])
 
     font = {"family": FP.FONT_FAMILY, "size": FP.FS_BODY_LG}
     matplotlib.rc("font", **font)
@@ -188,8 +190,8 @@ def plot_fig2(all_fourier_df, out_dir: Path):
     num_exp_B = all_pos_control.groupby(["species", "area", "rec"]).ngroups
     print(f"Subfig B (visual & auditory): {num_exp_B} experiments")
 
-    # Each neuron's first recording, i.e. Fig 3A's bucket; N counts the
-    # neurons with a p-value.
+    # Each neuron's recording closest to 3 Hz, i.e. Fig 3A's bucket; N
+    # counts the neurons with a p-value.
     n_C = _plot_pvalue_ecdf_deviation(ax_C, all_fourier_df_unique_neg_res, FP.COLOR_MAG)
     n_D = _plot_pvalue_ecdf_deviation(ax_D, all_unique_pos_control, FP.COLOR_VIS)
     # D shares C's y-axis, so it carries neither the tick labels nor the label.

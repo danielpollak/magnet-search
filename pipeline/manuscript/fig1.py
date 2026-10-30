@@ -790,7 +790,7 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     fig.canvas.draw()
 
     # ── Panel labels ──────────────────────────────────────────────────────────
-    _label_kw = dict(fontfamily="arial", fontsize=11, weight="bold")
+    _label_kw = dict(fontfamily="arial", fontsize=11)
     # Reading order left-to-right, top-to-bottom. Each of A, B, C, D covers a
     # PAIR of axes, labelled once on the pair's leftmost member: the two
     # stimulus cartoons (A), the two raw voltage traces (B), and each

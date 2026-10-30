@@ -34,7 +34,7 @@ OVERLEAF_FIGS = OVERLEAF_CLONE / "figs"
 
 # Pipeline output filename -> destination path relative to OVERLEAF_FIGS.
 # Only figures actually wired into main.tex (or an explicitly pending
-# supplement, like Fig3_supp) belong here -- add an entry once a new figure
+# supplement, like Fig3S1_second_harmonic) belong here -- add an entry once a new figure
 # is actually referenced by \includegraphics, not before, so we don't seed
 # unused files into the Overleaf project.
 MAPPING = {
@@ -47,8 +47,15 @@ MAPPING = {
     "Fig2.pdf": "Fig2.pdf",
     "Fig3.pdf": "Fig3.pdf",
     "Fig4.pdf": "Fig4.pdf",
-    "Fig3_supp.pdf": "supplementary/Fig3_supp.pdf",
-    "Fig3_supp2.pdf": "supplementary/Fig3_supp2.pdf",
+    # Keys are relative to figs/paper/, which keeps supplements and
+    # diagnostics in subfolders.
+    "supplement/Fig3S1_second_harmonic.pdf": "supplementary/Fig3S1_second_harmonic.pdf",
+    # Only page 2 (every recording pooled) is in the manuscript; page 1
+    # (split by occurrence) was cut 2026-10-30.
+    "supplement/Fig3S2_all_recordings.pdf": "supplementary/Fig3S2_all_recordings.pdf",
+    "diagnostic/Fig3S3_reproducibility.pdf": "supplementary/Fig3S3_reproducibility.pdf",
+    "diagnostic/Fig3S4_bucketings.pdf": "supplementary/Fig3S4_bucketings.pdf",
+    "appendix/Fig_1_3.pdf": "appendix/Fig_1_3.pdf",
 }
 
 

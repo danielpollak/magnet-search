@@ -647,7 +647,7 @@ def plot_page(waves, pos_control_waves, x_col, y_col, suptitle, color_spec):
         fig.text((quad_pos.x0 + quad_pos.x1) / 2, quad_pos.y1 + 0.04, title,
                   ha="center", va="bottom", fontsize=FP.FS_BODY + 1, fontweight="bold")
         fig.text(quad_pos.x0, quad_pos.y1 + 0.04, letter,
-                  ha="left", va="bottom", fontfamily="arial", fontsize=12, fontweight="bold")
+                  ha="left", va="bottom", fontfamily="arial", fontsize=12)
 
     # One colorbar for all eight axes: hue is the same quantitative encoding
     # everywhere (see COLOR_SPECS), so a per-axes bar would repeat itself
@@ -695,7 +695,7 @@ def plot_fig3_modulation_depth(all_fourier_df, out_dir: Path, color="pvalue"):
 def main():
     parser = argparse.ArgumentParser(
         description="Generate the Fig3-layout sensitivity vs modulation-depth scatter figure")
-    parser.add_argument("--out-dir", default=FP.OUT_DIR, help="Output directory for PDFs")
+    parser.add_argument("--out-dir", default=FP.DIAGNOSTIC_DIR, help="Output directory for PDFs")
     parser.add_argument("--parquet", default=FP.PARQUET_PATH,
                         help=f"Path to all_fourier_df.parquet (default: {FP.PARQUET_PATH})")
     parser.add_argument("--data-dir", default=FP.DATA_DIR,

@@ -2,7 +2,7 @@
 p-/q-value uniformity figure.
 
 "Canonical" below means the occurrence-wave version of Fig 3 (page 1 of
-Fig3_supp_buckets.pdf): buckets = occurrence waves; quadrants = all neurons /
+Fig3S2_all_recordings.pdf): buckets = occurrence waves; quadrants = all neurons /
 pigeon / pigeon HP / top 10% most sensitive pigeon HP. It used to be page 1
 here too, and page 2 was the same buckets as per-bucket ECDF-deviation stacks
 (both dropped 2026-10-19, the pages below renumbered); the PDF's page numbers
@@ -73,9 +73,9 @@ Requires:
   data/manuscript/all_fourier_df.parquet  (run python pipeline/aggregate.py first)
 
 Usage:
-    python pipeline/manuscript/fig3_variants.py
-    python pipeline/manuscript/fig3_variants.py --pages 1 2
-    python pipeline/manuscript/fig3_variants.py --out-dir figs/paper
+    python pipeline/manuscript/fig3s4_bucketings.py
+    python pipeline/manuscript/fig3s4_bucketings.py --pages 1 2
+    python pipeline/manuscript/fig3s4_bucketings.py --out-dir figs/paper
 """
 import argparse
 from pathlib import Path
@@ -145,7 +145,7 @@ ECDF_SHADE = 0.9
 
 # Seed for the row/unit shuffle that `bucket_round_robin` deals from. Fixed so
 # the page is reproducible, but non-trivial so the bucketing is not an
-# artifact of parquet row order (same reasoning as fig3_supp2's RANDOM_SEED).
+# artifact of parquet row order (same reasoning as fig3s3_reproducibility's RANDOM_SEED).
 RR_SEED = 0
 
 # Page 4's budget for magnetic rows dropped to enlarge its buckets toward the
@@ -411,7 +411,7 @@ def _quadrant_header(fig, cell, title, letter, dy=0.04):
     fig.text((pos.x0 + pos.x1) / 2, pos.y1 + dy, title, ha="center", va="bottom",
              fontsize=FP.FS_BODY + 1, fontweight="bold")
     fig.text(pos.x0, pos.y1 + dy, letter, ha="left", va="bottom",
-             fontfamily="arial", fontsize=12, fontweight="bold")
+             fontfamily="arial", fontsize=12)
 
 
 def _bucket_note(buckets):
@@ -489,8 +489,8 @@ def _plot_bucket_quadrant(fig, cell, neg_buckets, pos_buckets, title, letter,
                           header_dy=0.04):
     """Draw one 2x2 quadrant (p-row / q-row x magnetic / A/V) for an arbitrary
     bucketing, reusing `fig3.plot_uniform_p` unchanged so the per-bucket Storey
-    correction, axis scaling and q-value inset are identical to the canonical
-    figure's.
+    correction, axis scaling and FDR threshold line are identical to the
+    canonical figure's.
 
     `legend=False` swaps the per-bucket key for a one-line size summary in the
     column title -- for bucketings whose buckets are interchangeable and whose
@@ -511,10 +511,10 @@ def _plot_bucket_quadrant(fig, cell, neg_buckets, pos_buckets, title, letter,
     ax_q_pos.tick_params(labelleft=False)
 
     col_titles = {}
-    for pop, buckets, cmap, axes_pair, inset_floor in (
-            ("Magnetic", neg_buckets, "Blues", [ax_p_neg, ax_q_neg], 1e-2),
+    for pop, buckets, cmap, axes_pair in (
+            ("Magnetic", neg_buckets, "Blues", [ax_p_neg, ax_q_neg]),
             (_av_column_label(pos_buckets, neg_buckets), pos_buckets, "Oranges",
-             [ax_p_pos, ax_q_pos], None)):
+             [ax_p_pos, ax_q_pos])):
         buckets = _drop_empty(buckets)
         blank = _blank_reason(buckets, pval_col)
         if blank is not None:
@@ -535,8 +535,7 @@ def _plot_bucket_quadrant(fig, cell, neg_buckets, pos_buckets, title, letter,
         labels = [f"{lab} ({len(g)})" for lab, g in buckets]
         colors = _shades(cmap, len(buckets))
         fig3.plot_uniform_p([g for _, g in buckets], axes_pair, colors=colors,
-                            pval_col=pval_col, sens_col=sens_col,
-                            inset_ylim_bottom=inset_floor)
+                            pval_col=pval_col, sens_col=sens_col)
         if legend:
             _bucket_legend(axes_pair[0], labels, colors)
             col_titles[cmap] = pop
@@ -933,7 +932,7 @@ def _plot_ecdf_quadrant(fig, cell, neg_buckets, pos_buckets, title, letter,
     pos_list = [g for _, g in _drop_empty(pos_buckets)]
     fig3.plot_uniform_p(neg_list, [None, ax_q_neg],
                         colors=_shades("Blues", len(neg_list)),
-                        pval_col=pval_col, sens_col=sens_col, inset_ylim_bottom=1e-2)
+                        pval_col=pval_col, sens_col=sens_col)
     fig3.plot_uniform_p(pos_list, [None, ax_q_pos],
                         colors=_shades("Oranges", len(pos_list)),
                         pval_col=pval_col, sens_col=sens_col)
@@ -1072,11 +1071,11 @@ def _plot_occurrence_quadrant(fig, cell, neg_df, pos_df, title, letter,
     ax_q_pos.tick_params(labelleft=False)
 
     halves = (
-        ("Magnetic", neg_df, FP.COLOR_MAG, ax_e_neg, ax_q_neg, 1e-2),
+        ("Magnetic", neg_df, FP.COLOR_MAG, ax_e_neg, ax_q_neg),
         (_av_column_label([("all", pos_df)], [("all", neg_df)]), pos_df,
-         FP.COLOR_VIS, ax_e_pos, ax_q_pos, None),
+         FP.COLOR_VIS, ax_e_pos, ax_q_pos),
     )
-    for pop, df, color, ax_e, ax_q, inset_floor in halves:
+    for pop, df, color, ax_e, ax_q in halves:
         curves = _occurrence_bootstrap_curves(df, pval_col=pval_col, n_boot=n_boot)
         if curves is None:
             for ax in (ax_e, ax_q):
@@ -1103,14 +1102,13 @@ def _plot_occurrence_quadrant(fig, cell, neg_df, pos_df, title, letter,
                           alpha=FP.ALPHA_CONFIDENCE, linewidth=0, rasterized=True)
         ax_q.plot(rank, curves["q_med"], color=color, linewidth=FP.LW_TRACE)
         ax_q.set_yscale("log")
-        ax_q.set_ylim(bottom=1e-8)
+        ax_q.set_ylim(*fig3.Q_YLIM)
         ax_q.set_xticks([0, n])
         ax_q.set_xticklabels([0, n])
         ax_q.set_xlabel("Unit")
-        # Inset over the median curve and its band, same placement rule as
-        # every other Fig 3 q-value panel.
-        fig3._add_qval_inset(ax_q, [curves["q_med"]], [color], ylim_bottom=inset_floor,
-                             wave_bands=[(curves["q_lo"], curves["q_hi"])])
+        # Responder count of the median curve, as in every other Fig 3
+        # q-value panel.
+        fig3.draw_fdr_threshold(ax_q, curves["q_med"], color)
 
         ax_e.set_title(f"{pop}\n{n} neurons, {curves['n_recordings']} recordings",
                        fontsize=FP.FS_TITLE)
@@ -1252,8 +1250,8 @@ def build_pages(all_fourier_df, pages, out_path: Path, n_boot=N_BOOT):
 def main():
     parser = argparse.ArgumentParser(
         description="Generate the multipage Fig 3 variants PDF")
-    parser.add_argument("--out-dir", default=FP.OUT_DIR, help="Output directory")
-    parser.add_argument("--out-name", default="Fig3_variants.pdf")
+    parser.add_argument("--out-dir", default=FP.DIAGNOSTIC_DIR, help="Output directory")
+    parser.add_argument("--out-name", default="Fig3S4_bucketings.pdf")
     parser.add_argument("--parquet", default=FP.PARQUET_PATH,
                         help=f"Path to all_fourier_df.parquet (default: {FP.PARQUET_PATH})")
     parser.add_argument("--pages", type=int, nargs="+",

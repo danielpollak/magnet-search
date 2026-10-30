@@ -7,7 +7,7 @@ bound (red if it clears it). Bars are located by repeating plot_excess_counts'
 own ordering (species in its fixed order, then area, then rec), one unit apart.
 
     python pipeline/manuscript/fig2A_imaging_annotated.py   # after aggregate.py
-writes figs/paper/Fig2A_imaging_annotated.{pdf,png}.
+writes figs/paper/diagnostic/Fig2A_imaging_annotated.{pdf,png}.
 """
 import sys
 from pathlib import Path
@@ -23,7 +23,7 @@ sys.path.insert(0, str(_REPO))
 from magpyneto2 import statistics  # noqa: E402
 
 PARQUET = _REPO / "data" / "manuscript" / "all_fourier_df.parquet"
-OUT = _REPO / "figs" / "paper" / "Fig2A_imaging_annotated"
+OUT = _REPO / "figs" / "paper" / "diagnostic" / "Fig2A_imaging_annotated"
 # plot_excess_counts' own species order (its local `desired_order`)
 SPECIES_ORDER = ["Owl", "zebra finch", "mouse", "Pigeon", "Quail", "zebrafish", "medaka"]
 IMAGING = {"zebrafish", "medaka"}

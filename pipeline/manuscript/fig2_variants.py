@@ -363,7 +363,7 @@ def plot_fig2_variants(all_fourier_df, out_dir: Path):
 
 def main():
     parser = argparse.ArgumentParser(description="Generate Fig 2 variants (panel C populations)")
-    parser.add_argument("--out-dir", default=FP.OUT_DIR, help="Output directory for PDFs")
+    parser.add_argument("--out-dir", default=FP.DIAGNOSTIC_DIR, help="Output directory for PDFs")
     parser.add_argument("--parquet", default=FP.PARQUET_PATH,
                         help=f"Path to all_fourier_df.parquet (default: {FP.PARQUET_PATH})")
     args = parser.parse_args()

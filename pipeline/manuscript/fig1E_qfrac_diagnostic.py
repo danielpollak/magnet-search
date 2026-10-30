@@ -344,7 +344,7 @@ def plot_cross_recording_max_dev_page(pdf, this_rec_max_dev, prev_rec_max_dev=No
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--out-dir", default=FP.OUT_DIR, help="Output directory for the PDF")
+    parser.add_argument("--out-dir", default=FP.DIAGNOSTIC_DIR, help="Output directory for the PDF")
     args = parser.parse_args()
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
