@@ -8,12 +8,16 @@ production Fourier test, suite2p's registration vs the custom one.
 
 Four trace sets, each over each trial's frames, all with production's ROI selection (P(iscell)
 > 0.5, npix >= 10, inside the fish outline, flatline removal):
-    suite2p           production's ROIs and full-resolution traces (the NWB file / F_full.npy)
+    suite2p           production's ROIs and full-resolution traces as they were before the
+                      2026-10-12 switch (PLANE0's F_full.npy; the NWB files now hold the new run)
     custom            the same ROIs and the same warp, with the measured drift added (extract.py)
     reseg_raw         segment.py's x64 run on the raw frames: its ROIs and traces
     reseg_corrected   segment.py's x64 run on the drift-corrected frames: its ROIs and traces
-The re-segmentations are loaded by load_segmentation, which applies production's selection to a
-plane0 folder; check_loader asserts it reproduces production's ROIs and traces exactly.
+All four are loaded by load_segmentation, which applies production's selection to a plane0
+folder. check_loader asserts that, applied to the CURRENT production run (PROD_NOW, the one the
+NWB files hold since 2026-10-12), it reproduces the NWB ROIs and traces exactly; reconcile checks
+the harness's Fourier p-values on that run against the parquet. Both validate the loader and the
+harness on the run the pipeline wrote; the "suite2p" set is the same loader on the earlier run.
 
 Population: the six 20220915_fish1 recordings (experiments/engert_20220915_fish1_*.yml), the one
 session whose drift is large (14-20 px).
@@ -44,7 +48,8 @@ from magpyneto2 import engert_helpers as eh  # noqa: E402
 
 SESSION = "2022_09_15-fish1_cytoGCaMP"
 DATA = Path(f"C:/Users/dan/suite2p_v1_custom_reg/{SESSION}")
-PLANE0 = f"C:/Users/dan/suite2p_v1_production/{SESSION}/output/suite2p/plane0"
+PLANE0 = f"C:/Users/dan/suite2p_v1_production/{SESSION}/output/suite2p/plane0"   # before 2026-10-12
+PROD_NOW = f"C:/Users/dan/suite2p_v1_production/{SESSION}_x64_drift/output/suite2p/plane0"
 NAMES = [f"engert_20220915_fish1_{c}_{t}" for c in ("magneto", "no_magneto") for t in (0, 1, 2)]
 PARQUET = ns.PARQUET    # NS_DATA_DIR (see nonstationarity.py) when run from a worktree
 VISUAL_F, VISUAL_QFRAC = 0.016667, 0.5
@@ -58,10 +63,10 @@ C_INK, C_MUTED = "#333333", "#8a8a8a"
 _orig_load = ns.sv.load
 
 
-def trial_slice(name):
+def trial_slice(name, plane0=PLANE0):
     from pipeline import ophys_extraction as ox
     tiff = name.replace("engert_20220915_fish1", "2022_09_15_fish1") + ".tif"
-    for f, start, n in ox.trial_files(ox.load_ops(PLANE0)):
+    for f, start, n in ox.trial_files(ox.load_ops(str(plane0))):
         if f == tiff:
             return start, n
     raise KeyError(tiff)
@@ -69,7 +74,7 @@ def trial_slice(name):
 
 def load_custom(name, **kw):
     """sv.load with the traces replaced by the custom-registration ones (same ROIs, frames)."""
-    cfg, F, roi = _orig_load(name, **kw)
+    cfg, F, roi = load_segmentation("suite2p", name, **kw)
     start, n = trial_slice(name)
     Fc = np.load(DATA / "F_custom.npy", mmap_mode="r")
     return cfg, np.asarray(Fc[roi, start:start + F.shape[1]], float), roi
@@ -77,6 +82,7 @@ def load_custom(name, **kw):
 
 SEGMENTATIONS = {      # trace set -> (plane0, trace file, divisor to raw photon units)
     "suite2p": (Path(PLANE0), "F_full.npy", 1.0),
+    "production": (Path(PROD_NOW), "F_full.npy", 64.0),   # x64 tiffs, F_full in x64 units
     "reseg_raw": (DATA / "s2p_raw_x64/output/suite2p/plane0", "F.npy", 32.0),
     "reseg_corrected": (DATA / "s2p_corrected_x64/output/suite2p/plane0", "F.npy", 32.0),
 }
@@ -101,7 +107,7 @@ def load_segmentation(tag, name, outline=True, series="full"):
         body = body_outline.body(mean, body_outline.params_for(cfg.body_outline))
         share = body_outline.inside_share([(s["ypix"], s["xpix"]) for s in stat], body)
         mask &= share >= body_outline.INSIDE_SHARE
-    start, n = trial_slice(name)
+    start, n = trial_slice(name, plane0)
     F = np.load(plane0 / trace_file, mmap_mode="r")
     F = np.asarray(F[mask, start:start + n], float) / div
     F, _, _, keep = remove_flatlines(F)
@@ -111,16 +117,17 @@ def load_segmentation(tag, name, outline=True, series="full"):
 
 
 def check_loader():
-    """Self-test: load_segmentation on production's plane0 must give production's ROIs and
-    traces (sv.load reads them from the NWB file the pipeline wrote)."""
+    """Self-test: load_segmentation on the current production run's plane0 must give the ROIs and
+    traces the pipeline wrote to the NWB files (sv.load reads those)."""
     for name in NAMES:
         cfg, F, roi = _orig_load(name, outline=True, series="full")
-        _, F2, roi2 = load_segmentation("suite2p", name)
+        _, F2, roi2 = load_segmentation("production", name)
+        F2 = F2 * SEGMENTATIONS["production"][2]       # the NWB holds F_full in x64 units
         assert np.array_equal(roi, roi2), f"{name}: ROI sets differ ({len(roi)} vs {len(roi2)})"
         err = float(np.abs(F - F2).max())
         assert err < 1e-3, f"{name}: traces differ by {err}"
-    print("  check: load_segmentation on production's plane0 reproduces production's ROIs and "
-          "traces in all six recordings")
+    print("  check: load_segmentation on the current production run reproduces the NWB ROIs "
+          "and traces in all six recordings")
 
 
 def fourier_p(F, cfg, f, qf):
@@ -130,7 +137,9 @@ def fourier_p(F, cfg, f, qf):
 
 def job(args):
     name, tag = args
-    if tag == "custom":
+    if tag == "suite2p":
+        ns.sv.load = lambda n, **kw: load_segmentation("suite2p", n, **kw)
+    elif tag == "custom":
         ns.sv.load = load_custom
     elif tag.startswith("reseg"):
         ns.sv.load = lambda n, **kw: load_segmentation(tag, n, **kw)
@@ -161,14 +170,15 @@ def compute():
 
 
 def reconcile(d):
-    """Tripwire, stated before running: the harness's production-trace p-values must reproduce
-    the parquet's for every ROI (same fit_Fourier, same null); if not, nothing below is
-    trusted."""
+    """Tripwire, stated before running: the harness's p-values on the current production run
+    (load_segmentation("production"), the run the parquet was built from) must reproduce the
+    parquet's for every ROI (same fit_Fourier, same null); if not, nothing below is trusted."""
     pq = pd.read_parquet(PARQUET, columns=["rec", "freq", "id", "p_value"])
-    s = d[d.trace_set == "suite2p"]
     worst = 0.0
-    for name, g in s.groupby("experiment"):
-        f = ns.sv.schema.load_experiment(str(_REPO / "experiments" / f"{name}.yml")).analysis.f
+    for name in NAMES:
+        cfg, F, roi = load_segmentation("production", name)
+        g = pd.DataFrame(dict(roi=roi, p_mag=fourier_p(F, cfg, cfg.analysis.f, cfg.analysis.Q_frac)))
+        f = cfg.analysis.f
         ref = pq[(pq.rec == name) & np.isclose(pq.freq, f)].set_index("id").p_value
         worst = max(worst, float(np.abs(g.set_index("roi").p_mag - ref.reindex(g.roi)).max()))
         n_h, n_p = int((g.p_mag < ALPHA_F).sum()), int((ref < ALPHA_F).sum())

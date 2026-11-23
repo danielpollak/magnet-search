@@ -17,9 +17,8 @@ Everything was re-run: processing, analysis, aggregate, and Figs 1–3.
 **Summary.**
 - **Where nothing was presented, the bump is gone** (0.1 Hz +0.035 → +0.004; [`cv2.md`](cv2.md), Figure 7).
 - **More neurons:** the magnetic pool gains 3,173 neurons, because no coverage threshold is needed.
-- **At the stimulus frequency, most of the excess goes too:**
-  - 0.3 Hz zebrafish: +0.09–0.12 → −0.02 to +0.01;
-  - medaka trial 0: +0.05 → −0.02.
+- **At the stimulus frequency, most of the excess goes too:** the 0.3 Hz zebrafish and medaka
+  trial 0 become calibrated.
 - **What remains is a real stimulus-locked signal, and it is visual.** It sits in the 0.1 Hz zebrafish and medaka recordings, and it is the same in magneto and no_magneto trials.
 - **The 30 s on / 30 s off visual grating runs in trials 1 and 2 of every 0.3 Hz, 0.1 Hz and medaka session, but not in trial 0.** Its odd harmonics of 1/60 Hz are unmistakable in the population spectrum. 0.1 Hz is its 6th harmonic.
 
@@ -75,8 +74,7 @@ too?
   scatter around 0.
 - **What remains has a different shape** (Figure 1, bottom middle and right): too many *small*
   p-values. That is the signature of a real stimulus-locked component, not of a broken null.
-  It is in the 0.1 Hz zebrafish (+0.033) and medaka (+0.059) trials 1–2, and more weakly in the
-  0.1 Hz trial 0 (+0.018).
+  It is in the 0.1 Hz zebrafish and medaka trials 1–2, and more weakly in the 0.1 Hz trial 0.
 - **It is not magnetic.** It is as large in no_magneto trials as in magneto trials (medaka
   no_magneto_1/2: +0.069, +0.063; magneto_1/2: +0.063, +0.045).
 
@@ -116,7 +114,7 @@ too?
 
 | | finding |
 |---|---|
-| **Established** | With full-resolution traces, imaging p-values are calibrated where nothing was presented, with every ROI kept: the magnetic pool gains 3,173 neurons. |
+| **Established** | With full-resolution traces, imaging p-values are calibrated where nothing was presented, with every ROI kept, so the magnetic pool grows (section 1). |
 | **Established** | At the stimulus frequency the floor-related bump is gone. 0.3 Hz zebrafish and the medaka trial 0 are calibrated. |
 | **Established** | Trials 1–2 of every 0.3 Hz, 0.1 Hz and medaka session contain the 60 s visual grating; trial 0 does not. |
 | **Likely** | The remaining stimulus-frequency excess in 0.1 Hz zebrafish and medaka trials 1–2 is a visual response at 0.1 Hz, the grating's 6th harmonic. It is equal in magneto and no_magneto trials. **Confirmed per ROI for medaka (2026-10-07, section 3 update).** |

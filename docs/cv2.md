@@ -48,21 +48,20 @@ Coverage is the share of 60 s windows in which the trace has at least 3 frames a
 
 <sub>**Figure 1. Five ROIs of one 0.1 Hz recording, from low to high coverage.** *Left:* the suite2p trace (production's input). *Right:* the distribution of its power across frequencies, each power divided by the local mean power (log scale). Dashed: the exponential, CV² = 1. Each ROI is the median-CV² ROI among those at its coverage.</sub>
 
-- **A low-coverage trace sits at exactly 50.0** except for a handful of isolated events
-  (Figure 1, top). With so few events its power is too even across frequencies. The
-  histogram lacks the exponential's long tail and has CV² 0.61.
-- **As coverage rises, the events multiply** and the power approaches the exponential: CV²
-  0.76, 0.84, 0.98. The fully covered ROI at the bottom is still at the floor half the time,
-  but has enough events for CV² 0.91.
+- **A few events make the power too even across frequencies.** A low-coverage trace sits at
+  exactly 50.0 except for a handful of isolated events (Figure 1, top), and its power
+  distribution lacks the exponential's long tail.
+- **More events restore the tail.** As coverage rises the events multiply and the power
+  approaches the exponential. What matters is the number of events, not time off the floor:
+  the fully covered ROI at the bottom is still at the floor half the time.
 
 ![Coverage vs CV2](cv2/fig_cv2_coverage.png)
 
 <sub>**Figure 2. CV² against coverage, every ROI of the 0.3 Hz and 0.1 Hz recordings.** Gray: ROIs (coverage jittered; it comes in steps of one 60 s window). Black: median CV² per 0.1 of coverage. Dashed: the pipeline's coverage threshold, 0.1. Orange rings: Figure 1's ROIs. Population: production before the coverage threshold (P(iscell) > 0.5, npix ≥ 10, inside the fish outline, flatline removal).</sub>
 
-- **CV² rises steadily with coverage** (Figure 2): median 0.5–0.6 below coverage 0.1, about 1
-  at full coverage. Spearman correlation 0.68 (0.3 Hz) and 0.73 (0.1 Hz).
-- **But at any coverage the spread is wide.** Below the 0.1 threshold, CV² runs from 0 to 1.
-  This is why the coverage threshold removes only part of the bump: it judges how often a trace
+- **CV² rises steadily with coverage** (Figure 2; Spearman correlation 0.68 at 0.3 Hz, 0.73 at
+  0.1 Hz).
+- **But at any coverage the spread is wide.** This is why the coverage threshold removes only part of the bump: it judges how often a trace
   is active, while CV² measures how many events it has.
 
 ## 2. How is CV² distributed across datasets?
@@ -134,15 +133,13 @@ halving and truncation give the full-resolution trace.
 
 <sub>**Figure 5. Pixel values at each step, one 0.1 Hz recording (`engert_20221001_fish2_magneto_0`, first 200 frames).** Share of pixels at each value above the tiff's offset of 100 (log scale). Black: raw tiff. Gray: after suite2p's halving (shown ×2). Orange: suite2p's registered movie (×2).</sub>
 
-- **The raw movie is photon-starved, but not floored** (Figure 5, black): 95.6% of pixels are
-  at the offset (100) in a given frame, 3.0% at 101, 1.0% at 102, and so on. These look like
-  single photon counts.
+- **The raw movie is photon-starved, but not floored** (Figure 5, black): most pixels are at
+  the offset (100) in a given frame, and the levels above it look like single photon counts.
 - **Halving merges 101 into 100** (gray). Every odd level joins the even level below it, so a
   pixel with one count above the offset becomes indistinguishable from an empty one.
 - **Truncation after interpolation removes most of the rest** (orange). Interpolation spreads
   an isolated count over neighbouring pixels as fractions (e.g. 50.4), and truncation rounds
-  those fractions down to 50. In the registered movie 99.9% of pixels are at 50, and level 2
-  is about 10 times rarer than in the raw tiff.
+  those fractions down to 50, leaving 99.9% of the registered movie's pixels at 50.
 
 ![suite2p vs full resolution](cv2/fig_cv2_overlay.png)
 
@@ -171,12 +168,11 @@ halving and truncation give the full-resolution trace.
 
 - **At full resolution CV² is about 1 for nearly every ROI** (Figure 7, top). The ROIs that
   suite2p put lowest move the most.
-- **The bump is gone at 0.1 Hz** (Figure 7, bottom right): flat within 0.005 everywhere, with
-  every ROI kept, no coverage threshold and no change to the null. Split by suite2p CV², every
-  group is between +0.002 and +0.010, where it was +0.003 to +0.150 (Figure 4).
-- **At 0.3 Hz the bump becomes a slight deficit,** −0.015 at p = 0.5 and −0.008 to −0.039
-  across CV² groups. This is the same size and sign as 2022 Q1's −0.012 (Figure 4), whose
-  traces were never floored.
+- **The bump is gone at 0.1 Hz** (Figure 7, bottom right), with every ROI kept, no coverage
+  threshold and no change to the null. It is gone in every suite2p-CV² group too (+0.002 to
+  +0.010), including the ones that carried it in Figure 4.
+- **At 0.3 Hz the bump becomes a slight deficit,** in every CV² group (−0.008 to −0.039). This
+  is the same size and sign as 2022 Q1's −0.012, whose traces were never floored.
 - **One recording is a built-in control.** `20221002_fish1`'s tiff is stored 256 times
   larger (offset 25600), so halving and truncation lose almost nothing. There suite2p and
   full resolution agree (the dense diagonal in Figure 7, top right; median CV² 0.92 for both).
@@ -201,9 +197,9 @@ floored.
 
 | | finding |
 |---|---|
-| **Established** | In the 0.3 Hz and 0.1 Hz zebrafish, CV² below 1 predicts the p-value bump: +0.14 to +0.15 for CV² < 0.5, calibrated for 0.85–1.15. Ephys and 2022 Q1 sit at CV² ≈ 1. |
-| **Established** | CV² follows coverage (Spearman 0.68–0.73), with a wide spread at any coverage. |
-| **Established** | The floor, the low CV² and the bump were created by suite2p's integer halving and post-registration truncation of photon-starved movies. Re-extracting without them restores CV² ≈ 1 and calibrates the production null at 0.1 Hz (+0.004) with every ROI kept. At 0.3 Hz it leaves a slight deficit (−0.015), like the never-floored 2022 Q1 recordings. |
+| **Established** | In the 0.3 Hz and 0.1 Hz zebrafish, CV² below 1 predicts the p-value bump, and ROIs with CV² near 1 are calibrated. Ephys and 2022 Q1 sit at CV² ≈ 1. |
+| **Established** | CV² follows coverage, with a wide spread at any coverage. |
+| **Established** | The floor, the low CV² and the bump were created by suite2p's integer halving and post-registration truncation of photon-starved movies. Re-extracting without them restores CV² ≈ 1 and calibrates the production null at 0.1 Hz with every ROI kept. At 0.3 Hz it leaves a slight deficit, like the never-floored 2022 Q1 recordings. |
 | **Done since** | The full-resolution traces are now what the pipeline analyses (`pipeline/ophys_extraction.py`; [`full_resolution_rerun.md`](full_resolution_rerun.md)). |
 
 ## Reproducing

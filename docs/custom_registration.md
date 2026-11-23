@@ -19,7 +19,7 @@
 - **How much:** in the three coil-on trials it is displaced by up to 20 px in the first 1–3 minutes, then settles within 3.6 px. In the coil-off trials it stays within 2.3 px.
 - **Precision:** the median measurement error is 0.04 px. After correction, the remaining misalignment is under 0.12 px in 95% of bins.
 
-**Correcting the drift doesn't fix the nonstationarity.** Re-extracting the traces with the drift corrected lowers the share of nonstationary ROIs only modestly. In the coil-on trials it goes from 96–98% to 93–96% (RMS) and from 80–83% to 76–79% (reference-window power).
+**Correcting the drift doesn't fix the nonstationarity.** Re-extracting the traces with the drift corrected lowers the share of nonstationary ROIs by only a few points (Figure 4).
 
 **What remains is a slow change in the image itself, not a shift.**
 - Even with the drift corrected, each 10-frame average resembles the session's mean image less in the first ~7 minutes of a trial than later.
@@ -27,21 +27,21 @@
 - Local block shifts confirm there is more than a translation. But no rotation, stretch or other affine warp improves the match (section 5).
 
 **The bigger problem is the segmentation (section 6).** Production's ROIs here are mostly fragments of cells.
-- Giving suite2p the tiffs ×64 with its registration off, as medaka is run, triples the kept ROIs (182 → 524 within the same field) and doubles their median size (14 → 31 px).
-- Giving it the drift-corrected movie adds 21% more (635, median 36 px).
-- **The conclusions hold with the better ROIs.** The 0.3 Hz suspects stay at chance (about 1%), the grating responders roughly triple in number at a similar share, and nonstationarity barely changes (section 7).
+- Giving suite2p the tiffs ×64 with its registration off, as medaka is run, triples the kept ROIs within the same field and doubles their median size (Table 2).
+- Giving it the drift-corrected movie adds 21% more, slightly larger.
+- **The conclusions hold with the better ROIs.** The 0.3 Hz suspects stay at chance (about 1%), several times as many grating responders are found, at a similar share, and nonstationarity barely changes (section 7).
 
 | | finding |
 |---|---|
 | **Established** | suite2p's registration is constant over all 7,320 frames of this session (asserted in `analyze.py`). |
-| **Established** | The drift is measurable from 10-frame averages: up to 20 px in the coil-on trials' first 1–3 min, ≤ 3.6 px afterwards, ≤ 2.3 px in the coil-off trials. Median precision 0.04 px; residual after correction ≤ 0.12 px (95th percentile). |
-| **Established** | Correcting it improves the image match where the motion is. In the first minute of magneto_0 the bins' correlation with the reference rises from 0.02 to 0.17 (median). Later in the trial it changes little (0.58 → 0.60). |
-| **Established** | It changes the traces' nonstationarity, the Fourier suspects and the grating responders only a little (Table 1). |
+| **Established** | The drift is measurable from 10-frame averages, to a small fraction of a pixel (section 1, Figure 1). |
+| **Established** | Correcting it improves the image match where the motion is, early in the coil-on trials, and changes it little later in the trial (section 2, Figure 3). |
+| **Established** | It changes the traces' nonstationarity, the Fourier suspects and the grating responders only a little (section 3, Figure 4). |
 | **Established** | The flat stretches at exactly 100 in a trace are frames with no photons in the ROI's pixels, not truncation (section 4). |
-| **Established** | Beyond the translation, local block shifts are 1.2–7.4 px RMS (error ~0.2 px) and reproducible across interleaved trials (r 0.74–0.97). But they are not a rotation or a stretch: an affine correction never improves the match (section 5). |
-| **Established** | suite2p on the tiffs ×64 with its registration off triples the kept ROIs within production's field (182 → 524) and doubles their median size (14 → 31 px). Adding the drift correction raises them to 635 (36 px) (section 6). |
+| **Established** | Beyond the translation, local block shifts are far larger than their measurement error and reproducible across interleaved trials. But they are not a rotation or a stretch: an affine correction never improves the match (section 5, Table 1). |
+| **Established** | suite2p on the tiffs ×64 with its registration off triples the kept ROIs within production's field and doubles their median size. Adding the drift correction adds a further 21–26% (section 6, Table 2). |
 | **Leading hypothesis, untested** | The image content changes over the first ~7 min of each trial and between the coil-on and coil-off acquisitions, perhaps through axial (z) drift, the fish settling, or brightness changes. No in-plane correction can remove that. |
-| **Established** | With the re-segmented ROIs, the 0.3 Hz suspects stay at chance (25 of 2,107 coil on, 22 of 1,911 coil off; about 1% expected). About 3.5× as many grating responders are found, at a similar share (41% vs 45%). Nonstationarity drops only a few points (section 7). |
+| **Established** | With the re-segmented ROIs, the 0.3 Hz suspects stay at chance, many more grating responders are found at a similar share, and nonstationarity drops only a few points (section 7, Table 3). |
 | **Open** | The other photon-starved zebrafish sessions likely have the same fragmented segmentation; not yet re-segmented. |
 
 ## What was measured
@@ -72,13 +72,14 @@ Each has a single value over all 7,320 frames. In these dim movies (98.4% of pix
 
 <sub>**Figure 1. Displacement of each 10-frame average from the session reference, per trial.** Blue: y. Orange: x. Shading: ± measurement error (odd vs even frames). Dashed: suite2p, which applies the same shift to every frame (zero relative to its own constant). Time is time in the trial tiff. Each trial's first minutes are chunks from the start of that acquisition.</sub>
 
-- **The coil-on trials begin far from their settled position.** magneto_0 starts 14–19 px off in y and moves back and forth for about 3 minutes. magneto_1 and _2 settle within about a minute. All three then creep back by 2–4 px over the trial.
-- **The measurement error grows where the fish moves fastest.** In magneto_0's first three minutes it reaches up to 11 px: the odd and even frames of a bin disagree, so the fish moved within those 10 s.
-- **The coil-off trials stay within 2.3 px throughout.** They are a separate acquisition from the coil-on ones.
+- **The coil-on acquisition begins unsettled; the separate coil-off acquisition is stable.** The coil-on trials start far from their settled position, take one to three minutes to settle, and then creep back slowly over the trial. The coil-off trials, a separate acquisition, stay close to one position throughout.
+- **The error band widens where the fish moves fastest.** There the odd and even frames of a bin disagree, because the fish moved within those 10 s.
 
 ![Images](custom_registration/fig_images.png)
 
-<sub>**Figure 2. The first minute of magneto_0 (magenta) over its minutes 10–21 (green), as registered by suite2p (left) and with the drift corrected (right).** Each image is smoothed and background-subtracted. White = both. In the left panel the two layers are offset, most clearly along the bright bands. In the right panel they overlap more, but several magenta structures still have no green counterpart.</sub>
+<sub>**Figure 2. The first minute of magneto_0 (magenta) over its minutes 10–21 (green), as registered by suite2p (left) and with the drift corrected (right).** Each image is smoothed and background-subtracted. White = both.</sub>
+
+**The correction removes the offset, but not a change in content.** As suite2p registered it, the first minute is offset from the later minutes, most clearly along the bright bands. Corrected, the two overlap more, but several structures of the first minute still have no counterpart later.
 
 ### 2. The correction helps, but the image content keeps changing
 
@@ -87,37 +88,29 @@ Each has a single value over all 7,320 frames. In these dim movies (98.4% of pix
 <sub>**Figure 3. Correlation of each 10-frame average with the session reference, before (grey) and after (blue) the correction.** magneto_0, where the fish drifts, and no_magneto_0, where it barely moves.</sub>
 
 - **The correction raises the match where there was motion.** In magneto_0's first minute it goes from 0.02 to 0.17 (median).
-- **The match still climbs for about 7 minutes after correction:** to 0.6–0.7 in magneto_0, and from 0.4 to 0.75 in no_magneto_0, where the fish never moves more than 2.3 px.
+- **The match still climbs for about 7 minutes after correction,** in no_magneto_0 too, where the fish barely moves.
 - **So the early frames differ from the later ones by more than a shift.** A lateral correction can't remove that.
 - **Leading hypothesis, untested:** axial (z) drift as the fish settles, or brightness changes. A z-stack would be needed to tell.
 
 ### 3. The traces change only a little
 
-**Table 1.** Production's ROIs (about 180 per trial), suite2p registration → custom correction.
-- Nonstationarity: share of ROIs with block-shuffle p < 0.05 at K = 10 ([`nonstationarity.md`](nonstationarity.md)).
-- Suspects: production Fourier p < 0.01 at 0.3 Hz.
-- Responders: p < 0.01 at 1/60 Hz (n/a for trial 0, which has no grating).
-
-| trial | RMS | reference-window power | CV² | suspects at 0.3 Hz | 1/60 Hz responders |
-|---|---|---|---|---|---|
-| magneto_0 | 98% → 93% | 83% → 79% | 7% → 7% | 0 → 1 | n/a |
-| magneto_1 | 98% → 96% | 80% → 76% | 4% → 9% | 2 → 2 | 61 → 57 |
-| magneto_2 | 96% → 94% | 83% → 77% | 4% → 4% | 0 → 4 | 73 → 78 |
-| no_magneto_0 | 75% → 69% | 52% → 42% | 7% → 4% | 3 → 2 | n/a |
-| no_magneto_1 | 89% → 78% | 54% → 51% | 4% → 3% | 0 → 2 | 83 → 83 |
-| no_magneto_2 | 88% → 81% | 52% → 55% | 3% → 7% | 1 → 0 | 106 → 100 |
-
 ![Effect](custom_registration/fig_effect.png)
 
-<sub>**Figure 4. Table 1 per trial, as shares of each trace set's ROIs.** Grey: production's ROIs, suite2p's registration. Blue: production's ROIs, drift corrected. Orange and purple: the ×64 re-segmentations of section 7. Dotted line: the 1% of suspects expected by chance.</sub>
+<sub>**Figure 4. Per trial, as shares of each trace set's ROIs.** Grey: production's ROIs (about 180 per trial), suite2p's registration. Blue: production's ROIs, drift corrected. Orange and purple: the ×64 re-segmentations of section 7. From left:
+- nonstationarity by RMS, reference-window power and CV²: share of ROIs with block-shuffle p < 0.05 at K = 10 ([`nonstationarity.md`](nonstationarity.md));
+- suspects: production Fourier p < 0.01 at 0.3 Hz (dotted line: the 1% expected by chance);
+- responders: p < 0.01 at 1/60 Hz (n/a for trial 0, which has no grating).
 
-- **Nonstationarity drops by a few points, and this session stays the most nonstationary in the data.** Its excess comes mostly from what Figure 3 shows, not from the lateral drift.
+The per-trial counts are in `results_summary.csv`.</sub>
+
+- **Nonstationarity in RMS and reference-window power drops by a few points, and this session stays the most nonstationary in the data.** Its excess comes mostly from what Figure 3 shows, not from the lateral drift.
+- **CV² is well above chance, higher with the coil on, and doesn't drop.** Its flags fall mostly on ROIs whose power also changes: a second view of the same activity epochs, as in [`nonstationarity.md`](nonstationarity.md).
 - **Suspects stay at chance** (0–4 per trial; about 2 expected among 180 ROIs at p < 0.01). They move in both directions.
 - **Grating responders barely change.**
 
 ### 4. The trace's flat stretches are empty frames, not truncation
 
-The example ROI in [`nonstationarity.md`](nonstationarity.md) Figure 1 (magneto_0, ROI 58) reads exactly 100 for 75% of frames. Is that a clipped trace, like suite2p's halved traces were ([`cv2.md`](cv2.md))?
+The 20220915_fish1 example ROI that [`nonstationarity.md`](nonstationarity.md) used before the re-segmentation (magneto_0, ROI 58) reads exactly 100 for 75% of frames. Is that a clipped trace, like suite2p's halved traces were ([`cv2.md`](cv2.md))?
 
 - **The raw tiff is photon counting on an offset of 100.** In magneto_0, 98.4% of pixel values are 100, 1.4% are 101 (one photon), 0.18% are 102. A value of 99 occurs in 0.00008% of pixels, and the maximum is 162.
 - **Production's traces are full resolution.** They don't halve or truncate (`pipeline/ophys_extraction.py`).
@@ -167,7 +160,7 @@ If the motion were a pure translation, every block would sit at ~0. Under a rota
 - **Bottom left and middle:** the fitted rotation and scale change per chunk.
 - **Bottom right:** each chunk's correlation with the reference, translation only (x) vs affine (y). The grey line is equality.</sub>
 
-**Table 2.** Medians over chunks. Chunks 0–6 are the unsettled start of each trial tiff (Figure 3).
+**Table 1.** Medians over chunks. Chunks 0–6 are the unsettled start of each trial tiff (Figure 3).
 - **Spread:** RMS of the usable blocks' shifts about their mean.
 - **Gain:** the affine map's change in correlation with the reference.
 
@@ -179,15 +172,15 @@ If the motion were a pure translation, every block would sit at ~0. Under a rota
 | coil off, chunks 7+ | 0.76 | 1.2 px | 0.18 px | 0.04° | 0.3% | −0.001 |
 
 **There is more than a translation:**
-- **The blocks disagree with each other far beyond their measurement error.** The spread is 4.8–7.4 px in the coil-on trials and 1.2–2.3 px in the coil-off trials, against an error of about 0.2 px.
+- **The blocks disagree with each other far beyond their measurement error,** most in the coil-on trials (Table 1).
 - **The pattern is real, not noise.** The three trials of one acquisition interleave their chunks, so chunk j of each trial is recorded within a few minutes of the others.
   - The block fields of the three trials at the same chunk index correlate at r = 0.97 (coil on, chunks 7+), 0.74 (coil on, chunks 0–6) and 0.79–0.86 (coil off).
-  - The scale-change curves of the three coil-on trials also track each other (Figure 5, bottom middle): +3 to +5% at the start, falling to −2 to −2.5% late.
+  - The scale-change curves of the three coil-on trials also track each other (Figure 5, bottom middle).
 
 **But it is not a rotation or a stretch that a warp can undo:**
-- **The rotation is tiny:** a median of 0.04–0.4°.
-- **The affine map never improves the match.** It raises the correlation by more than 0.01 in 6 of 122 chunks and lowers it in 35. The coil-on chunks fall below the equality line in Figure 5, bottom right.
-- **The early chunks' blocks match poorly anywhere.** In the coil-on trials' first 7 chunks, the median block match is 0.55, against 0.71 later. The block shifts point in every direction (top left).
+- **The rotation is tiny** (Table 1).
+- **The affine map never improves the match.** It raises the correlation by more than 0.01 in 6 of 122 chunks and lowers it in 35 (Figure 5, bottom right).
+- **The early chunks' blocks match poorly anywhere.** In the coil-on trials' first 7 chunks the block match is lower than later (Table 1), and the block shifts point in every direction (Figure 5, top left).
 
 **Interpretation.**
 - **Established:** the fish's image changes locally, reproducibly across trials, and most in the coil-on acquisition. An in-plane rotation or stretch doesn't capture the change.
@@ -220,7 +213,7 @@ So raw_x64 vs production is the effect of the scaling, and corrected_x64 vs raw_
 - **Bottom middle:** ROI size, kept ROIs.
 - **Bottom right:** magneto_0 traces of production ROI 58 and its best-correlated ROI in each new run, in photons per pixel per frame above the offset.</sub>
 
-**Table 3.** The three segmentations. All three runs stop at suite2p's limit of 5,000 ROIs, before overlap removal.
+**Table 2.** The three segmentations. All three runs stop at suite2p's limit of 5,000 ROIs, before overlap removal.
 
 | run | ROIs | median npix | < 10 px | P(iscell) > 0.5 | kept | kept, inside production's field | median npix, kept |
 |---|---|---|---|---|---|---|---|
@@ -231,10 +224,10 @@ So raw_x64 vs production is the effect of the scaling, and corrected_x64 vs raw_
 "Inside production's field" counts only ROIs centred where production could detect. Production's detection ran on the frame minus the margins its constant shift cut off (387 × 421 of 477 × 477 px); the new runs see the whole frame.
 
 **What changed:**
-- **Most of the improvement comes from the scaling.** Kept ROIs go from 182 to 587 (524 within production's field), and their median size from 14 to 31 px.
+- **The scaling, not the drift correction, is what un-fragments the cells** (Table 2, raw_x64 vs production).
   - In the crop, production's few small fragments become ROIs that cover whole bright cells.
-  - The analysis also drops ROIs outside the fish's outline and flat traces. For production that leaves the same 182, so the comparison holds.
-- **The drift correction adds 151 more kept ROIs** (738; 524 → 635 within production's field), slightly larger (median 36 px). It also adds about 900 more ROIs with P(iscell) > 0.5, mostly too small to keep.
+  - The analysis also drops ROIs outside the fish's outline and flat traces. For production that leaves the same kept ROIs, so the comparison holds.
+- **The drift correction adds kept ROIs that are slightly larger.** It also adds many more ROIs with P(iscell) > 0.5, mostly too small to keep.
 - **ROI 58's cell is no longer split three ways, but it is still split.**
   - In raw_x64, one kept ROI (14, 21 px, P(iscell) 0.95) covers the cell; its trace correlates with production ROI 58's at r = 0.72.
   - In corrected_x64, the cell is shared by two kept ROIs, 35 (30 px) and 2056 (20 px, r = 0.77).
@@ -246,12 +239,12 @@ So raw_x64 vs production is the effect of the scaling, and corrected_x64 vs raw_
 
 Does the better segmentation change the session's conclusions?
 
-**How it was tested** (`analyze.py`). The two re-segmentations go through the same analyses as Table 1, as two more trace sets:
+**How it was tested** (`analyze.py`). The two re-segmentations go through the same analyses as section 3, as two more trace sets:
 - **ROI selection:** production's rule, applied to each run's ROIs: P(iscell) > 0.5, npix ≥ 10, inside the fish outline (the YAML's outline parameters on that run's own mean image), and flatline removal.
 - **Traces:** suite2p's `F.npy` / 32, in raw photon units like `F_full.npy`. The re-segmented movie is already aligned, so its traces need no warp.
 - **Self-test:** the same loader applied to production's plane0 reproduces production's ROIs and traces in all six recordings (`check_loader`, asserted).
 
-**Table 4.** Pooled over the three trials of each acquisition.
+**Table 3.** Pooled over the three trials of each acquisition.
 - Suspects: p < 0.01 at 0.3 Hz. The chance p is a one-sided binomial test against 1%, which approximates the eps-corrected null.
 - Responders: p < 0.01 at 1/60 Hz, grating trials (_1, _2) only.
 
@@ -266,12 +259,8 @@ Per trial, see `results_summary.csv` and Figure 4. The largest single count is 1
 
 **What changed:**
 - **The 0.3 Hz suspects stay at chance in every trace set.** With four times the ROIs, there are more suspects in absolute terms, but at about the 1% expected, with the coil on and off alike. The better segmentation reveals no magnetic response.
-- **The grating responders are found again, at a similar share.** 38–41% of the re-segmented ROIs respond, against 45% of production's. That is about 1,100 responding ROIs instead of 320, so the positive control works with whole cells.
-- **Nonstationarity barely moves** (Figure 4).
-  - RMS: 89–95% of ROIs in the coil-on trials, against 96–98% for production's.
-  - Reference-window power: 74–78%, against 80–83%.
-  - Coil-off trials: 65–83% (RMS) and 42–50% (reference-window power).
-  - CV² stays near chance (4–10%).
+- **The grating responders are found again, several times as many, at a similar share,** so the positive control works with whole cells.
+- **Nonstationarity barely moves** (Figure 4): RMS and reference-window power a few points lower than with production's ROIs, CV² unchanged.
 - **So the session's nonstationarity is not caused by the fragmented ROIs either.** Neither segmentation nor drift correction removes it, which points again to slow changes in the image itself (sections 2 and 5).
 
 ## Implications
@@ -282,12 +271,12 @@ Per trial, see `results_summary.csv` and Figure 4. The largest single count is 1
    - The suspect counts are at chance with either registration.
    - Motion locked to the stimulus was already < 0.04 px in every recording.
 4. **The segmentation matters more than the registration.**
-   - Giving suite2p the tiffs ×64, as medaka already is, triples the kept ROIs (182 → 524 within the same field) and doubles their median size (section 6).
+   - Giving suite2p the tiffs ×64, as medaka already is, triples the kept ROIs and doubles their median size (section 6).
    - Production's zebrafish ROIs in the photon-starved sessions are therefore mostly fragments. This likely holds for every photon-starved zebrafish session, not only this one.
-   - Run through the analyses (section 7), the re-segmentation leaves the 0.3 Hz suspects at chance and recovers about 3.5× as many grating responders at a similar share.
+   - Run through the analyses (section 7), the re-segmentation leaves the 0.3 Hz suspects at chance and recovers several times as many grating responders at a similar share.
    - **Suggested next step:** decide whether to re-segment every photon-starved zebrafish session the same way (×64, registration off, drift-corrected frames) and put it into production. That would change their ROI counts and neuron numbers in Fig 2 and the neuron-count tables.
 5. **Don't add a nonrigid or affine correction.** What the translation leaves is real and reproducible, but no in-plane warp improves the match (section 5). It looks like a change of focal plane, which needs z information to correct.
-6. **Small ROIs magnify misalignment.** A 1–2 px offset moves a neighbouring cell in or out of a 6-pixel mask (section 4). The scaled segmentation largely removes this, since its kept ROIs have a median of 31–36 px.
+6. **Small ROIs magnify misalignment.** A 1–2 px offset moves a neighbouring cell in or out of a 6-pixel mask (section 4). The scaled segmentation largely removes this, since its kept ROIs are several times larger (Table 2).
 
 ## Reproducing
 
@@ -310,7 +299,7 @@ python docs/custom_registration/compare_segmentation.py          # magneto2 (sec
 - `results_segmentation.csv`: per ROI of the three segmentations, size, P(iscell), centre, overlap with production ROIs 58 / 22 / 113;
 - `results_bins.csv`: per 10-frame bin, the displacement, precision, residual and correlation before and after;
 - `results_rois.csv`: per ROI and trace set (production's ROIs with either registration, and the two re-segmentations), the nonstationarity p-values and the Fourier p-values;
-- `results_summary.csv` (Tables 1 and 4, per trial);
+- `results_summary.csv` (Figure 4 and Table 3, per trial);
 - the figures and the video.
 
 **Large intermediates, local disk only:** `C:/Users/dan/suite2p_v1_custom_reg/2022_09_15-fish1_cytoGCaMP/`, holding:
@@ -319,10 +308,10 @@ python docs/custom_registration/compare_segmentation.py          # magneto2 (sec
 
 **Checks run by the scripts:**
 - **Control:** zero added drift reproduces production's `F_full.npy` exactly (`extract.py`, max error 0).
-- **Re-segmentation loader:** on production's plane0 it reproduces production's ROI sets and traces in all six recordings (`analyze.py`, `check_loader`).
+- **Loader:** on the current production run (the one the NWB files hold since 2026-10-12) it reproduces the NWB ROI sets and traces in all six recordings (`analyze.py`, `check_loader`). The "suite2p" trace set is the same loader on the run before the switch (`C:\Users\dan\suite2p_v1_production\2022_09_15-fish1_cytoGCaMP\`), which this report describes as production's.
 - **Video:** the ROI trace recomputed from the video's frames equals `F_full.npy` (`roi_video.py`, max error 0).
 - **Reconciliation with production:**
-  - The harness's 0.3 Hz p-values on production's traces match the parquet to 4 × 10⁻⁷, with identical suspect counts in all six recordings (`analyze.py`).
+  - The harness's 0.3 Hz p-values on the current production run's traces match the parquet, with identical suspect counts in all six recordings (`analyze.py`, `reconcile`).
   - Not bit-identical: the null grid's upper end is rounded differently.
 - **suite2p's constant shifts:** asserted from `ops.npy` (`analyze.py`, `compare_segmentation.py`).
 - **Production-to-raw coordinates:** ROI 58's trace computed from raw pixels at production's constant shift correlates with `F_full.npy` at r = 0.99. That is the best integer offset within ±40 px. (A mean-image cross-correlation gave a wrong offset, because production's mean image is the halved one.)

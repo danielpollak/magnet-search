@@ -1,7 +1,7 @@
 """Nonstationarity of the imaging traces: do a ROI's statistics change within a recording more
 than a stationary trace's would?
 
-    python docs/nonstationarity/nonstationarity.py --workers 24     # ~minutes
+    python docs/nonstationarity/nonstationarity.py --workers 24     # ~22 min on 24 workers
     python docs/nonstationarity/nonstationarity.py --figures-only
 
 Write-up: docs/nonstationarity.md.
@@ -39,8 +39,8 @@ same lag-1 autocorrelation and run through the same procedure (rows with synthet
 Population: all 50 imaging recordings (experiments/engert_*.yml, medaka_*.yml), production ROIs
 (P(iscell), npix, body outline, flatline removal; no coverage threshold), full-resolution traces.
 
-Outputs (next to this script): results_nonstationarity.csv, results_nonstationarity_examples.npz
-(gitignored), fig_ns_*.png.
+Outputs (next to this script): results_nonstationarity.csv, results_nonstationarity_examples.npz,
+results_nonstationarity_roi_quality.csv (gitignored), fig_ns_*.png. Table 4 of the write-up: trim.py.
 """
 import os
 os.environ.setdefault("OMP_NUM_THREADS", "1")
@@ -84,7 +84,9 @@ BATCHES = ["zebrafish 0.4 Hz (2022 Q1)", "zebrafish 0.3 Hz", "zebrafish 0.1 Hz",
 SHORT = {BATCHES[0]: "zfish 0.4 Hz\n(2022 Q1)", BATCHES[1]: "zfish 0.3 Hz",
          BATCHES[2]: "zfish 0.1 Hz", BATCHES[3]: "medaka 0.1 Hz"}
 EXAMPLES = ["engert_20220221_magnet", "engert_20220914_fish2_magneto_0",
-            "engert_20221001_fish2_magneto_0", "medaka_fish3_8dpf_magneto_0"]
+            "engert_20220915_fish1_magneto_0", "engert_20221001_fish2_magneto_0",
+            "medaka_fish3_8dpf_magneto_0"]
+EXAMPLE_DETAIL = "engert_20220915_fish1_magneto_0"   # Figures 2 and 3
 C_K = {5: "#0d366b", 10: "#3987e5", 20: "#86b6ef"}     # ordinal blue ramp, coarse = dark
 OUT_CSV = _HERE / "results_nonstationarity.csv"
 OUT_NPZ = _HERE / "results_nonstationarity_examples.npz"
@@ -168,7 +170,7 @@ def chunk_metrics(X, T, f, qf, mu, K):
     k0 = kappa
     sel = (xf >= F_MIN) & (idx != k0) & (idx < L / 2)
     with np.errstate(invalid="ignore", divide="ignore"):
-        W = P[..., sel] / P[..., sel].mean(-3, keepdims=True)
+        W = P[..., sel] / P[..., sel].mean(-2, keepdims=True)   # this ROI's mean over its K chunks
         cv2 = W.var(-1) / W.mean(-1) ** 2
     Mc = int(round(qf * kappa))
     band = (np.abs(idx - k0) <= Mc) & (idx != k0)
@@ -285,11 +287,19 @@ def compute(workers):
 
 
 def load_examples():
+    """Traces, chunk series and null replicates of the EXAMPLES recordings. An example added
+    after the last full run is computed here (run() on that recording alone) and saved."""
     z = np.load(OUT_NPZ)
     ex = {}
     for key in z.files:
         n, k = key.split("|", 1)
         ex.setdefault(n, {})[k] = z[key]
+    missing = [n for n in EXAMPLES if n not in ex]
+    for n in missing:
+        print(f"  computing example {n}", flush=True)
+        ex[n] = run(n)[1]
+    if missing:
+        np.savez_compressed(OUT_NPZ, **{f"{n}|{k}": v for n, e in ex.items() for k, v in e.items()})
     return ex
 
 
@@ -310,26 +320,44 @@ def _chunk_lines(ax, N, T, f):
                        zorder=3)
 
 
-def fig_procedure(d, ex, out):
-    fig, axes = plt.subplots(len(EXAMPLES), 1, figsize=(11, 1.7 * len(EXAMPLES)))
-    for ax, name in zip(axes, EXAMPLES):
+def fig_procedure(d, ex, out, K=20):
+    """Per example: the raw trace with the chunk boundaries, and below it the ROI's
+    reference-window power in each of the K chunks."""
+    n = len(EXAMPLES)
+    fig, axes = plt.subplots(3 * n - 1, 1, figsize=(11, 2.8 * n),
+                             gridspec_kw=dict(height_ratios=([2, 1, 0.9] * n)[:-1], hspace=0.12))
+    for sp in axes[2::3]:
+        sp.axis("off")   # spacer between examples, so a title doesn't hit the axis above
+    # One time scale for every panel: the recordings differ in length (18-21 min), and panels
+    # stretched to their own length would misplace events against another panel's ticks.
+    t_max = max(ex[nm]["F"].shape[1] * float(ex[nm]["T"]) for nm in EXAMPLES) / 60
+    for j, name in enumerate(EXAMPLES):
+        ax, axb = axes[3 * j], axes[3 * j + 1]
         e = ex[name]
         i = example_roi(d, ex, name)
-        y, T = e["F"][i], float(e["T"])
+        roi = int(e["roi"][i])
+        y, T, f = e["F"][i], float(e["T"]), float(e["f"])
         t = np.arange(len(y)) * T / 60
         ax.plot(t, y, color=C_INK, lw=0.4, zorder=2)
-        _chunk_lines(ax, len(y), T, float(e["f"]))
-        ax.set_xlim(0, t[-1])
-        b = describe(name, 0.4 if "20220221" in name else (0.3 if "0914" in name else 0.1))[0]
-        ax.set_title(f"{b}: {name}, ROI {int(e['roi'][i])}", fontsize=8, loc="left", color=C_INK)
+        _chunk_lines(ax, len(y), T, f)
+        r = d[(d.experiment == name) & (d.roi == roi) & ~d.synthetic].iloc[0]
+        ax.set_title(f"{r.batch}: {name}, ROI {roi}", fontsize=8, loc="left", color=C_INK)
         ax.set_ylabel("F (a.u.)", fontsize=7)
-        _style(ax)
-    axes[-1].set_xlabel("time (min)", fontsize=8)
-    h = [plt.Line2D([], [], color=C_K[K], lw=1.5, label=f"K = {K} chunks") for K in KS]
+        ax.tick_params(labelbottom=False)
+        L = chunk_length(len(y), K, f, T)[0]
+        axb.stairs(e[f"series_band_{K}"][i], np.arange(K + 1) * L * T / 60, color=C_K[K],
+                   lw=1.4, baseline=None)
+        axb.text(0.99, 0.95, f"K = {K}, block {_p(r[f'p_block_band_{K}'])}",
+                 transform=axb.transAxes, ha="right", va="top", fontsize=7, color=C_INK)
+        axb.set_ylabel("ref.-window\npower", fontsize=7)
+        for a in (ax, axb):
+            a.set_xlim(0, t_max)
+            _style(a)
+        axb.set_xlabel("time in the trial tiff (min)", fontsize=7)
+    h = [plt.Line2D([], [], color=C_K[k], lw=1.5, label=f"K = {k} chunks") for k in KS]
     axes[0].legend(handles=h, fontsize=7, frameon=False, ncol=3, loc="upper right",
-                   bbox_to_anchor=(1, 1.45))
-    fig.tight_layout()
-    fig.savefig(out, dpi=150)
+                   bbox_to_anchor=(1, 1.6))
+    fig.savefig(out, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -377,7 +405,7 @@ def fig_null(d, ex, name, out):
             if np.isfinite(o):
                 ax.axvline(o, color=C_INK, lw=1.4, label="observed")
             ax.set_ylim(0, ax.get_ylim()[1] * 1.45)   # a band above the histograms for the legend
-            ax.legend(fontsize=7, loc="upper left", frameon=True, facecolor="white",
+            ax.legend(fontsize=7, loc="best", frameon=True, facecolor="white",
                       edgecolor="none", framealpha=0.9, handlelength=1.2)
             if a == 0:
                 ax.set_title(f"K = {K} chunks", fontsize=9, color=C_INK)
@@ -402,39 +430,48 @@ def shares(d):
 
 
 def fig_population(d, out):
+    """Share of ROIs flagged per recording. K is encoded by position only (three columns per
+    group, labelled under the axis); a thin line joins each recording's three K."""
     s = shares(d)
-    fig, axes = plt.subplots(1, len(METRICS), figsize=(13, 3.8), sharey=True)
+    fig, axes = plt.subplots(1, len(METRICS), figsize=(13, 4.0), sharey=True)
     rng = np.random.default_rng(0)
     groups = BATCHES + ["AR(1) control"]
     nl = "block"   # the full shuffle over-rejects stationary AR(1) traces (summary), so not shown
-    for a in (0,):
-        for b, (k, lab) in enumerate(METRICS):
-            ax = axes[b]
-            for gi, g in enumerate(groups):
-                sub = s[s.synthetic] if g == groups[-1] else s[(s.batch == g) & ~s.synthetic]
-                for ki, K in enumerate(KS):
-                    x0 = gi + (ki - 1) * 0.25
-                    v = sub[f"p_{nl}_{k}_{K}"].values
-                    vis = sub.visual.values
-                    jit = rng.uniform(-0.07, 0.07, len(v))
-                    ax.scatter(x0 + jit[~vis], v[~vis], s=12, color=C_K[K], lw=0, zorder=3)
-                    ax.scatter(x0 + jit[vis], v[vis], s=14, facecolor="none", edgecolor=C_K[K],
-                               marker="^", lw=0.8, zorder=3)
-            ax.axhline(ALPHA, color=C_INK, lw=0.8, ls="--", zorder=2)
-            ax.set_xticks(range(len(groups)))
-            ax.set_xticklabels([SHORT.get(g, "AR(1)\ncontrol") for g in groups], fontsize=7)
-            ax.set_ylim(-0.02, 1.02)
-            _style(ax)
-            if a == 0:
-                ax.set_title(lab, fontsize=9, color=C_INK)
-            if b == 0:
-                ax.set_ylabel(f"share of ROIs with p < {ALPHA}", fontsize=8)
-    h = [plt.Line2D([], [], marker="o", ls="", color=C_K[K], label=f"K = {K}") for K in KS]
-    h += [plt.Line2D([], [], marker="o", ls="", color=C_MUTED, label="no visual stimulus"),
-          plt.Line2D([], [], marker="^", ls="", mfc="none", mec=C_MUTED, label="visual stimulus"),
-          plt.Line2D([], [], color=C_INK, ls="--", label=f"expected {ALPHA}")]
-    fig.legend(handles=h, fontsize=7, frameon=False, ncol=6, loc="upper center")
-    fig.tight_layout(rect=(0, 0, 1, 0.90))
+    off = {K: (ki - 1) * 0.27 for ki, K in enumerate(KS)}
+    for b, (k, lab) in enumerate(METRICS):
+        ax = axes[b]
+        for gi, g in enumerate(groups):
+            syn = g == groups[-1]
+            sub = s[s.synthetic] if syn else s[(s.batch == g) & ~s.synthetic]
+            c = C_MUTED if syn else C_INK
+            jit = rng.uniform(-0.05, 0.05, len(sub))
+            V = np.stack([sub[f"p_{nl}_{k}_{K}"].values for K in KS], 1)
+            X = np.stack([gi + off[K] + jit for K in KS], 1)
+            for x, v in zip(X, V):
+                ax.plot(x, v, color=C_MUTED, lw=0.4, alpha=0.5, zorder=2)
+            ax.scatter(X.ravel(), V.ravel(), s=10, color=c, lw=0, zorder=3)
+        ax.axhline(ALPHA, color=C_INK, lw=0.8, ls="--", zorder=1)
+        ax.set_xticks([gi + off[K] for gi in range(len(groups)) for K in KS])
+        ax.set_xticklabels([str(K) for _ in groups for K in KS], fontsize=6, color=C_MUTED)
+        ax.set_xticks(range(len(groups)), minor=True)
+        ax.set_xticklabels([SHORT.get(g, "AR(1)\ncontrol") for g in groups], minor=True,
+                           fontsize=7)
+        ax.xaxis.remove_overlapping_locs = False   # a group label sits on its K = 10 tick
+        ax.tick_params(axis="x", which="minor", length=0, pad=14, labelsize=7, labelcolor=C_INK)
+        ax.tick_params(axis="x", which="major", length=2, pad=1)
+        ax.set_xlim(-0.5, len(groups) - 0.5)
+        ax.set_ylim(-0.02, 1.02)
+        _style(ax)
+        ax.set_title(lab, fontsize=9, color=C_INK)
+        if b == 0:
+            ax.set_ylabel(f"share of ROIs with p < {ALPHA}", fontsize=8)
+            ax.text(-0.62, -0.02, "K", transform=ax.get_xaxis_transform(), ha="right",
+                    va="top", fontsize=6, color=C_MUTED)
+    h = [plt.Line2D([], [], marker="o", ls="", color=C_INK, label="recording"),
+         plt.Line2D([], [], marker="o", ls="", color=C_MUTED, label="AR(1) traces, pooled per group"),
+         plt.Line2D([], [], color=C_INK, ls="--", label=f"expected for stationary traces ({ALPHA})")]
+    fig.legend(handles=h, fontsize=7, frameon=False, ncol=3, loc="upper center")
+    fig.tight_layout(rect=(0, 0, 1, 0.92))
     fig.savefig(out, dpi=150)
     plt.close(fig)
 
@@ -478,10 +515,9 @@ def summary(d):
 
 
 def roi_quality(names):
-    """P(iscell) and npix of every ROI (PlaneSegmentation row = suite2p ROI index), from each
-    experiment's NWB file; cached in OUT_QUAL."""
-    if OUT_QUAL.exists():
-        return pd.read_csv(OUT_QUAL)
+    """P(iscell) and npix of every ROI (PlaneSegmentation row = suite2p ROI index), read from each
+    experiment's NWB file every time (a cached copy went stale when the zebrafish were
+    re-segmented) and written to OUT_QUAL."""
     from pipeline import nwb_io
     rows = []
     for name in names:
@@ -549,7 +585,7 @@ def fig_quality(d, q, out, K=10):
 
 def figures(d):
     ex = load_examples()
-    name = EXAMPLES[2]
+    name = EXAMPLE_DETAIL
     fig_procedure(d, ex, _HERE / "fig_ns_procedure.png")
     fig_metrics(d, ex, name, _HERE / "fig_ns_metrics.png")
     fig_null(d, ex, name, _HERE / "fig_ns_null.png")

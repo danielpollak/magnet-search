@@ -84,7 +84,7 @@ might trend.
 
 ![Bias vs number of units](nfc_finite_sample_bias/fig_units_sweep.png)
 
-<sub>**Figure 1. Finite-sample bias does not shrink with the number of units.** Homogeneous Poisson trains (150 spikes each, so the null is exactly true), 24 seeds per point. *Left:* dev@0.5 = ECDF(0.5) − 0.5 against the number of units simulated; mean ± SEM across seeds. The light horizontal line is the grand mean (+0.0038). *Right:* SD of dev@0.5 across seeds (blue) against the iid binomial expectation √(0.25/U) (dashed). Only the precision improves with more units.</sub>
+<sub>**Figure 1. Finite-sample bias does not shrink with the number of units.** Homogeneous Poisson trains (150 spikes each, so the null is exactly true), 24 seeds per point. *Left:* dev@0.5 = ECDF(0.5) − 0.5 against the number of units simulated; mean ± SEM across seeds. The light horizontal line is the grand mean. *Right:* SD of dev@0.5 across seeds (blue) against the iid binomial expectation √(0.25/U) (dashed).</sub>
 
 Poisson trains, 150 spikes each, 24 seeds per point:
 
@@ -121,7 +121,7 @@ Yes.
 
 ![Bias vs spikes per unit](nfc_finite_sample_bias/fig_spikes_sweep.png)
 
-<sub>**Figure 2. Finite-sample bias decays with spikes per unit.** dev@0.5 for Poisson null populations at 50–4000 spikes/unit (4000 units, 12 seeds per point; mean ± SEM). Orange line: the real ephys magnetic population (+0.0070). Diamond: its median spike count (134).</sub>
+<sub>**Figure 2. Finite-sample bias decays with spikes per unit.** dev@0.5 for Poisson null populations at 50–4000 spikes/unit (4000 units, 12 seeds per point; mean ± SEM). Orange line: the real ephys magnetic population. Diamond: its median spike count (134).</sub>
 
 Poisson trains, 4000 units, 12 seeds per point:
 
@@ -139,12 +139,11 @@ Poisson trains, 4000 units, 12 seeds per point:
 
 > slope = **−0.0045 per decade**, 95% CI [−0.0068, −0.0022], r² = 0.122, **p = 0.0002**
 
-The trend is real but noisy point-to-point — the 50-spike value sits below the 75-spike
-one, which is sampling scatter at SEM ≈ 0.002, not structure. By ~1000 spikes the bias is
-within noise of zero; by 4000 it has crossed slightly negative.
+The trend is real but noisy point-to-point: at SEM ≈ 0.002, the wiggles between neighbouring
+spike counts are sampling scatter, not structure. By ~1000 spikes the bias is within noise of
+zero.
 
-Note the `P(p<0.01)` column: **0.0093–0.0110 throughout.** The suspect threshold is
-untouched at every spike count.
+The suspect threshold is untouched at every spike count (the `P(p<0.01)` column).
 
 **What a sweep point means.** Every unit at a given point has *exactly* that many spikes.
 Each point is a population where every unit has the same spike count, not a draw from a
@@ -196,10 +195,9 @@ over 10–1000 instead of 50–4000:
 > slope = **−0.0058 per decade**, 95% CI [−0.0083, −0.0033], r² = 0.160, **p = 1.7e-05**
 
 The 100- and 1000-spike points match the original sweep bit-for-bit (same seeds), as they
-should. Going lower makes the decay clearer: dev@0.5 roughly doubles from 18 to 10 spikes.
-At 10 spikes the tail also starts to go wrong, *conservatively*: P(p<0.01) = 0.0074, so
-the test under-calls there. Neither matters for this dataset, because **no real ephys unit
-has fewer than 51 spikes** (see below). The 10–50 half of this sweep describes a regime
+should. Going lower makes the decay clearer. At 10 spikes the tail also starts to go wrong,
+*conservatively*: P(p<0.01) falls below 0.01, so the test under-calls there. Neither matters
+for this dataset, because **no real ephys unit is in that range** (see below). The 10–50 half of this sweep describes a regime
 that inclusion filtering has already removed.
 
 ### Which regime do the real units sit in?
@@ -254,13 +252,12 @@ Pigeon is the lowest-firing species and contributes about half the ephys units (
   (median 138 vs 134). CB is in between.
 - **Area and bird are confounded.** HP units come from W1R and W25R. CB and pallium both
   come from Pk12L. This split can't tell a brain-area effect from a bird or session effect.
-- **The areas' spike-count differences barely change the predicted bias.** Mixture
-  predictions span only +0.0061 to +0.0066, a spread of 0.0005, well under the sweep's
-  SEM of about 0.002. The simulated bias is nearly flat across 50–1000 spikes and only
-  drops clearly beyond that. So pigeon (and HP in particular) pulls the dataset's
-  *spike-count* distribution down, but it pushes the predicted finite-sample bias *up*
-  only slightly (+0.0065 for pigeon vs +0.0059 for all ephys). That is the direction you'd
-  expect, since fewer spikes means more bias, and the size is negligible.
+- **The areas' spike-count differences barely change the predicted bias.** The mixture
+  predictions (last column) differ by much less than the sweep's SEM of about 0.002. The
+  simulated bias is nearly flat across 50–1000 spikes and only drops clearly beyond that. So
+  pigeon (and HP in particular) pulls the dataset's *spike-count* distribution down, but it
+  pushes the predicted finite-sample bias *up* only slightly relative to all ephys. That is
+  the direction you'd expect, since fewer spikes means more bias, and the size is negligible.
 
 ## How much of the real deviation does this explain?
 
@@ -298,7 +295,7 @@ not hand-picked).
 
 ![Imaging surrogates](nfc_finite_sample_bias/fig_imaging_surrogates.png)
 
-<sub>**Figure 8. Imaging surrogate ladder (superseded; see Figure 9).** dev@0.5 for the 24 zebrafish imaging recordings in the Fig 2C pool: real traces and three surrogates. Bars are the mean across recordings ± SEM. The "Gaussian, matched spectrum" bar is an artifact of that surrogate (Figure 9).</sub>
+<sub>**Figure 8. Imaging surrogate ladder (superseded; see Figure 9).** dev@0.5 for the 24 zebrafish imaging recordings in the Fig 2C pool: real traces and three surrogates. Bars are the mean across recordings ± SEM.</sub>
 
 | surrogate | what it preserves | dev@0.5 |
 |---|---|---|
@@ -316,7 +313,7 @@ to reach for.
 > **Correction (2026-10-01): the decomposition below is wrong.** The `gaussian_psd`
 > surrogate multiplies each ROI's *realised* periodogram by a fresh exponential draw, so
 > every ordinate becomes a product of two exponentials. Applied to pure white noise it gives
-> dev@0.5 = **−0.127** (Figure 9), so the −0.112 "spectral shape"
+> dev@0.5 = **−0.127** instead of staying at the white-noise floor (Figure 9), so the −0.112 "spectral shape"
 > term and the +0.150 "non-Gaussianity" term are artifacts of the surrogate. A
 > smooth-spectrum Gaussian surrogate, which does not have this problem, puts the spectral-shape term at about
 > zero. What actually drives the imaging deviation is in
@@ -325,7 +322,7 @@ to reach for.
 
 ![Surrogate validation](nfc_finite_sample_bias/fig_sv_surrogate_validation.png)
 
-<sub>**Figure 9. Surrogate generators applied to white noise.** ECDF(p) − p for 20,000 white-noise traces (N = 1080 frames, M = 32), shown as is (gray), after the smooth-spectrum Gaussian surrogate used in this report (blue), and after the old `gaussian_psd` surrogate of Figure 8 (orange). A valid surrogate should leave white noise at the white-noise floor, and the old one does not. Legend values are dev@0.5. Gray band: 95% binomial band.</sub>
+<sub>**Figure 9. Surrogate generators applied to white noise.** ECDF(p) − p for 20,000 white-noise traces (N = 1080 frames, M = 32), shown as is (gray), after the smooth-spectrum Gaussian surrogate used in this report (blue), and after the old `gaussian_psd` surrogate of Figure 8 (orange). A valid surrogate leaves white noise at the white-noise floor. Legend values are dev@0.5. Gray band: 95% binomial band.</sub>
 
 Reading the ladder as a decomposition:
 
@@ -610,17 +607,13 @@ toward 0. If "put it in" works, the noise-times-envelope lines rise away from 0.
 
   <sub>**Figure 15. Every ROI's periodogram across the analysis window.** *Top:* each row is one ROI trace's window periodogram (ordinate / 2σ̂², log colour scale). x is the bin offset divided by M (0 = the analysis frequency), and rows are sorted by p (smallest at the top). *Bottom:* median (line) and IQR (shading) across ROIs. Dashed and dotted lines: median and IQR of independent Exp(1) ordinates.</sub>
 
-- **Taking the envelope out removes part of the excess:**
-  - two thirds in medaka (+0.088 → +0.028);
-  - a third at 0.1 Hz (+0.043 → +0.027);
-  - almost nothing at 0.3 Hz (+0.058 → +0.053), where the envelope-normalised traces
-    still have a lag-1 coupling of 0.15.
-
-  In the frequency scan, envelope normalisation (green) roughly halves the excess at every
-  frequency.
-- **Putting the envelope into noise adds about +0.02.** Imposing each ROI's envelope on white
-  noise gives +0.020 to +0.023 in the floor-clipped recordings and nothing in the 2022 Q1 recordings. That is
-  roughly half the real excess, from the envelope alone.
+- **Taking the envelope out removes part of the excess:** two thirds in medaka, a third at
+  0.1 Hz, and almost nothing at 0.3 Hz, where the envelope-normalised traces are still
+  coupled (section 3). In the frequency scan (Figure 11), envelope normalisation (green)
+  roughly halves the excess at every frequency.
+- **Putting the envelope into noise adds about +0.02** in the floor-clipped recordings and
+  nothing in the 2022 Q1 recordings. That is roughly half the real excess, from the envelope
+  alone.
 
 The envelope is therefore a real contributor, but it is not all of it. A 60 s RMS envelope
 cannot follow activity that switches on and off within a few seconds against a clipped
@@ -642,10 +635,9 @@ Per-ROI metrics in Figures 16–17, all computed on the same N frames that `fit_
 | excess kurtosis | kurtosis − 3 of the high-passed trace | sparse, transient-dominated traces |
 | fraction of frames at the trace minimum | share of frames equal to the trace's own minimum | floor clipping (Figure 10) |
 
-Per ROI (Figure 16), the excess concentrates in the most nonstationary and most clipped traces. Within
-the 0.3 Hz zebrafish recordings the top quartile of envelope CV, kurtosis or floor fraction sits at
-+0.14 to +0.15, while the other quartiles sit at 0 to +0.05. The 0.1 Hz zebrafish recordings are similar
-(+0.09 to +0.10 in the top quartile).
+Per ROI (Figure 16), the excess concentrates in the most nonstationary and most clipped
+traces: in the 0.3 Hz and 0.1 Hz zebrafish recordings, the top quartile of envelope CV,
+kurtosis or floor fraction carries most of it.
 
 ![Metrics vs p, one dot per ROI](nfc_finite_sample_bias/fig_sv_metrics_scatter.png)
 
@@ -689,13 +681,12 @@ Every condition is a valid null, because nothing is locked to the analysis frequ
 | **floor-clipped, τ 100 s, log-rate SD 3** | +0.028 | +0.033 | **+0.054** | 0.31–0.35 |
 
 - **The advisor's model alone does nothing to imaging.** A slowly rate-modulated Poisson
-  process with the events visible above continuous noise stays within ±0.006 at every
+  process with the events visible above continuous noise stays near zero at every
   timescale. The rate changes, but a trace with continuous noise keeps the periodogram's
-  ordinates nearly independent (coupling ≤ 0.02).
+  ordinates nearly independent.
 - **Additive drift does nothing, or pushes the other way.** This matches the detrending
   result.
-- **Noise-level modulation couples the ordinates but barely moves the ECDF.** Coupling
-  reaches 0.17, yet dev@0.5 stays at or below +0.013.
+- **Noise-level modulation couples the ordinates but barely moves the ECDF.**
 - **Clipping plus deep slow modulation reproduces the data.** With a floor, the trace is
   silent outside the epochs, and the epochs carry all the power.
   - At log-rate SD 2–3 (activity confined to epochs), the simulated 0.1 Hz config gives
@@ -724,12 +715,12 @@ accounts for the ephys deviation.
 
 | | finding |
 |---|---|
-| **Established** | The 0.1/0.3 Hz zebrafish and medaka traces are floor-clipped (median 91–98% of frames at exactly 50.0), with activity in slow epochs. The calibrated 2022 Q1 recordings are not clipped. |
-| **Established** | Their excess is the same at every analysis frequency (+0.04 to +0.05), so it is a property of the traces, not of the stimulus. |
-| **Established** | Neighbouring periodogram ordinates are correlated (lag-1 up to 0.38), which breaks the null's independence assumption. A 60 s amplitude envelope accounts for most of the correlation. |
+| **Established** | The 0.1/0.3 Hz zebrafish and medaka traces are floor-clipped, with activity in slow epochs. The calibrated 2022 Q1 recordings are not clipped. |
+| **Established** | Their excess is the same at every analysis frequency, so it is a property of the traces, not of the stimulus. |
+| **Established** | Neighbouring periodogram ordinates are correlated, which breaks the null's independence assumption. A 60 s amplitude envelope accounts for most of the correlation. |
 | **Established** | Simulated floor-clipped traces with deep slow rate modulation reproduce the magnitude, the shape and the coupling. Neither clipping alone nor slow modulation alone does. |
 | **Ruled out** | Spectral shape across the window; additive drift or bleaching; slow rate modulation of unclipped traces (the advisor's model as stated); slow modulation as an ephys mechanism. |
-| **Open** | The 2022 Q1 recordings' +0.022 is local to the stimulus bin in `20220301`: a stimulus-locked component. |
+| **Open** | The 2022 Q1 recordings' excess is local to the stimulus bin in `20220301`: a stimulus-locked component. |
 | **Open** | Envelope normalisation recovers only part of the excess. A null that respects the coupling (for example, σ̂ from a block bootstrap over time, or an effective-dof correction from the measured coupling) has not been tried. |
 
 **Implication for Fig 2C.** For these recordings the imaging excess is a null-model
@@ -796,17 +787,13 @@ The stimulus frequency is only read off afterwards.
 
 <sub>**Figure 20. Activity per ROI trace, by set of recordings.** *Top:* fraction of frames above the floor. *Bottom:* coverage, the share of 60 s windows with ≥ 3 active frames. *Left:* histograms (density). *Right:* ECDFs. The 2022 Q1 traces are unclipped, so every frame counts as active and they all sit at 1 (gray spike). n (ROI traces) in the legend.</sub>
 
-- **Active fraction is low everywhere in the clipped recordings.** The median trace is above
-  the floor in only 2% (0.3 Hz), 5% (0.1 Hz) and 8% (medaka) of frames. This measures how
-  sparse the activity is, not whether it is spread over the recording, so it separates dead
-  ROIs from live ones poorly. Coverage is the more useful quantity.
-- **Coverage is spread out, with a lump at the low end and a spike at 1.**
-  - 0.3 Hz zebrafish: mostly low (median 0.10; only 2% of traces have full coverage).
-  - 0.1 Hz zebrafish: median 0.33, with 20% at full coverage.
-  - Medaka: mostly high (median 0.78, 25% at full coverage).
-- **There is no clean valley between "dead" and "alive".** The histograms are roughly flat
-  between 0.2 and 0.9, so the distributions alone don't dictate a threshold. The calibration
-  sweep (Figure 22) has to.
+- **Coverage, not active fraction, separates dead ROIs from live ones.** Active fraction is low
+  everywhere in the clipped recordings (Figure 20, top). It measures how sparse the activity
+  is, not whether it is spread over the recording.
+- **Coverage has no clean valley between "dead" and "alive"** (Figure 20, bottom). It is mostly
+  low in the 0.3 Hz zebrafish and mostly high in medaka, with a lump at the low end, a spike at
+  1 and a roughly flat stretch in between. So the distributions alone don't dictate a
+  threshold; the calibration sweep (Figure 22) has to.
 - **A few traces in these recordings are unclipped.** About 4% in the 0.1 Hz zebrafish
   recordings, mostly `engert_20221002_fish1_magneto_1`, whose baseline is about 12,800 (see
   the per-recording table in section 1). They have coverage 1 and pass any threshold.
@@ -839,42 +826,32 @@ A stricter per-window criterion would catch it, at the cost of more ROIs.
 
 <sub>**Figure 23. Whole ECDF-deviation curves after exclusion.** ECDF(p) − p at coverage thresholds 0, 0.25, 0.5 and 0.75 (light to dark), for each set of recordings (columns). *Top row:* the sham frequency above the stimulus (none for 2022 Q1). *Middle row:* the sham frequency below the stimulus. *Bottom row:* the stimulus frequency. Panel titles give each frequency in Hz. Gray: 95% binomial band for the smallest subset shown.</sub>
 
-Values of Figure 22's top row (deviation at p = 0.5) and bottom row (ROI traces kept):
-
-| coverage ≥ | 0.3 Hz zebrafish: kept / sham above / sham below / stimulus | 0.1 Hz zebrafish: kept / sham above / sham below / stimulus | medaka: kept / sham above / sham below / stimulus |
-|---|---|---|---|
-| 0 (everything) | 1138 / +0.047 / +0.027 / +0.065 | 4295 / +0.045 / −0.070 / +0.046 | 825 / +0.032 / +0.081 / +0.084 |
-| 0.1 (production since 2026-10-02) | 508 / +0.016 / +0.010 / +0.024 | 3221 / +0.021 / −0.116 / +0.036 | 797 / +0.028 / +0.075 / +0.082 |
-| 0.25 | 296 / +0.000 / +0.007 / −0.017 | 2460 / +0.024 / −0.139 / +0.032 | 722 / +0.030 / +0.068 / +0.079 |
-| 0.50 | 181 / −0.052 / −0.014 / +0.019 | 1864 / +0.012 / −0.156 / +0.034 | 611 / +0.029 / +0.070 / +0.081 |
-| 0.70 | 116 / −0.017 / −0.069 / +0.026 | 1400 / +0.004 / −0.169 / +0.034 | 470 / +0.021 / +0.068 / +0.089 |
-| binomial SE at 0.70 | 0.046 | 0.013 | 0.023 |
-
 - **0.3 Hz zebrafish (Figure 22, column 1): both shams are calibrated from coverage ≈ 0.1
-  on.** At 0.1 they read +0.016 and +0.010 (SE 0.022), and above that they wander inside the
-  band. The stimulus line behaves the same way, so nothing stimulus-specific is left.
+  on**, and above that they wander inside the band. The stimulus line behaves the same way, so
+  nothing stimulus-specific is left.
 - **0.1 Hz zebrafish (Figure 22, column 2): the two shams disagree, and no threshold
-  reconciles them.** The sham above (0.160 Hz) falls from +0.045 to about 0 at 0.7, as in the
-  2026-10-01 version. The sham below (0.040 Hz) is strongly *negative*, from −0.070 with
-  everything to −0.169 at 0.7 (13 SE), and the coverage threshold makes it worse. Figure 23,
-  middle row, column 3 shows the whole curve below zero: p-values pile up near 1, i.e. NFC is
-  too small at 0.04 Hz. The stimulus line (+0.03 to +0.04) sits between the two shams at every
-  threshold.
+  reconciles them.** The sham above (0.160 Hz) falls to about 0 at 0.7, as in the 2026-10-01
+  version. The sham below (0.040 Hz) is strongly *negative*, and the coverage threshold makes
+  it worse, to 13 SE below zero at 0.7 (SE 0.013). Figure 23, middle row, column 3 shows the
+  whole curve below zero: p-values pile up near 1, i.e. NFC is too small at 0.04 Hz. The
+  stimulus line sits between the two shams at every threshold.
 - **Medaka (Figure 22, column 3): the sham below matches the stimulus.** The sham below
-  (0.069 Hz) reads +0.068 to +0.081 at every threshold, nearly as high as the stimulus
-  (+0.079 to +0.089) and far outside the band. The sham above (0.131 Hz) stays at +0.02 to
-  +0.03, inside the band. Figure 23, column 4 shows the same shape at the sham below (middle
-  row) as at the stimulus (bottom row): a hump centred on p ≈ 0.5.
+  (0.069 Hz) is nearly as high as the stimulus at every threshold and far outside the band;
+  the sham above (0.131 Hz) stays inside the band. Figure 23, column 4 shows the same shape at
+  the sham below (middle row) as at the stimulus (bottom row): a hump centred on p ≈ 0.5.
 - **2022 Q1 (Figure 23, column 1): unclipped, so coverage changes nothing.** Its one sham
   (below, 0.279 Hz) is calibrated (−0.006, SE 0.007); its stimulus deviation is +0.025.
+
+The values plotted in Figure 22 (ROI traces kept and the deviation at p = 0.5 at each sham and
+at the stimulus, per threshold) are in `nfc_finite_sample_bias/results_activity_sweep.csv`.
 
 **What the second sham changes.** The 2026-10-01 version flagged one confound: in both sets of
 0.1 Hz recordings the only sham frequency sat *above* the stimulus, so a calibration that
 changes with frequency could produce a stimulus-frequency gap on its own. The sham below
 settles it:
 - **Medaka's stimulus excess is not stimulus-specific.** The same excess appears at 0.069 Hz,
-  where nothing was presented. The miscalibration grows toward lower frequencies (sham above
-  +0.03, stimulus +0.08, sham below +0.07), so the stimulus bin's excess fits the trend.
+  where nothing was presented. The miscalibration grows toward lower frequencies (Figure 22,
+  column 3), so the stimulus bin's excess fits the trend.
 - **In the 0.1 Hz zebrafish, calibration depends strongly on frequency**, in the opposite
   direction: far too few small p-values at 0.04 Hz, slightly too many at 0.16 Hz. The stimulus
   value lies between them. With the null this frequency-dependent, a single sham cannot be
@@ -946,7 +923,7 @@ not as a signal.
    ECDF would find it.
 3. **More neurons will not fix it.** Longer recordings (more spikes per unit) will.
 4. **The pooled Fig2 C number is imaging-dominated.** Quoting ephys and imaging separately
-   is more honest than quoting +0.0163 — they have entirely different causes.
+   is more honest than quoting the pooled number — they have entirely different causes.
 5. **The two modalities are not the same phenomenon.** Ephys is finite-sample bias in an
    asymptotic null. In the 0.1/0.3 Hz zebrafish and medaka recordings, imaging is
    floor-clipped traces with slow activity epochs, which correlate neighbouring periodogram

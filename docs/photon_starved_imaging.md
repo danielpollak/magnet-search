@@ -26,14 +26,11 @@ The result was traces that sat on a floor, ROIs that were fragments of cells, an
 |---|---|---|
 | ROI size, median npix of selected ROIs | 15 → 32 px (**+113%**) | 13 → 23 px (**+77%**) |
 | selected ROIs (P(iscell) > 0.5, npix ≥ 10) | 2,309 → 3,488 (**+51%**) | 274 per trial (separate runs) → 342 shared by all six |
-| suite2p's own trace on its floor (median ROI) | 97% → 28% of frames | 90% → 0% |
-| analysed trace on its floor | none truncated since 2026-10-05; 28% of frames are frames with no photon in the ROI | none truncated since 2026-10-05 |
-| still nonstationary (block shuffle, K = 10; chance 5%) | RMS 68% → 60%, reference-window power 30% → 30% | RMS 35%, reference-window power 10% (no "before" exists) |
-| magnetic result (Fig 2A) | unchanged: 1 of 88 recordings flagged, before and after | unchanged |
+| magnetic and positive-control results (Fig 2A, 2B) | unchanged: 1 of 88 magnetic and 63 of 108 positive-control recordings flagged, before and after | unchanged |
 
-"Before" for the zebrafish is the previous production run (suite2p v1, tiffs as acquired). For medaka it is the original suite2p 0.10.1 runs, one per trial; the v1 runs on the as-acquired medaka tiffs no longer exist. "Selected" here leaves out the fish outline and flatline removal, so that every run is treated alike.
+"Before" for the zebrafish is the previous production run (suite2p v1, tiffs as acquired). For medaka it is the original suite2p 0.10.1 runs, one per trial; the v1 runs on the as-acquired medaka tiffs no longer exist. "Selected" here leaves out the fish outline and flatline removal, so that every run is treated alike. The floor share and the nonstationarity, before and after, are in section 3.
 
-**Remaining nonstationarity.** Most of what remains is a slow change in the image itself, which no in-plane correction removes. The leading hypothesis, untested, is that the focal plane (z) drifts (section 4).
+**Remaining nonstationarity.** Most of what remains is a slow change in the image itself, which no in-plane correction removes. The focal plane (z) does drift, as the one usable z-stack shows, but dividing that drift out removes only a small part of the nonstationarity; the rest is unexplained (section 4, [`zplane.md`](zplane.md)).
 
 ## 1. What was wrong
 
@@ -59,16 +56,14 @@ The result was traces that sat on a floor, ROIs that were fragments of cells, an
 
 **Keeping the steps apart:**
 - **Truncation of the analysed traces** was removed by the full-resolution extraction, before any scaling.
-- **The ×64 scaling** fixes what suite2p itself does with the movie: its segmentation, its medaka registration, and its own traces. With ×64 tiffs suite2p's halving loses nothing, so its own trace equals the full-resolution one (zebrafish: on its floor in 28% of frames, against 29% for the full-resolution trace).
-- **The drift correction** aligns the frames. On its own it adds few ROIs: 3,488 selected with whole-pixel correction against 3,672 without any correction ([`resegmentation.md`](resegmentation.md) section 2). It does make the larger ROIs follow their cells. Without it a 33 px ROI's grating p-value is slightly worse than its fragments' (−3.8 vs −4.0, log₁₀); with it, it is as good or better (Table 2 there).
+- **The ×64 scaling** fixes what suite2p itself does with the movie: its segmentation, its medaka registration, and its own traces. With ×64 tiffs suite2p's halving loses nothing, so its own trace is effectively lossless, like the full-resolution one (section 3).
+- **The drift correction** aligns the frames. On its own it adds few ROIs ([`resegmentation.md`](resegmentation.md) section 2). It does make the larger ROIs follow their cells: without it a larger ROI's grating p-value is slightly worse than its fragments'; with it, it is as good or better (Table 2 there).
 
 ## 3. What changed, in numbers
 
 **ROIs** ([`resegmentation.md`](resegmentation.md) Tables 1–2; [`photon_starved/results_summary.csv`](photon_starved/results_summary.csv)):
-- **Size:** zebrafish selected ROIs grow from a median of 15 to 32 px; medaka from 13 to 23 px.
-- **Classifier:** median P(iscell) per session is 0.86–0.90, against 0.81–0.91 before (zebrafish).
-- **Same cells, better traces:** a re-segmented zebrafish ROI collects 7.5 photons per frame against 4.2 for the production fragments inside it. It responds to the grating as often (67% vs 66%).
-- **Count:** the zebrafish gain varies by session. It is 0.9–1.4× in four sessions and 2.9× in 20220915_fish1, the one with the 20 px drift.
+- **The ROIs are now cell-sized and collect more photons.** On the same zebrafish cells, a re-segmented ROI collects more photons per frame than the old fragments inside it, responds to the grating as often, and the classifier scores it at least as high.
+- **The zebrafish count gain depends on the drift:** it is largest in 20220915_fish1, the session with the 20 px drift.
 - **Cap:** detection stops at suite2p's limit of 5,000 ROIs in every run, production's included. The limit is kept as a conservative cut ([`resegmentation.md`](resegmentation.md) section 4).
 
 **Floor share** ([`photon_starved/results_summary.csv`](photon_starved/results_summary.csv); median over selected ROIs of the share of frames on which the trace equals its own minimum):
@@ -86,22 +81,17 @@ The result was traces that sat on a floor, ROIs that were fragments of cells, an
 
 | | RMS (overall level) | reference-window power | CV² (spectral shape) |
 |---|---|---|---|
-| zebrafish, before | 68% (43–98%) | 30% (11–83%) | 4.5% |
-| zebrafish, after | 60% (41–95%) | 30% (10–75%) | 4.9% |
-| medaka, after | 35% (24–38%) | 10% (8–12%) | 4.1% |
+| zebrafish, before | 68% (43–98%) | 30% (11–83%) | 11% (5–28%) |
+| zebrafish, after | 60% (41–95%) | 30% (10–75%) | 10% (6–23%) |
+| medaka, after (no "before" exists) | 35% (24–38%) | 10% (8–12%) | 6% (5–9%) |
 
-- **Most zebrafish ROIs remain nonstationary.** The level and the power around the analysis frequency drift over the recording, while the spectral shape stays at chance.
+- **Most zebrafish ROIs remain nonstationary.** The level and the power around the analysis frequency drift over the recording. The spectral shape changes in fewer ROIs, mostly in those whose power changes too: a second view of the same activity epochs, not a separate source ([`nonstationarity.md`](nonstationarity.md)).
 - **Neither the larger ROIs nor the drift correction removes it.**
 - **It isn't what makes the suspects.** [`nonstationarity.md`](nonstationarity.md) shows the suspects are no more nonstationary than other ROIs.
 
-**Magnetic and positive-control results** ([`photon_starved/results_fig2.csv`](photon_starved/results_fig2.csv), [`resegmentation.md`](resegmentation.md) section 5):
-- **Fig 2A:** 1 of 88 magnetic recordings flagged before and after (20221002_fish2 magneto_0).
-- **Fig 2B:** 63 of 108 flagged before and after.
-- **Neurons:** zebrafish neurons in the magnetic population go from 5,533 to 6,709.
-- **0.3 Hz suspects:** at chance (0.7–1.1%) with every segmentation.
-- **0.1 Hz suspects:** stay at about 1.4–1.7%, with the coil on and off alike, as before. That is the grating's 6th harmonic, and 20221002_fish2's unexplained excess (`.claude/CLAUDE.md`).
+**Magnetic and positive-control results are unchanged** ([`photon_starved/results_fig2.csv`](photon_starved/results_fig2.csv), [`resegmentation.md`](resegmentation.md) section 5). Fig 2's flagged recordings are the same before and after (the one flagged magnetic recording is 20221002_fish2 magneto_0). The 0.3 Hz suspects stay at chance with every segmentation, and the 0.1 Hz excess stays as before, with the coil on and off alike: the grating's 6th harmonic, and 20221002_fish2's unexplained excess (`.claude/CLAUDE.md`). Only the counts change: zebrafish neurons in the magnetic population go from 5,533 to 6,709.
 
-## 4. What remains looks like a change of focal plane, but that is untested
+## 4. The focal plane drifts, but that explains only a small part of what remains
 
 The nonstationarity left after the fixes has to come from somewhere. The evidence, all from 20220915_fish1, the session with the largest drift:
 
@@ -117,13 +107,17 @@ The nonstationarity left after the fixes has to come from somewhere. The evidenc
 - **Interpretation.**
   - A shift of the focal plane would replace structures rather than move them. Cross-correlation would then lock onto the nearest similar structure, giving local shifts that are reproducible but uncorrectable in-plane.
   - The coil-on and coil-off trials are separate acquisitions and may also sit at slightly different depths.
-- **Not established:** there is no z-stack to test this against, and it has only been examined in one session. Slow brightness changes (bleaching, the fish settling) would also produce nonstationarity, and are not ruled out.
+- **Tested on 2026-10-13 against the z-stacks on the NAS ([`zplane.md`](zplane.md)):**
+  - Only 20221001_fish1's stack covers the recorded plane. There the best-matching plane drifts by at least 15 stage units in the coil-on hour, and the coil-on and coil-off recordings sit at different planes.
+  - The stack predicts which ROIs brighten and which dim (Spearman 0.53 across 848 ROIs), and the prediction is specific to each cell. A shared trend (bleaching or laser power) is present as well.
+  - Without a stack, the image content drifts with acquisition time in all five zebrafish sessions and in medaka.
+  - **But it is a small part of the nonstationarity:** dividing each trace by its scaled z gain lowers the share of nonstationary ROIs by only a few points ([`zplane.md`](zplane.md) section 4). What the rest is, and z in the sessions without a usable stack, are open.
 
 ## 5. Anything missing? Open items
 
-1. **The z hypothesis is untested.** A z-stack of these fish would test it. Short of that, the block analysis could be run on the other four sessions to see whether the same non-affine, reproducible pattern appears.
-2. **Brightness drift (bleaching) has not been separated from z drift.** The trace mean over time per ROI, against the image-correlation curve, would separate them.
-3. **[`nonstationarity.md`](nonstationarity.md) predates the zebrafish re-segmentation.** Its zebrafish numbers describe the previous ROIs. Rerunning `docs/nonstationarity/nonstationarity.py` would update it; the changes are the few points in section 3.
+1. **The z drift is real but small** in the one session with a usable stack ([`zplane.md`](zplane.md)). What causes the rest of the nonstationarity is open.
+2. **Brightness drift (bleaching) is present alongside the z drift** in 20221001_fish1, as a trend shared by all ROIs ([`zplane.md`](zplane.md) section 2); its size relative to z hasn't been separated in the nonstationarity metric.
+3. **[`nonstationarity.md`](nonstationarity.md) was rerun on the re-segmented ROIs on 2026-10-14,** with a fix to its CV² metric (each ROI's spectrum had been normalised by the mean over all ROIs instead of its own). The CV² column of this doc's section 3 table was recomputed with the fixed metric the same day.
 4. **Other docs predate it too.** Several (`cv2.md`, `full_resolution_rerun.md`, `coverage_full_resolution.md`, `suite2p_v1_comparison.md`) describe earlier segmentations. They remain correct about what they tested.
 5. **The 0.1 Hz excess** is attributed to the grating's 6th harmonic only for medaka per ROI; for the zebrafish it is not yet checked per ROI (`.claude/CLAUDE.md`).
 6. **Motion can't fake a magnetic response.** Motion locked to the stimulus is under 0.04 px in all 50 imaging recordings (`.claude/CLAUDE.md`).
@@ -131,6 +125,7 @@ The nonstationarity left after the fixes has to come from somewhere. The evidenc
 ## Reproducing
 
 ```bash
+NS_DATA_DIR=<checkout>/data python docs/resegmentation/analyze.py   # magneto2, ~30 min; writes the zebrafish nonstationarity rows read below
 NS_DATA_DIR=<checkout>/data python docs/photon_starved/summary.py   # magneto2, ~2 min; reads the NAS (medaka 0.10.1 runs), read-only
 ```
 

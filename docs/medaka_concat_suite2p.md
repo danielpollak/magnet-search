@@ -17,7 +17,7 @@ therefore merges unrelated cells across trials. Can we get real cross-trial ROI 
 
 - **The raw tiffs are present and readable.** There are 6 ImageJ tiffs (`<trial>/<trial>.tif`),
   each 1080 frames × 477 × 477 uint16 (about 490 MB). All six share the same field of view and plane
-  (see [`fig_meanimg_nas.png`](medaka_concat_suite2p/fig_meanimg_nas.png)).
+  (Figure 1).
 - **Existing outputs.** Each trial directory has `suite2p/plane0/{ops,stat,iscell,F,Fneu,spks,data.bin}.npy`
   from suite2p 0.10.1 (2023-03-02). Every relevant op is a suite2p **default**, including
   `fs=10, tau=1, diameter=0`, nonrigid, and sparse_mode. Note that `fs=10` even though the YAMLs use a
@@ -36,7 +36,7 @@ therefore merges unrelated cells across trials. Can we get real cross-trial ROI 
   `250 × max_iterations = 5000` candidates, while the detection score is still well above threshold
   (score about 6.4 at 4,000 ROIs vs threshold 5.0 for separate runs; about 19.8 for concat).
   Most ROIs are tiny: median npix is 4.
-- **There is an inter-trial shift between blocks.** Phase correlation of the mean images shows no
+- **There is an inter-trial shift between blocks** (Figure 2). Phase correlation of the mean images shows no
   shift within the magneto block or within the no_magneto block (|d| < 0.1 px; mean-image r = 0.96–0.97).
   The no_magneto block is shifted by **about −1.9 px in y** (−0.15 to −0.25 px in x) relative to the
   magneto block, and between-block r is only 0.74–0.82. Correcting the 2 px shift raises
@@ -47,7 +47,11 @@ therefore merges unrelated cells across trials. Can we get real cross-trial ROI 
 
 ![Per-trial mean images from the NAS](medaka_concat_suite2p/fig_meanimg_nas.png)
 
+<sub>**Figure 1. Original per-trial mean images.** *Top:* suite2p 0.10.1 `meanImg` of each of the six trials (production runs on the NAS). *Bottom:* each trial (green) overlaid on magneto_0 (red); yellow where the two agree.</sub>
+
 ![Mean images and mean-image correlation per run](medaka_concat_suite2p/fig_registration.png)
+
+<sub>**Figure 2. Per-trial mean images and their correlations, before and after alignment.** Rows: raw tiffs; raw tiffs with the no_magneto block shifted by −2 px in y; the `concat` run's registered `data.bin`; the `concat_aligned` run's `data.bin`. Columns 1–6: each trial's mean image, central 200 × 200 px crop. Right: Pearson r between the trials' mean images (20 px border excluded).</sub>
 
 
 ## Task A: suite2p over the concatenated trials
@@ -84,18 +88,22 @@ Inclusion rule is the production rule: `p_iscell > 0.7`, `npix > 10`, then `remo
 
 - **Edge artifacts.** In the concatenated runs, about 30–37 of the included ROIs (about 20 %) sit
   within 10 px of the frame border. Most are streaks along the left edge, which is the border left
-  by the constant registration shift ([`fig_roi_footprints.png`](medaka_concat_suite2p/fig_roi_footprints.png)).
+  by the constant registration shift (Figure 3).
   The separate runs have 5–20 such ROIs. Without them, concat has about 140 real interior cells
   across all six trials, compared with about 140–195 interior cells per trial in the separate runs.
 - **Classifier and size distributions.** The P(iscell) and npix ECDFs and the joint histograms are
-  similar ([`fig_roi_ecdfs.png`](medaka_concat_suite2p/fig_roi_ecdfs.png)). The concatenated runs have
+  similar (Figure 4). The concatenated runs have
   more ROIs near P(iscell) = 0 and a jump at about 0.75.
 - **Flatline removal is per trial.** It runs on each trial's slice of the concat F, so 21–26 concat
   ROIs drop out in one or more trials.
 
 ![ROI footprints](medaka_concat_suite2p/fig_roi_footprints.png)
 
+<sub>**Figure 3. Included ROI footprints on the mean image.** Panels: separate_nas magneto_0, separate_nas no_magneto_0, `concat` and `concat_aligned` (for the concatenated runs, every ROI included in at least one trial). Each footprint has a random colour; panel titles give the number of included ROIs.</sub>
+
 ![P(iscell) and npix ECDFs](medaka_concat_suite2p/fig_roi_ecdfs.png)
+
+<sub>**Figure 4. P(iscell) and ROI size per segmentation.** *Top left:* ECDF of P(iscell), all ROIs, for separate_nas and separate_local (six runs pooled) and for `concat` and `concat_aligned` (one run each); red dashed: the 0.7 inclusion threshold. *Top middle:* ECDF of npix (log x); red dashed: 10. *Top right:* ROI counts per run (as in `roi_counts.csv`). *Bottom:* joint histogram of P(iscell) and log10 npix (log colour scale) for separate_nas magneto_0, separate_local magneto_0, `concat` and `concat_aligned`; cyan dashed: the inclusion thresholds.</sub>
 
 
 ### Fourier p-values ([`fourier_pvalue_summary.csv`](medaka_concat_suite2p/fourier_pvalue_summary.csv), [`fig_pvalue_ecdf.png`](medaka_concat_suite2p/fig_pvalue_ecdf.png))
@@ -103,11 +111,11 @@ Inclusion rule is the production rule: `p_iscell > 0.7`, `npix > 10`, then `remo
 I sliced the concat F back into trials and ran the production fit: `fit_Fourier` + `corrected_pvalues`,
 T = 1, with f = 0.1 Hz / Q_frac = 0.15 and 1/60 Hz / Q_frac = 0.50.
 
-- **Magnetic 0.1 Hz.** p < 0.05 in 4.9 % (separate_nas), 5.0 % (separate_local), 5.6 % (concat) and
-  5.6 % (concat_aligned) of cell-trials. All four ECDF(p) − p curves share the same mid-p bump,
-  about +0.07 at p ≈ 0.5, outside the binomial band. That bump is a property of the data and fit,
-  not of the segmentation.
-- **Visual 1/60 Hz.** p < 0.05 in 25.5–27.2 % of cell-trials in the `_1`/`_2` trials, compared with
+- **Magnetic 0.1 Hz: the segmentation does not change the p-value picture.** About 5 % of
+  cell-trials have p < 0.05 with every segmentation, and all four ECDF(p) − p curves share the
+  same mid-p bump outside the binomial band (Figure 5, left). That bump is a property of the data
+  and fit, not of the segmentation.
+- **Visual 1/60 Hz** (Figure 5, right). p < 0.05 in 25.5–27.2 % of cell-trials in the `_1`/`_2` trials, compared with
   1.7–3.2 % in the `_0` trials, for every segmentation and **in both blocks**. Pooled excess is
   slightly smaller with the concatenated segmentations (18.1–18.7 % vs 18.8–19.1 %), consistent with
   separate runs picking cells that were active in that particular trial.
@@ -115,6 +123,8 @@ T = 1, with f = 0.1 Hz / Q_frac = 0.15 and 1/60 Hz / Q_frac = 0.50.
   for `no_magneto_1/2` too, not only `magneto_1/2`.
 
 ![Fourier p-value ECDF deviation per segmentation](medaka_concat_suite2p/fig_pvalue_ecdf.png)
+
+<sub>**Figure 5. Fourier p-values per segmentation.** ECDF(p) − p of the included cell-trials, pooled over the six trials, for each segmentation (colours; N cell-trials in the legend). *Left:* magnetic frequency, 0.1 Hz. *Right:* visual frequency, 1/60 Hz. Gray: binomial 95% band for N = 1034.</sub>
 
 
 **Conclusion for A:** concatenating does not change the population-level p-value picture. It does
@@ -138,28 +148,38 @@ ratios are noisy.
 
 **Results** ([`match_cutoffs.csv`](medaka_concat_suite2p/match_cutoffs.csv), [`fig_match_distance_iou.png`](medaka_concat_suite2p/fig_match_distance_iou.png), [`match_pairs_summary.csv`](medaka_concat_suite2p/match_pairs_summary.csv), [`match_tracks_summary.csv`](medaka_concat_suite2p/match_tracks_summary.csv), [`fig_match_tracks.png`](medaka_concat_suite2p/fig_match_tracks.png)):
 
-- **All ROIs (about 4,900 per trial): matching is at chance level.** The null finds 74–79 % as many
-  matches as the real data at every cutoff from 0.5 to 8 px, so no cutoff reaches FDR ≤ 0.2. The ROIs
-  are too small and too dense (median npix 4; spacing about 7 px), and each run's capped top-5000 is a
-  different subset.
-- **Included ROIs: there is a real signal, but it is small.**
-  - **Cutoff.** I chose **2.0 px** (FDR 0.19; at 0.5 px FDR is 0.07; beyond 3 px it climbs to 0.22–0.40).
-    Matches inside the cutoff have median IoU 0.375, compared with 0 for the null.
-  - **Pairwise matches.** Per trial pair, only **10–27 of 144–213 included ROIs (6.5–19 %)** find an
-    included partner: median 17 per pair. Within-block pairs do best (no_magneto_0–1: 27, 19 %);
-    across-block pairs reach 6.5–10 %.
-  - **Partners that fail inclusion.** About 50–80 included ROIs per pair do have *some* suite2p ROI
-    within 2 px in the other trial, but mostly one that fails inclusion there. Per-trial classifier
-    and inclusion decisions are themselves not reproducible across trials.
-  - **Tracks across trials.** Among included ROIs, **no** cell is tracked across all 6 trials. 5
-    tracks span 5 trials (1 fully pairwise-consistent), 6 span 4 trials, 27 span 3, and 110 span 2.
-    3-of-3 within-block triangles: 3 for magneto and 7 for no_magneto. With all ROIs at the same
-    cutoff there are 45 six-trial tracks (1 fully consistent) and 1,177 conflicting components, but
-    that graph is mostly chance matches.
+- **All ROIs: matching is at chance level** (Table 1; Figure 6, top). No cutoff reaches an
+  estimated FDR of 0.2 or less. The ROIs are too small and too dense (median npix 4; spacing
+  about 7 px), and each run's capped top-5000 is a different subset.
+- **Included ROIs: there is a real signal, but it is small** (Figure 6, bottom). I chose a 2.0 px
+  cutoff, where the estimated FDR is just under 0.2; matches inside it overlap far more than null
+  matches. Only a small share of included ROIs finds an included partner in any other trial;
+  within-block pairs do best.
+- **Partners that fail inclusion.** Many included ROIs do have *some* suite2p ROI within 2 px in
+  the other trial, but mostly one that fails inclusion there. Per-trial classifier and inclusion
+  decisions are themselves not reproducible across trials.
+- **No included cell is tracked across all six trials** (Figure 7, right). The six-trial tracks
+  among all ROIs (Figure 7, left) come from a match graph that is mostly chance matches.
+
+| | all ROIs (about 4,900 per trial) | included ROIs (144–213 per trial) |
+|---|---|---|
+| null matches as a share of real matches (estimated FDR) | 0.74–0.79 at every cutoff from 0.5 to 8 px | 0.07 at 0.5 px; **0.19 at 2.0 px**; 0.22–0.40 beyond 3 px |
+| median footprint IoU of matches within the cutoff (null) | | 0.375 (0) |
+| included partners per trial pair | | **10–27 (6.5–19 %)**, median 17; best: no_magneto_0–1, 27 (19 %); across-block pairs 6.5–10 % |
+| included ROIs per pair with some ROI within 2 px in the other trial | | about 50–80 |
+| tracks spanning 6 / 5 / 4 / 3 / 2 trials | 6 trials: 45 (1 fully pairwise-consistent) | **0** / 5 (1 fully pairwise-consistent) / 6 / 27 / 110 |
+| 3-of-3 within-block triangles, magneto / no_magneto | | 3 / 7 |
+| components with more than one ROI in some trial (conflicts) | 1,177 | |
+
+<sub>Table 1. Centroid matching across the 15 trial pairs, at the 2.0 px cutoff unless stated. A track is a connected component of the pairwise match graph with at most one ROI per trial; it is fully pairwise-consistent if every pair of its ROIs is itself matched. Empty cells: not reported here. Full values in `match_cutoffs.csv`, `match_pairs_summary.csv` and `match_tracks_summary.csv`.</sub>
 
 ![Centroid match distance and IoU, real vs null](medaka_concat_suite2p/fig_match_distance_iou.png)
 
+<sub>**Figure 6. Centroid matches, real vs null.** *Top:* all ROIs. *Bottom:* included ROIs. Pooled over the 15 trial pairs. *Left:* distance of each Hungarian match within 15 px, real (black) and null (red: one trial's centroids displaced by (37, −41) px); blue dashed: the 2.0 px cutoff; n in the legend. *Middle:* footprint IoU against distance, one dot per match. *Right:* footprint IoU of real matches within the cutoff (black) and of null matches within 15 px (red).</sub>
+
 ![Cross-trial match tracks](medaka_concat_suite2p/fig_match_tracks.png)
+
+<sub>**Figure 7. Cross-trial tracks.** Number of tracks (log y) by the number of trials each spans, at the 2.0 px cutoff, for all ROIs (left) and included ROIs (right). Blue: tracks with at most one ROI per trial; orange: those that are also fully pairwise-consistent (definitions as in Table 1). Components with more than one ROI in a trial are not shown.</sub>
 
 
 ### Validation against the concatenated segmentation
@@ -203,11 +223,12 @@ Results are in [`concat_validation_summary.csv`](medaka_concat_suite2p/concat_va
 two approaches that gives usable cross-trial identity. Centroid matching of the existing runs should
 not be used.**
 
-- **Why not centroid matching.** It links at most about 10–19 % of included cells between any two
-  trials and none across all six. It is at chance level for the full ROI population. Its links agree
-  with the shared segmentation only about 64 % of the time in recall.
-- **What concatenation gives.** About 150 included ROIs (about 140 excluding border artifacts) with
-  one footprint and traces in all six trials. The population p-value behaviour is essentially the
+- **Why not centroid matching.** It links only a small share of included cells between any two
+  trials and none across all six (Table 1). It is at chance level for the full ROI population. In
+  the validation above it recovers only about two thirds of the pairs the shared segmentation
+  implies.
+- **What concatenation gives.** A set of included ROIs (see the conclusion for A) with one
+  footprint and traces in all six trials. The population p-value behaviour is essentially the
   same as with the production per-trial segmentations.
 - **If medaka is moved onto it:**
   - (a) Exclude border ROIs.

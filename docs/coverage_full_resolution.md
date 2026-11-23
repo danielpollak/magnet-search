@@ -6,14 +6,14 @@ Background: [`cv2.md`](cv2.md), section 4 (why suite2p's traces had a floor) and
 [`full_resolution_rerun.md`](full_resolution_rerun.md) (what the re-extraction changed).
 
 **Summary.**
-- **About a third of full-resolution traces still sit at one value in ≥ 20% of frames** (0.3 Hz
-  48%, 0.1 Hz 32%, medaka 8%), against nearly all of suite2p's traces.
+- **About a third of full-resolution traces still sit at one value in ≥ 20% of frames,**
+  against nearly all of suite2p's traces.
 - **That value is the detector offset.** It is the frame in which every pixel of the ROI recorded
   zero photons. How often that happens follows from the ROI's brightness and size, as Poisson
   counts predict.
 - **It doesn't make a floor in the sense that mattered.** The traces carry continuous signal
-  around it. No ROI has coverage below 0.33 (median 1.0). The p-values where nothing was presented are
-  calibrated at every share of frames at the offset.
+  around it, so every ROI clears the coverage threshold. The p-values where nothing was
+  presented are calibrated at every share of frames at the offset.
 - **So the coverage threshold has nothing left to remove.** It is set to 0 in every imaging
   YAML; whether to delete it from the code is open.
 
@@ -58,15 +58,15 @@ with suite2p's trace of the same ROI?
 
 ![Why](coverage_full_resolution/fig_cov_why.png)
 
-<sub>**Figure 3. The most common value is the offset, at the rate Poisson counts predict.** *Left:* observed share at the most common value against exp(−mean × effective pixels), the share of frames in which every pixel records zero photons if counts are Poisson. Blue: ROIs whose most common value is the offset (90%). *Right:* brightness (mean counts per pixel per frame above the offset) against effective pixels; dashed lines: where 5%, 20% and 50% of frames are expected at the offset.</sub>
+<sub>**Figure 3. Share at the most common value against brightness and size.** *Left:* observed share at the most common value against exp(−mean × effective pixels), the share of frames in which every pixel records zero photons if counts are Poisson. Blue: ROIs whose most common value is the offset. *Right:* brightness (mean counts per pixel per frame above the offset) against effective pixels; dashed lines: where 5%, 20% and 50% of frames are expected at the offset.</sub>
 
 - **The traces are continuous** (Figure 2). Even the ROI at the offset in 66% of frames varies
   between the zero frames, and its events and slow changes are visible. suite2p's version of
   each ROI is flat at 0 almost throughout.
 - **The repeated value is the offset in 90% of ROIs** (Figure 3, left): frames in which none of
   the ROI's pixels caught a photon.
-- **Its share is set by brightness and size** (Figure 3; correlation 0.85 between expected and
-  observed). Dim, small ROIs average a fraction of a photon per frame over a handful of
+- **Its share is set by brightness and size, at the rate Poisson counts predict** (Figure 3;
+  correlation 0.85 between expected and observed). Dim, small ROIs average a fraction of a photon per frame over a handful of
   effective pixels, so many frames contain no photons at all. That is the shot noise of a
   photon-starved movie, not a clipped signal.
 
@@ -101,8 +101,8 @@ would the coverage threshold remove any of them?
 
 | | finding |
 |---|---|
-| **Established** | After re-extraction, 8–48% of traces still spend ≥ 20% of frames at one value. That value is the detector offset (frames with no photons in the ROI), at the rate expected from the ROI's brightness and size. |
-| **Established** | Those traces are continuous, have CV² ≈ 1, and are calibrated where nothing was presented. No ROI has coverage below 0.33, so the coverage threshold (0.1) would remove nothing. |
+| **Established** | After re-extraction, some traces still spend ≥ 20% of frames at one value. That value is the detector offset (frames with no photons in the ROI), at the rate expected from the ROI's brightness and size. |
+| **Established** | Those traces are continuous, have CV² ≈ 1, and are calibrated where nothing was presented. No ROI falls below the coverage threshold, so it would remove nothing. |
 | **Open** | Whether to delete `coverage_threshold` and `pipeline/roi_coverage.py` from the pipeline, or keep them as a diagnostic. |
 
 ## Reproducing

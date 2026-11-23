@@ -8,7 +8,8 @@
 ## The question
 
 suite2p segments the whole imaging frame, not just the fish. In every recording it puts
-hundreds of ROIs on the dark background around the brain (Figure 1). These cannot be neurons.
+hundreds of ROIs on the dark background around the brain; in the bright example below they are
+scattered on both sides of the brain (Figure 1). These cannot be neurons.
 Can the outline of the fish be found automatically from data we already have, so every ROI
 outside it can be dropped?
 
@@ -36,7 +37,7 @@ the stimulus.
 
 ![The problem](body_outline/fig_bo_problem.png)
 
-<sub>**Figure 1. ROIs outside the fish.** *Left:* the mean image. *Right:* the same with every ROI of 10 or more pixels drawn in blue. Top: the bright example; bottom: the dim example. In the bright example hundreds of small ROIs are scattered over the black background on both sides of the brain.</sub>
+<sub>**Figure 1. ROIs outside the fish.** *Left:* the mean image. *Right:* the same with every ROI of 10 or more pixels drawn in blue. Top: the bright example; bottom: the dim example.</sub>
 
 ## The method, step by step
 
@@ -51,13 +52,14 @@ infinity.
 dimmer neuropil and dim brain regions. On a linear scale those dim regions are almost as dark
 as the background, and any threshold that keeps them also has to sit very close to the
 background. The logarithm compresses the bright end and spreads out the dim end, so dim tissue
-separates clearly from the background (Figure 2, bottom row: the left lobe and the area
-between the lobes become visible). Defining the offset relative to the image makes the step
+separates clearly from the background. In the dim example the log reveals tissue that is
+nearly invisible on the linear scale (Figure 2, bottom row: the left lobe and the area
+between the lobes). Defining the offset relative to the image makes the step
 behave the same in an image spanning 50.0–50.6 and one spanning 5,000–6,300.
 
 ![Step 1](body_outline/fig_bo_log.png)
 
-<sub>**Figure 2. Step 1, log brightness.** *Left:* the mean image on a linear scale. *Right:* after the log transform. Both are shown with the same display stretch (1st to 99.5th percentile). In the dim example (bottom) the log reveals tissue that is nearly invisible on the linear scale.</sub>
+<sub>**Figure 2. Step 1, log brightness.** *Left:* the mean image on a linear scale. *Right:* after the log transform. Both are shown with the same display stretch (1st to 99.5th percentile).</sub>
 
 ### Step 2: blur the image
 
@@ -108,11 +110,13 @@ Every region smaller than 10% of the largest one is dropped ("min region" slider
 threshold and form its own small region (orange in Figure 4, bottom: a 785-pixel blob below the
 left lobe). Keeping every region at least 10% the size of the largest, rather than only the
 largest, matters in dim recordings: there the two tectal lobes can be separate regions of
-similar size, and keeping only the largest would discard a whole lobe.
+similar size, and keeping only the largest would discard a whole lobe. In the examples
+(Figure 5), the bright field of view forms a single region; the dim one forms two, and the
+small one (the blob below the left lobe) is dropped.
 
 ![Step 4](body_outline/fig_bo_regions.png)
 
-<sub>**Figure 5. Step 4, regions.** *Left:* each separate above-threshold region in its own colour. *Right:* regions kept (blue) and dropped for being smaller than 10% of the largest (orange). The bright example has one region; the dim example has two, and the small one is dropped.</sub>
+<sub>**Figure 5. Step 4, regions.** *Left:* each separate above-threshold region in its own colour. *Right:* regions kept (blue) and dropped for being smaller than 10% of the largest (orange).</sub>
 
 ### Steps 5 and 6: fill holes, then add a margin
 
@@ -137,11 +141,12 @@ A ROI is inside if that share is at least one half.
 
 **Why one half?** In practice it hardly matters: almost every ROI is either entirely inside
 or entirely outside (Figure 7, left; note the log count scale). Only a handful straddle the
-outline.
+outline. In the bright example 583 of 3,669 ROIs fall outside; in the dim example 2 of 286,
+both in the frame-edge artifact at the left and bottom-left corner (Figure 7, right).
 
 ![Step 7](body_outline/fig_bo_classify.png)
 
-<sub>**Figure 7. Step 7, classifying ROIs.** *Left:* the share of each ROI's pixels that lie inside the outline (log count scale); the dashed line is the cut at one half. *Right:* ROIs inside (blue) and outside (orange) the final outline (yellow). Bright example: 583 of 3,669 ROIs outside. Dim example: 2 of 286 outside, both in the frame-edge artifact at the left and bottom-left corner.</sub>
+<sub>**Figure 7. Step 7, classifying ROIs.** *Left:* the share of each ROI's pixels that lie inside the outline (log count scale); the dashed line is the cut at one half. *Right:* ROIs inside (blue) and outside (orange) the final outline (yellow).</sub>
 
 ## Choosing the parameters
 
