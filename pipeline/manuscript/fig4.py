@@ -389,8 +389,18 @@ N_REPEATS          = 10  # independent random-pool draws averaged per (participa
 # participation needed to reach it (exported to numbers.tex, see main).
 DETECTION_RESPONDERS = 10
 QUOTED_AMPLITUDES = (0.05, 0.10, 0.20)
-# Panel B Results sentence: units firing at or above this rate (Hz).
+# Pseudopopulation-era panel B threshold (Hz); only fig4B_diagnostics.py's
+# and fig4B_nfc_vs_Sa.py's pseudopopulation views still use it.
 HIGH_RATE_HZ = 10.0
+# Panel B Results sentence (since 2026-11-22): neurons with at least this many
+# spikes in the recording Fig 3 tests them on.
+HIGH_SPIKE_COUNT = 1000
+# Panel B's data (since 2026-11-22): Fig 3's pigeon-HP neurons on Fig 3's own
+# spike trains, at each recording's stimulus frequency. "warp": time-warp
+# modulation (statistics.warp_mod, as panels A and C-F), not the random-shift
+# statistics.modulate the pseudopopulation's compute_fr_df uses.
+FIG4B_CACHE = (_REPO_ROOT / "data" / "manuscript" /
+               f"fig4b_fig3_trains_pigeon_hp_fstim_nocap_warp_{_AMP_TAG}.pkl")
 
 
 def discover_pigeon_hp_experiments(experiments_dir: Path):
@@ -953,6 +963,56 @@ def compute_sensitivity(spks, FOURIER_Q, freq=FREQ):
     return spk_count / T / 2 / sigma
 
 
+def compute_fig4b_df(recompute=False):
+    """Panel B's data (2026-11-22): every pigeon hippocampus neuron of Fig 3,
+    on the ONE spike train Fig 3 tests it on (fig3.one_recording_per_neuron,
+    full analysed length; fig4s_fig3_populations.load_groups), time-warp
+    modulated at AMPLITUDES_FIG4B at that recording's own stimulus frequency
+    and tested there with the real analysis's T and off-frequency bin count
+    -- the same trains, frequency and Q as panel C's bottom-left sub-plot. At
+    A=0 the NFC is therefore exactly Fig 3's (load_groups checks this).
+
+    Replaces the pigeon-HP pseudopopulation (350 s of concatenated recordings
+    per unit, modulated at FREQ), which overstated how much data one real
+    measurement had: Fig 3's pigeon HP recordings are 25-139 s (median 61 s).
+
+    One row per (neuron, amplitude): `row` (index into
+    fig4s_fig3_populations.fig3_populations()), spk_count, T, f, Q, NFC,
+    null99 (99th percentile of that recording's eps-corrected null) and
+    `top` (panel C bottom-right's top decile: the parquet's `sens` above the
+    90th percentile of Fig 3's pigeon HP neurons). Cached in FIG4B_CACHE and
+    recomputed if Fig 3's population has changed since."""
+    import fig4s_fig3_populations as f4s  # here, not at the top: it imports this module
+    pop = f4s.fig3_populations()
+    hp = pop.loc[(pop.species == "Pigeon") & (pop.area == "HP")]
+    ident = hp[f4s.NEURON_KEY + ["rec"]].astype(str).reset_index(drop=True)
+    if FIG4B_CACHE.exists() and not recompute:
+        df, cached_ident = pd.read_pickle(FIG4B_CACHE)
+        if cached_ident.equals(ident):
+            print(f"Loading cached panel B frame from {FIG4B_CACHE}")
+            return df
+        print(f"{FIG4B_CACHE} is stale (Fig 3 population changed); recomputing")
+    groups = f4s.cap_groups(f4s.load_groups(hp), cap_s=None, stim_freq=True)
+    frames = []
+    for g in tqdm.tqdm(groups, desc="panel B recordings"):
+        null99 = float(np.squeeze(statistics.inverse_Rayleigh_CDF(
+            0.99, eps=statistics.get_epsilon(g["Q"]))))
+        for A in AMPLITUDES_FIG4B:
+            warped = [statistics.warp_mod(s, A, 1 / g["f"], 0) for s in g["spks"]]
+            NFC = statistics.fourier_analysis(warped, g["f"], Q=g["Q"], T=g["T"])[-1]
+            frames.append(pd.DataFrame({
+                "mod": A, "row": g["rows"], "spk_count": [len(s) for s in g["spks"]],
+                "T": g["T"], "f": g["f"], "Q": g["Q"], "NFC": np.atleast_1d(NFC),
+                "null99": null99}))
+    df = pd.concat(frames, ignore_index=True)
+    top = f4s.fig3_quadrant_members(pop, np.sort(hp.index.to_numpy()))[3][1]
+    df["top"] = df["row"].isin(top)
+    FIG4B_CACHE.parent.mkdir(parents=True, exist_ok=True)
+    pd.to_pickle((df, ident), FIG4B_CACHE)
+    print(f"Cached -> {FIG4B_CACHE}")
+    return df
+
+
 def _responder_cell(task):
     """Composes one grid cell's NFC vector from compute_responder_df's
     precomputed lookup table (_worker_state["nfc_table"]/["baseline_NFC"])
@@ -1042,21 +1102,23 @@ def _sig2(x):
     return f"{float(f'{x:.2g}'):g}"
 
 
-def rate_sensitivity_numbers(spks, top_decile_mask):
-    """The panel B numbers quoted in the Results, for numbers.tex: how many
-    units fire at >= HIGH_RATE_HZ (`n_units_fig4b_high_rate`) and how many of
-    those are in the top sensitivity decile (`n_units_fig4b_high_rate_top`),
-    and the median firing rate of the top decile and of the whole
-    pseudopopulation (`median_fr_fig4b_top`, `median_fr_fig4b_all`, Hz, two
-    significant figures). Rates are unit_firing_rates', as plotted."""
-    fr = unit_firing_rates(spks)
-    high = fr >= HIGH_RATE_HZ
+def spike_count_sensitivity_numbers(fig4b_df):
+    """The panel B numbers quoted in the Results, for numbers.tex: how many of
+    Fig 3's pigeon HP neurons have >= HIGH_SPIKE_COUNT spikes in their tested
+    recording (`n_units_fig4b_high_count`), how many of those are in the top
+    sensitivity decile (`n_units_fig4b_high_count_top`), and the median spike
+    count of the top decile and of all of them (`median_count_fig4b_top`,
+    `median_count_fig4b_all`, two significant figures), plus the N plotted."""
+    d0 = fig4b_df.loc[fig4b_df["mod"] == 0]
+    high = d0.spk_count.to_numpy() >= HIGH_SPIKE_COUNT
+    top = d0.top.to_numpy()
     return {
-        "high_rate_hz_fig4b": f"{HIGH_RATE_HZ:g}",
-        "n_units_fig4b_high_rate": int(high.sum()),
-        "n_units_fig4b_high_rate_top": int((high & top_decile_mask).sum()),
-        "median_fr_fig4b_top": _sig2(np.median(fr[top_decile_mask])),
-        "median_fr_fig4b_all": _sig2(np.median(fr)),
+        "high_count_fig4b": f"{HIGH_SPIKE_COUNT:g}",
+        "n_units_fig4b": len(d0),
+        "n_units_fig4b_high_count": int(high.sum()),
+        "n_units_fig4b_high_count_top": int((high & top).sum()),
+        "median_count_fig4b_top": _sig2(np.median(d0.spk_count[top])),
+        "median_count_fig4b_all": _sig2(np.median(d0.spk_count)),
     }
 
 
@@ -1398,11 +1460,10 @@ COLOR_SCALES = ("log", "linear", "log100", "log200")
 DEFAULT_COLOR_SCALE = "log200"  # chosen 2026-11-18: one 1-200 log scale shared by all of panel C
 
 
-def plot_fig4(NFC_modulation_FR_df, quads, top_decile_mask, spks, FOURIER_Q,
+def plot_fig4(fig4b_df, quads, spks, FOURIER_Q,
               out_dir: Path, rec_boundaries_s=None, out_name="Fig4.pdf", pdf=None,
               keys=None, color_scale=DEFAULT_COLOR_SCALE, cmap_name=HEAT_CMAP):
     example_spk = spks[example_unit_index(spks, keys=keys)]
-    n_top = int(np.sum(top_decile_mask))
 
     font = {"family": FP.FONT_FAMILY, "size": FP.FS_BODY_XL}
     matplotlib.rc("font", **font)
@@ -1640,17 +1701,17 @@ def plot_fig4(NFC_modulation_FR_df, quads, top_decile_mask, spks, FOURIER_Q,
                                        extend=cb_extend))
         _style_colorbar(heat_cbars[-1], contour_color)
 
-    # Panel B: FR vs NFC scatter. Top-decile-sensitivity units (same
-    # definition as panel D's subset) get a black outline, overlaid on the
-    # same points already drawn -- same hue/palette so the outlined points
-    # keep their mod-condition fill color.
-    sns.scatterplot(data=NFC_modulation_FR_df, x="FR", y="NFC", hue="mod",
+    # Panel B (2026-11-22): NFC against spike count for Fig 3's pigeon HP
+    # neurons, each on the spike train Fig 3 tests it on (compute_fig4b_df).
+    # Spike count rather than firing rate on x: the recordings differ in
+    # length (25-139 s), and under modulation the NFC grows with the number
+    # of spikes, not the rate. Top-decile neurons (panel C bottom-right's)
+    # get a black outline, drawn over the same points.
+    sns.scatterplot(data=fig4b_df, x="spk_count", y="NFC", hue="mod",
                     palette=PALETTE_FIG4B, s=5, linewidth=0, alpha=FP.ALPHA_SCATTER, ax=ax_scatter)
-    top_ids = set(np.where(top_decile_mask)[0].tolist())
-    top_df = NFC_modulation_FR_df[NFC_modulation_FR_df["id"].isin(top_ids)]
-    sns.scatterplot(data=top_df, x="FR", y="NFC", hue="mod", palette=PALETTE_FIG4B,
-                    s=5, linewidth=0.6, edgecolor="black", alpha=FP.ALPHA_SCATTER,
-                    ax=ax_scatter, legend=False)
+    sns.scatterplot(data=fig4b_df[fig4b_df["top"]], x="spk_count", y="NFC", hue="mod",
+                    palette=PALETTE_FIG4B, s=5, linewidth=0.6, edgecolor="black",
+                    alpha=FP.ALPHA_SCATTER, ax=ax_scatter, legend=False)
     handles, labels = ax_scatter.get_legend_handles_labels()
     mod_vals = AMPLITUDES_FIG4B
     pairs = [(h, l) for h, l in zip(handles, labels)
@@ -1658,23 +1719,17 @@ def plot_fig4(NFC_modulation_FR_df, quads, top_decile_mask, spks, FOURIER_Q,
     pairs = pairs[::-1]  # high-to-low top-to-bottom, instead of seaborn's ascending hue order
     ax_scatter.legend([h for h, _ in pairs],
                 [f"A={l}" for _, l in pairs],
-                title=f"modulation ({FREQ:g} Hz)", ncol=1, markerscale=3,
+                title="modulation", ncol=1, markerscale=3,
                 fontsize=FP.FS_LEGEND, title_fontsize=FP.FS_LEGEND)
-    # eps-corrected to match NFC_modulation_FR_df, which is computed by
-    # compute_fr_df() at this same Q_frac-derived FOURIER_Q.
-    ax_scatter.hlines(statistics.inverse_Rayleigh_CDF(0.99, eps=statistics.get_epsilon(FOURIER_Q)),
-                *ax_scatter.get_xlim(), color="grey")
+    # Each recording has its own off-frequency bin count, hence its own
+    # eps-corrected null; their 99th percentiles span only ~3.05-3.12, so one
+    # line at the median stands for all of them.
+    ax_scatter.hlines(np.median(fig4b_df["null99"]), *ax_scatter.get_xlim(), color="grey")
     ax_scatter.set_ylabel("NFC")
     ax_scatter.set_xscale("log")
-    ax_scatter.set_xlabel("Firing rate (Hz)")
-    # Clip the top of the y axis rather than let the A=0.6 tail set it: 17 of
-    # 6069 plotted points exceed 40 (14 at A=0.6, 3 at A=0.3, none at A=0),
-    # and autoscaling to their max (79.6) spent half the axis on them while
-    # compressing the null line and the A=0/0.3 clouds -- the part of the
-    # panel that carries the detectability claim -- into the bottom sliver.
-    # Only the axis view is limited; nothing is dropped from the frame, and
-    # no summary drawn here (the null line, the top-decile outlines) is
-    # computed from the visible range.
+    ax_scatter.set_xlabel("Spike count")
+    # Clip the top of the y axis rather than let the A=0.6 tail set it (a few
+    # points exceed NFC_YLIM_TOP); only the view is limited, nothing is dropped.
     ax_scatter.set_ylim(top=NFC_YLIM_TOP)
 
     # Panel letters sit just outside each panel's top-left corner, INCLUDING
@@ -1789,7 +1844,7 @@ def main():
     # --rec-boundaries / --panel-a-unit pages are diagnostics, not Fig4.pdf.
     diag_dir = Path(FP.DIAGNOSTIC_DIR)
     diag_dir.mkdir(parents=True, exist_ok=True)
-    Path(FR_DF_CACHE).parent.mkdir(parents=True, exist_ok=True)
+    Path(FIG4B_CACHE).parent.mkdir(parents=True, exist_ok=True)
 
     experiments = args.experiments or discover_pigeon_hp_experiments(_EXPERIMENTS_DIR)
     print(f"Pooling pigeon-HP pseudopopulation from: {experiments}")
@@ -1798,23 +1853,11 @@ def main():
     FOURIER_Q = fourier_Q_from_frac(spks, FREQ, Q_frac, context=f"[fig4 sim @ {FREQ}Hz] ")
     print(f"  Q_frac={Q_frac} (shared mag_Q_frac across pooled experiments) -> FOURIER_Q={FOURIER_Q} bins at {FREQ} Hz")
 
-    if not args.recompute and Path(FR_DF_CACHE).exists():
-        print(f"Loading cached FR df from {FR_DF_CACHE}")
-        NFC_modulation_FR_df = pd.read_pickle(FR_DF_CACHE)
-    else:
-        print("Computing FR vs NFC...")
-        NFC_modulation_FR_df = compute_fr_df(spks, FOURIER_Q, workers=args.workers)
-        NFC_modulation_FR_df.to_pickle(FR_DF_CACHE)
-        print(f"Cached -> {FR_DF_CACHE}")
-
-    # Panel B's black outlines: the pseudopopulation's top decile by
-    # synthetic-baseline sensitivity (see compute_sensitivity).
-    sens = compute_sensitivity(spks, FOURIER_Q, freq=FREQ)
-    sens_threshold = np.quantile(sens, SENSITIVITY_PERCENTILE / 100)
-    top_decile_mask = sens >= sens_threshold
-    print(f"  {int(top_decile_mask.sum())} / {len(spks)} units at/above the "
-          f"{SENSITIVITY_PERCENTILE:.0f}th percentile synthetic-baseline "
-          f"sensitivity (threshold={sens_threshold:.3f})")
+    # Panel B: Fig 3's pigeon HP neurons on their own spike trains (see
+    # compute_fig4b_df); the pseudopopulation above now feeds only panel A.
+    fig4b_df = compute_fig4b_df(recompute=args.recompute)
+    d0 = fig4b_df.loc[fig4b_df["mod"] == 0]
+    print(f"  panel B: {len(d0)} pigeon HP neurons, {int(d0.top.sum())} in the top decile")
 
     # Panels C-F (2026-11-12): Fig 3's four populations on Fig 3's own spike
     # trains (no cap). They replace the pseudopopulation's responder sweeps
@@ -1833,10 +1876,10 @@ def main():
     tex_numbers.write_numbers("fig4", {
         **detection_numbers([(name, resp, len(members)) for name, (_, members, resp)
                              in zip(("all", "pigeon", "hp", "top"), quads)]),
-        **rate_sensitivity_numbers(spks, top_decile_mask)})
+        **spike_count_sensitivity_numbers(fig4b_df)})
 
     if not args.rec_boundaries and not args.panel_a_unit:
-        plot_fig4(NFC_modulation_FR_df, quads, top_decile_mask, spks,
+        plot_fig4(fig4b_df, quads, spks,
                   FOURIER_Q, out_dir, keys=keys, color_scale=args.color_scale,
                   cmap_name=args.cmap,
                   out_name="Fig4" + ("" if args.color_scale == DEFAULT_COLOR_SCALE else f"_{args.color_scale}")
@@ -1912,7 +1955,7 @@ def main():
         print(f"  panel A exemplar is from {experiment} "
               f"({exemplar_T:.1f} s timeline); marking {len(rec_boundaries_s)} rec "
               f"starts at t = {', '.join(f'{o:.1f}' for o in rec_boundaries_s)} s")
-        plot_fig4(NFC_modulation_FR_df, quads, top_decile_mask, spks,
+        plot_fig4(fig4b_df, quads, spks,
                   FOURIER_Q, out_dir, rec_boundaries_s=rec_boundaries_s, pdf=pdf,
                   keys=keys)
 
