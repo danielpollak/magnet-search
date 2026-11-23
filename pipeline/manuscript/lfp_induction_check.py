@@ -172,7 +172,7 @@ print(f"Max. induction: {induced_psd:.0f} uV^2/Hz in the 3 Hz bin")
 #
 # - **Spectrum (left):** each bin's power, averaged over channels. If every
 #   channel carried the induced sine, the 3 Hz bin would sit at about
-#   $P_\text{noise} + P_\mathcal{E}$.
+#   $P_\text{noise} + P_\mathcal{E}$ (printed above; not drawn on this plot).
 # - **Noise distribution (right):** the power of every channel's bins from 2
 #   to 4 Hz, except 3 Hz itself, with the magnet off. This is the local noise
 #   band an induced 3 Hz sine would have to stand out from. Alongside it, the
@@ -208,9 +208,9 @@ mean_off = psd_off.mean(axis=1)   # mean over channels
 mean_on = psd_on.mean(axis=1)
 ax.plot(freqs[shown], mean_off[shown], color=FP.COLOR_NULL, linewidth=FP.LW_TRACE, label="Magnet off")
 ax.plot(freqs[shown], mean_on[shown], color=FP.COLOR_MAG, linewidth=FP.LW_TRACE, label="Magnet on (3 Hz)")
-ax.axvline(STIM_FREQ, color="black", linestyle=":", linewidth=FP.LW_REFERENCE, zorder=0)
-ax.axhline(induced_psd, color="black", linestyle="--", linewidth=FP.LW_REFERENCE,
-           label=f"Max. induction ({induced_uv:.0f} µV sine)")
+# Stimulus frequency: light grey and drawn first, so it reads as behind the
+# spectra (in black it looked on top of them even at zorder 0).
+ax.axvline(STIM_FREQ, color="0.75", linestyle=":", linewidth=FP.LW_REFERENCE, zorder=0)
 ax.set_yscale("log")
 ax.set_xlabel("Frequency (Hz)")
 ax.set_ylabel("Power (µV²/Hz)")

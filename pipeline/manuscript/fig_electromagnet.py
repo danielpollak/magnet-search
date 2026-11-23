@@ -54,8 +54,9 @@ def plot_fig_electromagnet(photo_dir, out_dir, out_name="Fig_1_3.pdf"):
     widths_px = [img.shape[1] for img in imgs]
 
     # Photos at a common height, side by side: the figure's height follows
-    # from the width, so no photo is letterboxed.
-    fig_w = FP.FIGSIZE_FIG1_COMPOSITE[0]
+    # from the width, so no photo is letterboxed. Half the page width: the
+    # photos are low resolution (759 px tall) and look blurry any larger.
+    fig_w = FP.FIGSIZE_FIG1_COMPOSITE[0] / 2
     scale = (fig_w - GAP_IN * (len(imgs) - 1)) / sum(widths_px)  # inches per px
     fig_h = height_px * scale
     fig = plt.figure(figsize=(fig_w, fig_h))

@@ -11,6 +11,9 @@ those rows flow through exactly as NaN `p_value` rows already do in Fig3 itself
 too) -- this script deliberately does not special-case them, so the 1F and 2F
 figures stay an apples-to-apples comparison.
 
+Also writes Fig3S1_second_harmonic_by_modality.pdf, the 2F counterpart of
+Fig3_by_modality.pdf (positive control split into auditory and visual).
+
 Requires:
   data/manuscript/all_fourier_df.parquet  (run python pipeline/aggregate.py first)
   ecdfbounds library
@@ -53,6 +56,11 @@ def main():
     all_fourier_df = pd.read_parquet(args.parquet)
     plot_fig3(all_fourier_df, out_dir, pval_col="2f_p_value", sens_col="sens_2f",
               out_name="Fig3S1_second_harmonic.pdf", suptitle="2F harmonic")
+    # Positive control split into auditory (WN) and visual (3 Hz gratings),
+    # as Fig3_by_modality.pdf (2026-11-18).
+    plot_fig3(all_fourier_df, out_dir, pval_col="2f_p_value", sens_col="sens_2f",
+              out_name="Fig3S1_second_harmonic_by_modality.pdf", suptitle="2F harmonic",
+              buckets="modality")
 
 
 if __name__ == "__main__":
