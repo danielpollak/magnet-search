@@ -1,0 +1,15 @@
+column,meaning
+experiment,"experiments/<experiment>.yml, data/<experiment>.nwb (blank: precomputed)"
+recording,rec: one stimulus block within the experiment
+paradigm,"pipeline paradigm (see CLAUDE.md), or precomputed for mouse and owl"
+stimulus type,stim_type of the recording's stimulus_epochs rows
+stimulus windows,rows in stimulus_epochs for this recording (trials or blocks)
+Fig 2 panel,population the rows fall in (statistics.get_poscontrols_negresults)
+analysed duration T (s),length of the (stitched) spike train the Fourier fit uses
+frequency resolution 1/T (Hz),bin spacing of the spike-train spectrum
+"Q_frac (effective, Q/(f*T))","reference half-window as a fraction of f, back-computed from Q (the YAML sets Q_frac; Q is rounded)"
+Q (bins per side),off-frequency bins on each side of f that normalise NFC
+units in NWB,"Kilosort clusters written by processing (only 'good' ones when the YAML says good: true), for the whole experiment"
+units analysed,units with a row in the Fourier results (Kilosort 'good' when the YAML says good: true)
+units with > 50 spikes,the spike-count filter Fig 2 applies (owl exempt)
+suspects,units with p < 0.01 at that frequency (before the spike-count filter)

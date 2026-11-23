@@ -388,9 +388,9 @@ def write_epochs_table(nwbfile, epochs, sampling_rate=AP_SR):
     table.add_column(
         "min_spikes_on_full_session",
         "if True, min_spikes is checked against the unit's full-session "
-        "spike count rather than its windowed count (gutfreund only -- "
-        "see build_modulation_frame's docstring); the windowed count then "
-        "only needs to be non-empty",
+        "spike count rather than its windowed count (the legacy gutfreund "
+        "and spikeglx_direct convention); kept for provenance, no longer "
+        "used -- build_modulation_frame always floors the windowed count",
     )
     table.add_column(
         "truncate_spike_samples",
@@ -660,7 +660,7 @@ def _gratings_group_exclusions(epochs, units_df, sr, min_spikes):
     """visual_gratings' own legacy loop
     (`if len(trial_df_l) == aux_cfg.n_orientations: df_l.extend(trial_df_l)`)
     only includes a unit's data for ANY orientation of one grating recname
-    if it passed `len(spk) > 50` in EVERY orientation of that recname --
+    if it passed the min_spikes floor in EVERY orientation of that recname --
     confirmed on real data: per-orientation-independent filtering (what a
     naive per-epoch loop does) silently included extra units that legacy
     excludes as a block. Pre-compute, per `gratings_group` (shared across
@@ -692,7 +692,7 @@ def _gratings_group_exclusions(epochs, units_df, sr, min_spikes):
             counts = np.array([
                 int(np.sum((s > c_lo) & (s < c_hi))) for s in spike_sample_arrays
             ])
-            qualifies &= counts > min_spikes  # gratings: exclusive-of-min_spikes
+            qualifies &= counts >= min_spikes  # at least min_spikes, as everywhere
         exclusions[group] = set(int(u) for u in unit_ids[~qualifies])
     return exclusions
 
@@ -705,6 +705,16 @@ def build_modulation_frame(nwbfile, rec=None, good_only=True, min_spikes=50):
     This is never persisted; it is a transient adapter so the (unmodified)
     `fit_fourier_sig()` machinery keeps working against NWB-backed data. See
     the NWB replatform design doc, "Is modulation_df eliminated?".
+
+    Spike-count floor (2026-11-11): a unit is kept for a (rec, freq) only if
+    it has AT LEAST `min_spikes` spikes in that epoch's analysed window
+    (after stitching, for the "stitched_*" modes), the same rule for every
+    paradigm. The legacy scripts differed -- `>= 50` for magnetic Open Ephys
+    and spikeglx_direct trials, `> 50` for the auxiliary stimuli and
+    gutfreund, and a full-session rather than windowed count for gutfreund
+    and spikeglx_direct -- and this function used to reproduce each of those
+    conventions; they were unified on purpose, so outputs no longer match
+    the frozen legacy fixtures at the boundary.
     """
     sr = get_sampling_rate(nwbfile)
     epochs = nwbfile.intervals["stimulus_epochs"].to_dataframe()
@@ -750,30 +760,11 @@ def build_modulation_frame(nwbfile, rec=None, good_only=True, min_spikes=50):
             freq = override if (override is not None and not np.isnan(override)) else epoch["frequency"]
             return 1.0 / float(freq)
 
-        # min_spikes-threshold convention differs by phase_method, matching
-        # each paradigm's own legacy code exactly (confirmed on real data --
-        # see the NWB replatform plan/session notes): openephys/
-        # openephys_multistim magnetic trials (via process_raw_data_NPIX)
-        # and spikeglx_direct both use `if len(st) < 50: continue` --
-        # INCLUSIVE of exactly `min_spikes`. gutfreund (`if len(st) <= 50:
-        # continue`) and every openephys_multistim aux-stimulus handler
-        # (`if len(concat_spks) > 50:`) instead require STRICTLY more than
-        # `min_spikes` -- EXCLUSIVE of exactly `min_spikes`. Getting this
-        # wrong silently included/excluded whole units whose window spike
-        # count landed exactly on the boundary.
-        exclusive_min_spikes = phase_method != "crossings"
-
-        # gutfreund.py's own min_spikes check is on the unit's FULL-SESSION
-        # spike count (`all_sts_d.items()`'s `st`, BEFORE windowing to
-        # [on, off]) -- `if len(st) <= 50: continue` -- with the post-window
-        # count only checked for non-emptiness (`if len(st_samples) == 0:
-        # continue`), not against min_spikes at all. Every other paradigm
-        # using this same "single real window" branch (openephys_multistim's
-        # WN single-window, also phase_method="arithmetic") instead checks
-        # min_spikes on the WINDOWED count -- confirmed on real data that
-        # these two "arithmetic" callers genuinely differ, so this can't be
-        # inferred from phase_method alone; each epoch states it explicitly.
-        min_spikes_on_full_session = bool(epoch.get("min_spikes_on_full_session", False))
+        # Every paradigm keeps a unit only if it has at least `min_spikes`
+        # spikes in this epoch's analysed window (see the docstring). The
+        # epochs' `min_spikes_on_full_session` flag (gutfreund,
+        # spikeglx_direct) is still written by processing but no longer
+        # used: the floor is always on the windowed count.
 
         # --- "stitched_*": spikes come from N disjoint real windows,
         # re-indexed onto one synthetic timeline before any period/phase math
@@ -797,8 +788,7 @@ def build_modulation_frame(nwbfile, rec=None, good_only=True, min_spikes=50):
                 synthetic = _stitch_synthetic_samples(
                     spike_samples, window_starts, window_stops, window_offsets,
                     phase_anchors=phase_anchors)
-                if (len(synthetic) <= min_spikes if exclusive_min_spikes
-                        else len(synthetic) < min_spikes):
+                if len(synthetic) < min_spikes:
                     continue
                 spk_seconds = synthetic / sr
 
@@ -881,23 +871,10 @@ def build_modulation_frame(nwbfile, rec=None, good_only=True, min_spikes=50):
             # reintroduces the exact truncation error `truncate_spike_samples`
             # exists to reproduce ONLY in the lookup, not in `spk` itself.
             st_seconds_precise = spike_times_s[mask] - local_offset / sr
-            if min_spikes_on_full_session:
-                # min_spikes applies to the unit's full-session count, not
-                # the windowed one -- windowed count only needs to be
-                # non-empty (matches gutfreund.py's `if len(st_samples) ==
-                # 0: continue` and spikeglx_direct.py's equivalent `.dropna()`
-                # after indexing NaN-filled theta/periods arrays outside the
-                # window -- same effect, no explicit count check needed
-                # there). Exclusive/inclusive convention still follows
-                # exclusive_min_spikes -- spikeglx_direct's own full-session
-                # check (`if len(st) < 50: continue`) is INCLUSIVE, same as
-                # "crossings", unlike gutfreund's EXCLUSIVE `<= 50`.
-                full_excluded = (len(spike_samples) <= min_spikes if exclusive_min_spikes
-                                 else len(spike_samples) < min_spikes)
-                if full_excluded or len(st) == 0:
-                    continue
-            elif (len(st) <= min_spikes if exclusive_min_spikes
-                    else len(st) < min_spikes):
+            # A unit with no spikes in the window contributes nothing; skipped
+            # even at min_spikes=0 (fig4's pseudopopulation), since the
+            # "gratings" period lookup cannot take an empty array.
+            if len(st) < min_spikes or len(st) == 0:
                 continue
 
             if phase_method == "arithmetic":

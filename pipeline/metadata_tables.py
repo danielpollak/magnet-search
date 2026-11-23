@@ -188,7 +188,7 @@ def ephys_table(df, panel):
                 "Q_2f (bins per side)": int(g2.Q.iloc[0]) if len(g2) else "",
                 "units in NWB": n_units,
                 "units analysed": len(r),
-                "units with > 50 spikes": int((r.spk_count > 50).sum()) if len(r) else "",
+                "units with >= 50 spikes": int((r.spk_count >= 50).sum()) if len(r) else "",
                 "1F suspects": _suspects(r), "2F suspects": _suspects(r, "2f_p_value"),
                 "source": "pipeline (data/<experiment>.nwb)",
             })
@@ -200,9 +200,10 @@ def ephys_table(df, panel):
             "date": r.date.iloc[0], "subject": r.ID.iloc[0], "paradigm": "precomputed",
             "Fig 2 panel": panel(rec, f), "stimulus f (Hz)": round(f, 6),
             "Q (bins per side)": int(r.Q.iloc[0]) if "Q" in r and pd.notna(r.Q.iloc[0]) else "",
-            "units analysed": len(r), "units with > 50 spikes": int((r.spk_count > 50).sum()),
+            "units analysed": len(r), "units with >= 50 spikes": int((r.spk_count >= 50).sum()),
             "1F suspects": _suspects(r), "2F suspects": _suspects(r, "2f_p_value"),
-            "source": "data/precomputed/*_analysis.pickle (not re-processable)",
+            "source": ("data/precomputed/mouse/mouse_analysis.pickle" if sp == "mouse"
+                       else "data/precomputed/owl_analysis.pickle") + " (not re-processable)",
         })
     return pd.DataFrame(rows)
 
@@ -223,7 +224,7 @@ EPHYS_COLUMNS = [
                      "says good: true), for the whole experiment"),
     ("units analysed", "units with a row in the Fourier results (Kilosort 'good' when the YAML "
                        "says good: true)"),
-    ("units with > 50 spikes", "the spike-count filter Fig 2 applies (owl exempt)"),
+    ("units with >= 50 spikes", "the spike-count filter Fig 2 applies (owl exempt)"),
     ("suspects", "units with p < 0.01 at that frequency (before the spike-count filter)"),
 ]
 

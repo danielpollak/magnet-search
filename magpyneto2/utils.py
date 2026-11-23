@@ -30,15 +30,22 @@ def get_condition_array(t, p):
 
 def get_concat_spks_consistent_period(spks, ons, offs, period):
     """
-    Starts spiketrain at zero and concatenates consecutive trials
+    Starts spiketrain at zero and concatenates consecutive trials, each in a
+    window of length `period` centred on [on, off], back to back: trial i
+    occupies [i * period, (i + 1) * period).
+
+    Fixed 2026-11-11 (user sign-off): `last_off` used to be set to the
+    previous window's ABSOLUTE end time (`off + BL`) instead of advancing by
+    one period, so each trial landed at an essentially random phase of
+    1/period and stimulus-locked responses cancelled in the Fourier sum.
     """
     last_off = 0
-    
+
     spk_l = []
     for on, off in zip(ons, offs):
-        BL = (period-(off-on)) / 2 
+        BL = (period-(off-on)) / 2
         spk_l.append(spks[(spks > on - BL) & (spks < off + BL)] - (on-BL) + last_off)
-        last_off = off + BL
+        last_off += period
     
     return np.concatenate(spk_l)
 

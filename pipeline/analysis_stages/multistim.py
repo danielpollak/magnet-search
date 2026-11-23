@@ -55,15 +55,17 @@ def run_analysis(cfg):
         ]
         wn_mask = [a.wn_rec_substring in rec for rec in modulation_df.rec]
 
-        for mask, frac, label in [
-            (mag_mask,    a.mag_Q_frac,    "mag"),
-            (visual_mask, a.visual_Q_frac, "visual"),
-            (wn_mask,     a.WN_Q_frac,     "WN"),
+        visual_min_bins = a.visual_min_bins if a.visual_min_bins > 0 else None
+        for mask, frac, min_bins, label in [
+            (mag_mask,    a.mag_Q_frac,    None,            "mag"),
+            (visual_mask, a.visual_Q_frac, visual_min_bins, "visual"),
+            (wn_mask,     a.WN_Q_frac,     None,            "WN"),
         ]:
             sub = modulation_df.loc[mask]
             if sub.empty:
                 continue
-            fourier_df, log_dict = fit_fourier_sig(sub, Q_frac=frac, diagnostics=False)
+            fourier_df, log_dict = fit_fourier_sig(sub, Q_frac=frac, diagnostics=False,
+                                                   min_bins=min_bins)
             nwb_results.append((fourier_df, log_dict))
 
     nwb_io.rebuild_and_replace_analysis(

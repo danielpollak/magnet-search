@@ -20,6 +20,9 @@ data/manuscript/all_fourier_df.parquet
 # disseminate via Release" reasoning as the .nwb files above.
 data/fig1_raw/
 data/fig1_raw_auditory/
+# Oddball photodiode flash times, extracted from NAS once by
+# pipeline/manuscript/oddball_extract_ttl.py (same reasoning).
+data/oddball_ttl/
 logs/
 *.xlsx
 __pycache__/
@@ -55,3 +58,5 @@ docs/fourier_grid_shift/results_rois.csv
 docs/resegmentation/results_rois.csv
 docs/resegmentation/results_sessions_rois.csv
 docs/photon_starved/results_rois.csv
+docs/zplane/results_similarity.csv
+docs/zplane/results_ns_z_p.csv
