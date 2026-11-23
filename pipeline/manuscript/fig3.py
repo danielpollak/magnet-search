@@ -9,7 +9,8 @@ Requires:
   data/manuscript/all_fourier_df.parquet  (run python pipeline/aggregate.py first)
 
 Fig3.pdf shows each neuron once (its recording closest to 3 Hz, see
-`one_recording_per_neuron`); Fig3S2_all_recordings.pdf
+`one_recording_per_neuron`); Fig3_by_modality.pdf splits its positive
+control into white noise and every visual stimulus (spikes and imaging); Fig3S2_all_recordings.pdf
 shows every recording, split into occurrence waves (page 1) and pooled
 (page 2) -- see plot_fig3's `buckets`.
 
@@ -53,6 +54,12 @@ FDR = 0.05
 # `one_recording_per_neuron`).
 TARGET_FREQ = 3.0
 
+# Positive-control ties (the 8 grating orientations of one pigeon recording,
+# repeat trials) go to a pseudo-random recording rather than the first one,
+# which was always orientation 0 (2026-11-02). The choice hashes each row's
+# neuron key and rec name with this seed, so a neuron gets the same recording
+# in every panel and in Fig 2.
+POS_CONTROL_TIE_SEED = 0
 
 
 def cmap_to_black(cmap_name, floor=0.25):
@@ -84,13 +91,16 @@ def _split_into_waves(df, wave_groups=("species", "ID", "date", "id")):
 
 
 def one_recording_per_neuron(waves, pval_col="p_value", target_freq=TARGET_FREQ,
-                             wave_groups=("species", "ID", "date", "id")):
+                             wave_groups=("species", "ID", "date", "id"), tie_seed=None):
     """One row per neuron: the recording whose `freq` is closest to
     `target_freq`, among the neuron's rows with a finite `pval_col` (so a
     neuron isn't lost to a NaN 2F p-value when another recording has one).
     Ties -- several recordings at the closest frequency, e.g. repeat trials --
     go to the earliest occurrence, i.e. the row that `_split_into_waves` puts
-    in wave 0 when it is among them. The choice never looks at p-values.
+    in wave 0 when it is among them -- or, given `tie_seed`, to a pseudo-random
+    one of them (a hash of the row's neuron key and rec name, so the choice
+    doesn't depend on which other rows are in `waves`). The choice never looks
+    at p-values.
 
     Neurons recorded at one frequency only (all the fish, quail) keep their
     first recording; for the fish, recorded below 1 Hz, "closest to 3 Hz" is
@@ -98,9 +108,24 @@ def one_recording_per_neuron(waves, pval_col="p_value", target_freq=TARGET_FREQ,
     """
     df = pd.concat(waves, ignore_index=True)  # wave order = occurrence order
     df = df.loc[np.isfinite(pd.to_numeric(df[pval_col], errors="coerce"))]
-    dist = (df["freq"] - target_freq).abs()
-    df = df.iloc[np.argsort(dist.to_numpy(), kind="stable")]
+    dist = (df["freq"] - target_freq).abs().to_numpy()
+    if tie_seed is None:
+        df = df.iloc[np.argsort(dist, kind="stable")]
+    else:
+        tie = pd.util.hash_pandas_object(df[list(wave_groups) + ["rec"]], index=False,
+                                         hash_key=f"{tie_seed:016d}").to_numpy()
+        df = df.iloc[np.lexsort((tie, dist))]
     return df.drop_duplicates(subset=list(wave_groups), keep="first").reset_index(drop=True)
+
+
+def is_visual(df):
+    """Rows of the positive control that are visual stimuli, spikes and
+    imaging alike: everything but the white noise (`*WN*` recs) -- the
+    pigeon hippocampus 2 Hz and 3 Hz gratings, the pigeon cerebellum oddball
+    light flashes (standard trials), the zebra finch wulst bars and the
+    zebrafish/medaka 1/60 Hz gratings. The "Vis" curve of the by-modality
+    figures (2026-11-18; 3 Hz gratings only until then)."""
+    return ~df.rec.str.contains("WN")
 
 
 def split_into_occurrence_waves(all_fourier_df, pval_col="p_value"):
@@ -130,15 +155,23 @@ def split_into_occurrence_waves(all_fourier_df, pval_col="p_value"):
     return waves, wave_df_l, pos_control_waves
 
 
-def draw_fdr_threshold(ax, sorted_qvals=None, color=None, fdr=FDR):
+def draw_fdr_threshold(ax, sorted_qvals=None, color=None, fdr=FDR, label=None, row=0, label_x=None):
     """Dashed line at q = `fdr` on a sorted-q-value axes; given the panel's
     one sorted q-value curve, also a faint grey vertical line (behind the
     data) from the x-axis up to where that curve crosses it, labelled at its
     foot in `color` with the responder count (units at
     q <= `fdr`). The crossing lies between the last unit at or below `fdr`
     (x = n - 1) and the first one above it (x = n). With no responders only
-    the label is drawn. Call after the axes' y-limits are final."""
-    ax.axhline(fdr, color=FP.COLOR_NULL, linestyle="--", linewidth=FP.LW_REFERENCE)
+    the label is drawn. Call after the axes' y-limits are final.
+
+    `label` prefixes the count (e.g. the curve's bucket name); `row` stacks
+    the labels of several curves on one axes, one text line per row;
+    `label_x`, if given, is the x (data units) the label is left-justified
+    at instead of this curve's own crossing -- the caller passes the
+    rightmost crossing of all the axes' curves, so stacked labels share one
+    left edge clear of every curve's data (2026-11-12)."""
+    if row == 0:
+        ax.axhline(fdr, color=FP.COLOR_NULL, linestyle="--", linewidth=FP.LW_REFERENCE)
     if sorted_qvals is None:
         return
     n = int(np.sum(sorted_qvals <= fdr))
@@ -150,13 +183,19 @@ def draw_fdr_threshold(ax, sorted_qvals=None, color=None, fdr=FDR):
                 alpha=FP.ALPHA_TRACE, linewidth=FP.LW_REFERENCE, zorder=1)
     # At the foot of the line, on the x-axis, rather than at the crossing,
     # where it sat on top of the curve.
-    ax.annotate(f"r = {n} (q ≤ {fdr:g})",(max(x_cross, 0), ax.get_ylim()[0]), xytext=(3, 3),
+    # The q threshold is stated in the legend, not on every panel (2026-11-09).
+    text = f"r = {n}" if label is None else f"{label}: r = {n}"
+    fontsize = matplotlib.font_manager.FontProperties(
+        size=matplotlib.rcParams["xtick.labelsize"]).get_size_in_points()
+    if label_x is None:
+        label_x = x_cross
+    return ax.annotate(text, (max(label_x, 0), ax.get_ylim()[0]), xytext=(3, 3 + 1.3 * fontsize * row),
                 textcoords="offset points", ha="left", va="bottom",
                 fontsize=matplotlib.rcParams["xtick.labelsize"], color=color)
 
 
 def plot_uniform_p(waves, axes, percentile=None, colors=None, pval_col="p_value", sens_col="sens",
-                    q_ylim=Q_YLIM, fdr=FDR):
+                    q_ylim=Q_YLIM, fdr=FDR, labels=None):
     """`colors`, if given, must have one entry per entry of `waves` (same order,
     before the internal reversal) -- assigns an explicit color per occurrence-wave
     instead of relying on matplotlib's automatic per-Axes color cycle. This matters
@@ -176,7 +215,8 @@ def plot_uniform_p(waves, axes, percentile=None, colors=None, pval_col="p_value"
     single curve -- the responder count where it crosses (see
     `draw_fdr_threshold`). With several curves (occurrence waves, variant
     bucketings) only the threshold line is drawn; one count per bucket would
-    bury the panel.
+    bury the panel -- unless `labels` (one per entry of `waves`) is given, in
+    which case every curve gets its own count, prefixed by its label.
 
     `axes[0]` (the sorted-p-value axes) may be None, in which case only the
     sorted-q-value axes is drawn. fig3s4_bucketings.py's ECDF-deviation page
@@ -186,6 +226,9 @@ def plot_uniform_p(waves, axes, percentile=None, colors=None, pval_col="p_value"
     """
     if colors is None:
         colors = [None] * len(waves)
+    count_labels = labels
+    if labels is None:
+        labels = [None] * len(waves)
     # Widest bucket, which is what the shared x-axis actually autoscales to.
     # This used to track the LAST bucket plotted instead, which happens to be
     # the same thing for occurrence waves (wave 0 is plotted last and is
@@ -195,8 +238,8 @@ def plot_uniform_p(waves, axes, percentile=None, colors=None, pval_col="p_value"
     # not the widest, and the right-hand tick then landed mid-axes carrying a
     # label that disagreed with the axis limit it was supposed to mark.
     max_n = 0
-    wave_sorted_qvals, wave_colors = [], []
-    for wave_df, color in zip(waves[::-1], colors[::-1]):
+    wave_sorted_qvals, wave_colors, wave_labels = [], [], []
+    for wave_df, color, label in zip(waves[::-1], colors[::-1], labels[::-1]):
         if len(wave_df) == 0:
             continue
         if percentile is not None:
@@ -216,6 +259,7 @@ def plot_uniform_p(waves, axes, percentile=None, colors=None, pval_col="p_value"
         sq = np.sort(qval)
         wave_sorted_qvals.append(sq)
         wave_colors.append(color)
+        wave_labels.append(label)
 
         if axes[0] is not None:
             axes[0].plot(np.sort(pval), ".", color=color, alpha=FP.ALPHA_TRACE, markersize=FP.MS_DATA, markeredgewidth=0, rasterized=True)
@@ -233,14 +277,33 @@ def plot_uniform_p(waves, axes, percentile=None, colors=None, pval_col="p_value"
     axes[1].set_yscale("log")
     axes[1].set_ylim(*q_ylim)
     if fdr is not None:
-        if len(wave_sorted_qvals) == 1:
+        if count_labels is not None:
+            # Back in the caller's order, the first curve on the bottom line.
+            # Every label left-justified at the rightmost crossing, so no
+            # label sits on top of another curve's data (2026-11-12).
+            label_x = max(int(np.sum(sq <= fdr)) - 0.5 for sq in wave_sorted_qvals)
+            anns = [draw_fdr_threshold(axes[1], sq, color, fdr=fdr, label=label, row=row,
+                                       label_x=label_x)
+                    for row, (sq, color, label) in enumerate(zip(wave_sorted_qvals[::-1], wave_colors[::-1],
+                                                                 wave_labels[::-1]))]
+            # A crossing far to the right would push the labels past the
+            # axes' right edge (into the next panel's y-label): slide them
+            # all left just enough to end at the edge (2026-11-18).
+            fig = axes[1].figure
+            renderer = fig.canvas.get_renderer()
+            overflow_px = max(a.get_window_extent(renderer).x1 for a in anns) \
+                - axes[1].get_window_extent(renderer).x1
+            if overflow_px > 0:
+                for a in anns:
+                    a.xyann = (a.xyann[0] - overflow_px * 72 / fig.dpi, a.xyann[1])
+        elif len(wave_sorted_qvals) == 1:
             draw_fdr_threshold(axes[1], wave_sorted_qvals[0], wave_colors[0], fdr=fdr)
         else:
             draw_fdr_threshold(axes[1], fdr=fdr)
 
 
 def plot_fig3(all_fourier_df, out_dir: Path, pval_col="p_value", sens_col="sens",
-              out_name="Fig3.pdf", suptitle=None, buckets="one_per_neuron"):
+              out_name="Fig3.pdf", suptitle=None, buckets="one_per_neuron", area="HP"):
     """`pval_col`/`sens_col`/`out_name`/`suptitle`: overridden by fig3s1_second_harmonic.py to
     reuse this exact function for the 2F-harmonic version of this figure
     ("2f_p_value"/"sens_2f"/"Fig3S1_second_harmonic.pdf").
@@ -253,8 +316,25 @@ def plot_fig3(all_fourier_df, out_dir: Path, pval_col="p_value", sens_col="sens"
       "waves"   -- every occurrence wave, one shade each (Fig3.pdf before
           2026-10-18; now page 1 of Fig3S2_all_recordings.pdf).
       "pooled"  -- every recording of every neuron in one bucket, each NFC
-          treated as an independent sample (page 2 of Fig3S2_all_recordings.pdf).
+          treated as an independent sample.
+      "pooled_modality" -- page 2 of Fig3S2_all_recordings.pdf (2026-11-18):
+          as "pooled", but the positive control split into white noise and
+          visual like "modality" (every recording, no per-neuron pick).
+      "modality" -- Fig3_by_modality.pdf (2026-11-02): as "one_per_neuron",
+          but the positive control split into two curves, white noise
+          (auditory) and every visual stimulus (oddball included),
+          spikes and imaging alike (`is_visual`; 3 Hz gratings only until 2026-11-18), each neuron
+          once per curve.
+      "wn_oddball" -- Fig3_WN_oddball.pdf (2026-11-02): as "modality", with
+          the oddball recordings (light flashes, standard trials only) in
+          place of visual.
+    In "one_per_neuron", "modality" and "wn_oddball" positive-control ties go to a
+    pseudo-random recording (`POS_CONTROL_TIE_SEED`).
+
+    `area`: the pigeon brain area of panels C and D, "HP" (hippocampus) or
+    "CB" (cerebellum; Fig3_by_modality_CB.pdf, 2026-11-02).
     """
+    area_name = {"HP": "hippocampus", "CB": "cerebellum"}[area]
     waves, wave_df_l, pos_control_waves = split_into_occurrence_waves(all_fourier_df, pval_col=pval_col)
 
     font = {"family": FP.FONT_FAMILY, "size": FP.FS_BODY}
@@ -272,8 +352,16 @@ def plot_fig3(all_fourier_df, out_dir: Path, pval_col="p_value", sens_col="sens"
         waves = [pd.concat(waves, ignore_index=True)]
         pos_control_waves = [pd.concat(pos_control_waves, ignore_index=True)]
         neg_colors, pos_colors = [FP.COLOR_MAG], [FP.COLOR_VIS]
+    elif buckets == "pooled_modality":
+        waves = [pd.concat(waves, ignore_index=True)]
+        pos_control_waves = [pd.concat(pos_control_waves, ignore_index=True)]
+        neg_colors, pos_colors = [FP.COLOR_MAG], [FP.COLOR_AUD, FP.COLOR_VIS]
     elif buckets == "one_per_neuron":
         neg_colors, pos_colors = [FP.COLOR_MAG], [FP.COLOR_VIS]
+    elif buckets == "modality":
+        neg_colors, pos_colors = [FP.COLOR_MAG], [FP.COLOR_AUD, FP.COLOR_VIS]
+    elif buckets == "wn_oddball":
+        neg_colors, pos_colors = [FP.COLOR_MAG], [FP.COLOR_AUD, FP.COLOR_ODDBALL]
     else:
         raise ValueError(f"unknown buckets={buckets!r}")
 
@@ -289,20 +377,24 @@ def plot_fig3(all_fourier_df, out_dir: Path, pval_col="p_value", sens_col="sens"
     conditions = [
         ("All neurons across all species", None, None),
         ("All pigeon neurons", lambda df: df.species == "Pigeon", None),
-        ("Pigeon hippocampus neurons", lambda df: (df.area == "HP") & (df.species == "Pigeon"), None),
-        ("Top 10% most sensitive neurons in pigeon HP",
-         lambda df: (df.area == "HP") & (df.species == "Pigeon"), 90),
+        (f"Pigeon {area_name} neurons", lambda df: (df.area == area) & (df.species == "Pigeon"), None),
+        (f"Top 10% most sensitive pigeon {area} neurons",
+         lambda df: (df.area == area) & (df.species == "Pigeon"), 90),
     ]
     quadrant_slots = [(0, 0), (0, 1), (1, 0), (1, 1)]
     panel_letters = "ABCD"
 
-    fig = plt.figure(figsize=(FP.FIGSIZE_FIG3[0] * 1.4, FP.FIGSIZE_FIG3[1] * 1.8))
-    outer = fig.add_gridspec(2, 2, wspace=0.45, hspace=0.35,
-                              left=0.08, right=0.98, top=0.90, bottom=0.07)
+    fig = plt.figure(figsize=FP.FIGSIZE_FIG3_MAIN)
+    # Spacing re-tuned 2026-11-09 for the 7.5 in shared main-figure width
+    # (was 11.2 in): wider inner gaps so neighbouring axes' end ticks
+    # ("11709" | "0") and the p/q panels' end labels don't touch, more room
+    # between quadrant rows for the quadrant titles.
+    outer = fig.add_gridspec(2, 2, wspace=0.3, hspace=0.55,
+                              left=0.1, right=0.98, top=0.88, bottom=0.07)
 
     for (title, cond_filter, percentile), (orow, ocol), letter in \
             zip(conditions, quadrant_slots, panel_letters):
-        inner = outer[orow, ocol].subgridspec(2, 2, wspace=0.08, hspace=0.12)
+        inner = outer[orow, ocol].subgridspec(2, 2, wspace=0.25, hspace=0.2)
         ax_p_neg = fig.add_subplot(inner[0, 0])
         ax_p_pos = fig.add_subplot(inner[0, 1])
         ax_q_neg = fig.add_subplot(inner[1, 0])
@@ -321,26 +413,55 @@ def plot_fig3(all_fourier_df, out_dir: Path, pval_col="p_value", sens_col="sens"
         neg_subset = waves if cond_filter is None else [w.loc[cond_filter(w)] for w in waves]
         pos_subset = pos_control_waves if cond_filter is None else \
             [w.loc[cond_filter(w)] for w in pos_control_waves]
-        if buckets == "one_per_neuron":
+        pos_labels = None
+        if buckets in ("one_per_neuron", "modality", "wn_oddball"):
             neg_subset = [one_recording_per_neuron(neg_subset, pval_col=pval_col)]
-            pos_subset = [one_recording_per_neuron(pos_subset, pval_col=pval_col)]
+        if buckets == "one_per_neuron":
+            pos_subset = [one_recording_per_neuron(pos_subset, pval_col=pval_col,
+                                                   tie_seed=POS_CONTROL_TIE_SEED)]
+        elif buckets in ("modality", "wn_oddball"):
+            wn = [w.loc[w.rec.str.contains("WN")] for w in pos_subset]
+            if buckets == "modality":
+                other = [w.loc[is_visual(w)] for w in pos_subset]
+                pos_labels = ["Aud", "Vis"]  # was ["WN", "3 Hz"] (2026-11-10)
+            else:
+                other = [w.loc[w.rec.str.contains("oddball")] for w in pos_subset]
+                pos_labels = ["WN", "oddball"]
+            pos_subset = [one_recording_per_neuron(b, pval_col=pval_col, tie_seed=POS_CONTROL_TIE_SEED)
+                          for b in (wn, other)]
+        elif buckets == "pooled_modality":
+            # Already one pooled bucket; split it, keeping every recording.
+            pooled = pos_subset[0]
+            pos_subset = [pooled.loc[pooled.rec.str.contains("WN")],
+                          pooled.loc[is_visual(pooled)]]
+            pos_labels = ["Aud", "Vis"]
 
         plot_uniform_p(neg_subset, [ax_p_neg, ax_q_neg], percentile=percentile, colors=neg_colors,
                        pval_col=pval_col, sens_col=sens_col)
         plot_uniform_p(pos_subset, [ax_p_pos, ax_q_pos], percentile=percentile, colors=pos_colors,
-                       pval_col=pval_col, sens_col=sens_col)
+                       pval_col=pval_col, sens_col=sens_col, labels=pos_labels)
 
         ax_p_neg.set_title("Magnetic", fontsize=FP.FS_TITLE)
-        ax_p_pos.set_title("Visual/Audio", fontsize=FP.FS_TITLE)
+        if buckets in ("modality", "pooled_modality"):
+            ax_p_pos.set_title("Auditory / Visual", fontsize=FP.FS_TITLE)
+        elif buckets == "wn_oddball":
+            ax_p_pos.set_title("Auditory (WN) / visual (oddball flashes)", fontsize=FP.FS_TITLE)
+        else:
+            ax_p_pos.set_title("Visual/Audio", fontsize=FP.FS_TITLE)
         ax_p_neg.set_ylabel("Sorted p-values")
         ax_q_neg.set_ylabel("Sorted q-values")
         ax_q_neg.set_xlabel("Unit")
         ax_q_pos.set_xlabel("Unit")
 
         quad_pos = outer[orow, ocol].get_position(fig)
-        fig.text((quad_pos.x0 + quad_pos.x1) / 2, quad_pos.y1 + 0.04, title,
-                  ha="center", va="bottom", fontsize=FP.FS_BODY + 1, fontweight="bold")
-        fig.text(quad_pos.x0, quad_pos.y1 + 0.04, letter,
+        # Quadrant title a fixed 0.35 in above the quadrant, clearing the
+        # axis titles ("Magnetic", ...) below it at any figure height; the
+        # letter sits out in the y-label margin so a long title can't run
+        # into it.
+        title_y = quad_pos.y1 + 0.35 / fig.get_figheight()
+        fig.text((quad_pos.x0 + quad_pos.x1) / 2, title_y, title,
+                  ha="center", va="bottom", fontsize=FP.FS_BODY + 1)
+        fig.text(quad_pos.x0 - 0.07, title_y, letter,
                   ha="left", va="bottom", fontfamily="arial", fontsize=12)
 
     if suptitle:
@@ -356,7 +477,7 @@ def plot_fig3(all_fourier_df, out_dir: Path, pval_col="p_value", sens_col="sens"
         return fig
 
     out_path = out_dir / out_name
-    fig.savefig(out_path, bbox_inches="tight", dpi=FP.DPI)
+    FP.save_main_figure(fig, out_path)
     print(f"Saved {out_path}")
     if not in_notebook:
         plt.close(fig)
@@ -375,16 +496,27 @@ def main():
     print(f"Loading {args.parquet} ...")
     all_fourier_df = pd.read_parquet(args.parquet)
     plot_fig3(all_fourier_df, out_dir)
+    plot_fig3(all_fourier_df, out_dir, out_name="Fig3_by_modality.pdf", buckets="modality")
+    plot_fig3(all_fourier_df, out_dir, out_name="Fig3_by_modality_CB.pdf", buckets="modality", area="CB")
+    # White noise and oddball, panels C/D hippocampus (page 1) and cerebellum (page 2).
+    wn_oddball_path = out_dir / "Fig3_WN_oddball.pdf"
+    with PdfPages(wn_oddball_path) as pdf:
+        for area in ("HP", "CB"):
+            fig = plot_fig3(all_fourier_df, out_dir, out_name=None, buckets="wn_oddball", area=area)
+            pdf.savefig(fig, bbox_inches="tight", dpi=FP.DPI)
+            plt.close(fig)
+    print(f"Saved {wn_oddball_path}")
 
     # Supplement: the occurrence-wave version (Fig3.pdf before 2026-10-18) and
-    # the all-recordings-pooled version, one page each.
+    # the all-recordings-pooled version (positive control split into
+    # auditory / visual since 2026-11-18), one page each.
     supp_dir = Path(FP.SUPPLEMENT_DIR)
     supp_dir.mkdir(parents=True, exist_ok=True)
     supp_path = supp_dir / "Fig3S2_all_recordings.pdf"
     with PdfPages(supp_path) as pdf:
         for buckets, suptitle in (
                 ("waves", "Each neuron's 1st, 2nd, ... recording as a separate bucket"),
-                ("pooled", "Every recording of every neuron pooled (each NFC an independent sample)")):
+                ("pooled_modality", "Every recording of every neuron pooled (each NFC an independent sample)")):
             fig = plot_fig3(all_fourier_df, out_dir, out_name=None, suptitle=suptitle, buckets=buckets)
             pdf.savefig(fig, bbox_inches="tight", dpi=FP.DPI)
             plt.close(fig)

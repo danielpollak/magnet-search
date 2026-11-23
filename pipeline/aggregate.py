@@ -31,9 +31,9 @@ DEFAULT_OUT = os.path.join(DATA_DIR, "manuscript", "all_fourier_df.parquet")
 # YAML at all (not reprocessable), so they keep a small residual annotation dict.
 # Maps rec name → [date, ID, area, species, contingency]
 _PRECOMPUTED_ANNOT_D = {
-    # Mouse (KyuHyunLee) — Intan RHD .mat recordings, area=SC, loaded from data/precomputed/
-    'magnetic4hz_170928_031259': ['20230928', 'mouse1', 'SC', 'mouse', "mag"],
-    'magnetic_170928_025824':    ['20230928', 'mouse1', 'SC', 'mouse', "mag"],
+    # Mouse (KyuHyunLee) — Intan RHD .mat recordings, area=SC, loaded from data/precomputed/mouse/
+    'magnetic4hz_170928_031259': ['2017-09-28', 'mouse1', 'SC', 'mouse', "mag"],
+    'magnetic_170928_025824':    ['2017-09-28', 'mouse1', 'SC', 'mouse', "mag"],
     # Owl (Gutfreund) — pre-computed coefficients, loaded from data/precomputed/
     'exp1': ['20221210', 'Owl 7 cage C', 'pallium', 'Owl', "mag"],
     'exp2': ['20221210', 'Owl 7 cage C', 'pallium', 'Owl', "mag"],
@@ -42,8 +42,17 @@ _PRECOMPUTED_ANNOT_D = {
     'exp5': ['20221210', 'Owl 7 cage C', 'pallium', 'Owl', "mag"],
 }
 
+# Fixes to values the frozen precomputed pickles carry themselves (which the
+# fallback above never overrides). mouse_analysis.pickle dates the mouse
+# 2023-09-28, but it was recorded 2017-09-28 (rec names `_170928_`, and
+# data/precomputed/mouse/Recording 20170928.pdf).
+_PRECOMPUTED_FIXES = {
+    'magnetic4hz_170928_031259': {'date': '2017-09-28'},
+    'magnetic_170928_025824':    {'date': '2017-09-28'},
+}
+
 # Legacy pickle-era column names -> current names. These frozen files
-# (data/precomputed/mouse_analysis.pickle, owl_analysis.pickle, and any
+# (data/precomputed/mouse/mouse_analysis.pickle, owl_analysis.pickle, and any
 # stale pre-Phase-7 *_analysis.pickle leftover) must never be edited on
 # disk, but they still carry the OLD column names (they're ephys-style --
 # engert/medaka never wrote a standalone pickle even before the NWB
@@ -159,17 +168,22 @@ def build_all_fourier_df(data_dir: str) -> pd.DataFrame:
         print(f"Loaded {len(pickle_only_files)} additional experiment(s) from legacy "
               f"_analysis.pickle (no .nwb found for these)")
 
-    # Also load pre-computed species pickles (mouse, owl — formats not portable to YAML pipeline)
+    # Also load pre-computed species pickles (mouse, owl — formats not portable to YAML pipeline).
+    # Recursive: the mouse pickle sits in precomputed/mouse/ next to its source .mat files.
     precomputed_dir = os.path.join(data_dir, "precomputed")
-    precomputed_files = sorted(glob.glob(os.path.join(precomputed_dir, "*.pickle")))
+    precomputed_files = sorted(glob.glob(os.path.join(precomputed_dir, "**", "*.pickle"), recursive=True))
     n_pre = 0
     for f in precomputed_files:
         try:
             df = pd.read_pickle(f)
             if not isinstance(df, pd.DataFrame):
-                print(f"  skip precomputed/{os.path.basename(f)}: not a DataFrame")
+                print(f"  skip precomputed/{os.path.relpath(f, precomputed_dir)}: not a DataFrame")
                 continue
             df = _rename_legacy_pickle_columns(df)
+            for rec, fixes in _PRECOMPUTED_FIXES.items():
+                for col, value in fixes.items():
+                    if col in df.columns:
+                        df.loc[df["rec"] == rec, col] = value
             if "contingency" not in df.columns:
                 # infer: owl control row gets "control" (will be dropped later); rest → "mag"
                 df = df.copy()
@@ -179,7 +193,7 @@ def build_all_fourier_df(data_dir: str) -> pd.DataFrame:
             dfs.append(df)
             n_pre += 1
         except Exception as exc:
-            print(f"  skip precomputed/{os.path.basename(f)}: {exc}")
+            print(f"  skip precomputed/{os.path.relpath(f, precomputed_dir)}: {exc}")
     if n_pre:
         print(f"Loaded {n_pre} precomputed pickle(s) from {precomputed_dir}")
 

@@ -9,33 +9,28 @@
 **Coverage of this report: all 15 sessions.**
 
 **Summary.**
-- **One session gains more than a thousand ROIs: 2022_02_23** (2022 Q1 zebrafish). The original
-  0.14.4 run found only 173 ROIs (124 passing); v1 finds 3786 (1304 passing), as many as the
-  other two 2022 Q1 sessions. The original run's correlation image is ~6 times weaker than in
-  any other session (section 2a), so production has lost almost all of this fish.
-- **Otherwise the total number of ROIs is the same** (within 2% in every other session). Both versions stop
-  near the 5000-ROI cap of sparsery, so this number says little.
-- **v1 gives higher P(iscell).** In medaka the median goes from 0.26–0.38 to 0.75–0.85. In the
-  0.1 and 0.3 Hz zebrafish it rises a little (0.13–0.26 to 0.25–0.38); in the 2022 Q1 zebrafish
-  it barely moves (0.32 → 0.37, 0.43 → 0.44), except in 2022_02_23 (0.80 → 0.25, because the
-  original kept only its 173 most cell-like ROIs).
-- **v1 makes ROIs slightly smaller** in the floor-clipped recordings: fewer ROIs reach
-  npix ≥ 10 (medaka −35 to −59%, 0.1/0.3 Hz zebrafish −2 to −34%). The 2022 Q1 sessions are
-  unchanged (apart from 2022_02_23's extra ROIs).
-- **The production ROI set changes most in medaka:** 1647 → 785 ROIs pass P(iscell) > 0.5 and
-  npix ≥ 10 (−52%, −37 to −71% per trial), because the npix loss outweighs the P(iscell) gain.
-  In the 0.1/0.3 Hz zebrafish the passing count moves −20% to +26% per session (+4% overall).
-  In the 2022 Q1 zebrafish it rises 43% (3070 → 4384), almost all of it from 2022_02_23;
-  2022_02_21 +11%, 2022_03_01 −1%.
-- **Coverage barely moves for all ROIs; among passing ROIs it rises in medaka** (share with
-  coverage ≥ 0.1: 0.79–0.93 → 0.93–0.97) and in the 0.3 Hz zebrafish, and falls slightly in
-  2022_10_01-fish1 and 2022_10_02-fish2.
-- **v1 still halves uint16 tiffs, and the floor at 50.0 remains** in every floor-clipped session
-  (99.2–99.5% of registered pixels at 50; 88–97% of passing-ROI F samples at exactly 50.0).
-  v1 also still writes the registered movie as int16. The 2022 Q1 sessions are halved too, but
-  their raw values (~10 000, ~4100–4200 distinct values) lose nothing that matters and their
-  traces have no floor; so is 2022_10_02-fish1, whose tiffs are stored ×256, so halving is
-  lossless there.
+- **One session gains more than a thousand ROIs: 2022_02_23** (2022 Q1 zebrafish). v1 finds
+  as many ROIs there as in the other two 2022 Q1 sessions. The original 0.14.4 run's correlation
+  image is ~6 times weaker than in any other session (section 2a), so production has lost almost
+  all of this fish.
+- **Otherwise the total number of ROIs is the same.** Both versions stop near the 5000-ROI cap
+  of sparsery, so this number says little.
+- **v1 gives higher P(iscell):** strongly in medaka, a little in the 0.1 and 0.3 Hz zebrafish,
+  barely in the 2022 Q1 zebrafish. The exception is 2022_02_23, where the original kept only its
+  most cell-like ROIs.
+- **v1 makes ROIs slightly smaller** in the floor-clipped recordings, so fewer reach npix ≥ 10.
+  The 2022 Q1 sessions are unchanged (apart from 2022_02_23's extra ROIs).
+- **The production ROI set changes most in medaka,** which loses about half of its ROIs passing
+  P(iscell) > 0.5 and npix ≥ 10, because the npix loss outweighs the P(iscell) gain. In the
+  0.1/0.3 Hz zebrafish the change has no consistent sign; in the 2022 Q1 zebrafish almost all of
+  the gain comes from 2022_02_23.
+- **Coverage barely moves for all ROIs; among passing ROIs it rises in medaka** and in the
+  0.3 Hz zebrafish, and falls slightly in 2022_10_01-fish1 and 2022_10_02-fish2.
+- **v1 keeps the floor; only re-extraction removes it.** v1 still halves uint16 tiffs and still
+  writes the registered movie as int16, so the floor at 50.0 remains in every floor-clipped
+  session. The 2022 Q1 sessions are halved too, but their raw values are large enough that they
+  lose nothing that matters and their traces have no floor; 2022_10_02-fish1's tiffs are stored
+  ×256, so halving is lossless there.
 
 ## Terms and populations
 
@@ -109,11 +104,11 @@ production thresholds?
 
 <sub>Table 1. Per session, original → v1. "Passing both": P(iscell) > 0.5 and npix ≥ 10. Totals of passing ROIs: medaka 1647 → 785 (−52%); 0.1 Hz zebrafish 2019 → 2125 (+5%); 0.3 Hz zebrafish 667 → 670 (0%); 2022 Q1 zebrafish 3070 → 4384 (+43%).</sub>
 
-- **All ROIs: no difference except 2022_02_23** (Figure 1, left). Every other session changes
-  by less than 2%, and all 0.1 Hz zebrafish and medaka sessions sit at 4630–4960, just under the
-  5000 cap. 2022_02_23 goes from 173 to 3786 (section 2a).
-- **Passing ROIs: medaka loses about half** (Figure 1, right), between 37% and 71% per trial.
-  In the other zebrafish sessions the change is between −20% and +26% and has no consistent sign.
+- **All ROIs: no difference except 2022_02_23** (Figure 1, left; section 2a). Every other
+  session changes by less than 2%, and all 0.1 Hz zebrafish and medaka sessions sit just under
+  the 5000 cap.
+- **Passing ROIs: medaka loses about half** (Figure 1, right; Table 1). In the other zebrafish
+  sessions the change has no consistent sign.
 
 ## 2. Does v1 assign different P(iscell)?
 
@@ -124,12 +119,10 @@ production thresholds?
 <sub>**Figure 2. Original (x) against v1 (y), one point per session or recording.** Dotted: no change. Colours: batch. *1st:* ROIs passing P(iscell) > 0.5 and npix ≥ 10 (log axes). *2nd:* median P(iscell) of all ROIs. *3rd:* ROIs with npix ≥ 10 (log axes). *4th:* share of ROIs with coverage ≥ 0.1, per recording, for all ROIs (rings) and passing ROIs (triangles).</sub>
 
 - **v1's median P(iscell) is higher in every session except 2022_02_23** (Figure 2, 2nd
-  panel; Table 1; for 2022_02_23 see section 2a). The
-  shift is large in medaka: the median goes from 0.26–0.38 to 0.75–0.85, and 3363–3784 ROIs per
-  trial exceed 0.5, against 1210–2334 in the original.
-- In the other zebrafish sessions the shift is modest: median +0.01 to +0.13; ROIs above 0.5
-  go up by 10–72%, except 2022_09_15-fish1 (549 → 517), 2022_10_02-fish1 (899 → 868) and
-  2022_03_01 (1494 → 1478).
+  panel; Table 1; for 2022_02_23 see section 2a). The shift is large in medaka, where most ROIs
+  now exceed 0.5.
+- In the other zebrafish sessions the shift is modest. The number of ROIs above 0.5 rises in
+  most of them and falls slightly in three (2022_09_15-fish1, 2022_10_02-fish1, 2022_03_01).
 - The original medaka distribution has large spikes at 0 and near 0.43 (Figure 3, top middle);
   v1's is concentrated above 0.6, in a few narrow peaks. Both look like the classifier
   responding to a handful of discrete feature values, which is what floor-clipped traces with
@@ -146,102 +139,61 @@ of ROIs by more than 2%. Is that v1 inventing ROIs, or the original missing them
 
 ![2022_02_23](suite2p_v1/figs/2022_02_23.png)
 
-<sub>**Figure 3a. 2022_02_23 (4 recordings), original 0.14.4 (blue) vs v1 (orange).** Panels as in Figure 3 below.</sub>
+<sub>**Figure 4. 2022_02_23 (4 recordings), original 0.14.4 (blue) vs v1 (orange).** Panels as in Figure 3.</sub>
 
-- **The fish moved a lot in both runs:** registration shifts of about 50 px, so the movie is
+- **The fish moved a lot in both runs (Figure 4):** registration shifts of about 50 px, so the movie is
   cropped to 604 × 588 px, against about 690 × 680 px in the other 2022 Q1 sessions.
 - **The original's correlation image is degraded.** Detection seeds ROIs from the correlation
   image (`Vcorr`). Its median is 1.08 in the original run and 6.3 in v1; in 2022_02_21 and
   2022_03_01 the two versions agree (6.07 vs 6.07, 6.16 vs 6.16). With a flat correlation image
-  the original found only 173 ROIs, the largest and most cell-like (median P(iscell) 0.80,
-  median npix 54).
-- **v1's ROIs look like those of the other sessions:** 3786 ROIs, 1304 passing, median
-  P(iscell) 0.25 and median npix 42, close to 2022_02_21 (3834, 1619, 0.37, 47).
+  the original found only a few ROIs, the largest and most cell-like (Table 1).
+- **v1's ROIs look like those of the other 2022 Q1 sessions** in number, P(iscell) and size
+  (Table 1).
 - **So the original missed them.** Production uses the original segmentation and therefore has
-  124 passing ROIs for this fish, against about 1300 that a working segmentation gives.
+  lost most of this fish's passing ROIs.
 
 ## 3. Does v1 produce ROIs of a different size?
 
 **The question.** Is the npix distribution the same, and does the npix ≥ 10 threshold keep as
 many ROIs?
 
-- **v1's ROIs are slightly smaller in the floor-clipped sessions.** The median npix is unchanged
-  or one pixel smaller (2–6 px), but the upper tail shrinks: the 90th percentile drops by 1–4 px
-  (Table 1).
-- Because the threshold of 10 px sits in that tail, **the count with npix ≥ 10 drops by 35–59%
-  in medaka and 2–34% in the 0.1/0.3 Hz zebrafish** (Figure 2, 3rd panel). In medaka this loss
-  is larger than the gain from P(iscell), hence the drop in passing ROIs.
-- **The 2022 Q1 sessions are unchanged:** median 46 → 47 px (2022_02_21) and 55 → 55 px
-  (2022_03_01); 2022_02_23 aside. Their ROIs are an order of magnitude larger than in the other
-  batches.
+- **v1's ROIs are slightly smaller in the floor-clipped sessions.** The median npix barely
+  changes, but the upper tail shrinks (Table 1, 90th percentile; Figure 5 shows one 0.1 Hz
+  zebrafish session).
+- Because the threshold of 10 px sits in that tail, **the count with npix ≥ 10 drops in medaka
+  and in the 0.1/0.3 Hz zebrafish** (Figure 2, 3rd panel). In medaka this loss is larger than
+  the gain from P(iscell), hence the drop in passing ROIs.
+- **The 2022 Q1 sessions are unchanged** (2022_02_23 aside). Their ROIs are an order of
+  magnitude larger than in the other batches.
 
 ![0.1 Hz zebrafish 2022_10_01-fish2](suite2p_v1/figs/2022_10_01-fish2_cytoGCaMP.png)
 
-<sub>**Figure 4. One 0.1 Hz zebrafish session, 2022_10_01-fish2_cytoGCaMP (6 recordings), original 0.10.1 (blue) vs v1 (orange).** Panels as in Figure 3, with one coverage box pair and one cumulative coverage panel per recording. The other sessions: `suite2p_v1/figs/<session>.png`.</sub>
+<sub>**Figure 5. One 0.1 Hz zebrafish session, 2022_10_01-fish2_cytoGCaMP (6 recordings), original 0.10.1 (blue) vs v1 (orange).** Panels as in Figure 3, with one coverage box pair and one cumulative coverage panel per recording. The other sessions: `suite2p_v1/figs/<session>.png`.</sub>
 
 ## 4. Does v1 change coverage?
 
 **The question.** Per recording, does the share of 60 s windows with ≥ 3 frames above the floor
 differ between the versions, for all ROIs and for passing ROIs?
 
-| session | recording | all ROIs: share coverage ≥ 0.1 | passing: n | passing: median coverage | passing: share coverage ≥ 0.1 |
-|---|---|---|---|---|---|
-| 2022_02_21 | each of visual+magnet, visual, magnet, nostim | 0.99 → 1.00 | 1464 → 1619 | 1.00 → 1.00 | 0.99 → 1.00 |
-| 2022_02_23 | each of visual, visual+magnet, magnet, nostim | 1.00 → 1.00 | 124 → 1304 | 1.00 → 1.00 | 1.00 → 1.00 |
-| 2022_03_01 | each of visual (×2), visual+magnet (×2) | 0.98 → 1.00 | 1482 → 1461 | 1.00 → 1.00 | 0.98 → 1.00 |
-| 2022_09_14-fish2 | magneto_0 | 0.06 → 0.05 | 465 → 488 | 0.00 → 0.00 | 0.17 → 0.14 |
-| 2022_09_14-fish2 | magneto_1 | 0.20 → 0.18 | 465 → 488 | 0.05 → 0.10 | 0.44 → 0.53 |
-| 2022_09_14-fish2 | magneto_2 | 0.20 → 0.19 | 465 → 488 | 0.05 → 0.10 | 0.41 → 0.56 |
-| 2022_09_14-fish2 | no_magneto_0 | 0.08 → 0.06 | 465 → 488 | 0.00 → 0.00 | 0.20 → 0.18 |
-| 2022_09_14-fish2 | no_magneto_1 | 0.19 → 0.18 | 465 → 488 | 0.05 → 0.10 | 0.43 → 0.53 |
-| 2022_09_14-fish2 | no_magneto_2 | 0.21 → 0.20 | 465 → 488 | 0.05 → 0.10 | 0.47 → 0.56 |
-| 2022_09_15-fish1 | magneto_0 | 0.02 → 0.03 | 202 → 182 | 0.00 → 0.00 | 0.13 → 0.20 |
-| 2022_09_15-fish1 | magneto_1 | 0.04 → 0.06 | 202 → 182 | 0.00 → 0.05 | 0.30 → 0.36 |
-| 2022_09_15-fish1 | magneto_2 | 0.04 → 0.07 | 202 → 182 | 0.00 → 0.05 | 0.29 → 0.43 |
-| 2022_09_15-fish1 | no_magneto_0 | 0.02 → 0.02 | 202 → 182 | 0.00 → 0.00 | 0.12 → 0.16 |
-| 2022_09_15-fish1 | no_magneto_1 | 0.03 → 0.04 | 202 → 182 | 0.00 → 0.00 | 0.22 → 0.31 |
-| 2022_09_15-fish1 | no_magneto_2 | 0.04 → 0.06 | 202 → 182 | 0.00 → 0.00 | 0.29 → 0.40 |
-| 2022_10_01-fish1 | magneto_0 | 0.13 → 0.10 | 613 → 669 | 0.06 → 0.06 | 0.49 → 0.40 |
-| 2022_10_01-fish1 | magneto_1 | 0.23 → 0.21 | 613 → 669 | 0.22 → 0.17 | 0.66 → 0.62 |
-| 2022_10_01-fish1 | magneto_2 | 0.21 → 0.19 | 613 → 669 | 0.17 → 0.11 | 0.62 → 0.58 |
-| 2022_10_01-fish1 | no_magneto_0 | 0.11 → 0.09 | 613 → 669 | 0.06 → 0.06 | 0.40 → 0.35 |
-| 2022_10_01-fish1 | no_magneto_1 | 0.20 → 0.18 | 613 → 669 | 0.22 → 0.17 | 0.63 → 0.60 |
-| 2022_10_01-fish1 | no_magneto_2 | 0.19 → 0.16 | 613 → 669 | 0.17 → 0.11 | 0.58 → 0.54 |
-| 2022_10_01-fish2 | magneto_0 | 0.08 → 0.05 | 411 → 328 | 0.06 → 0.06 | 0.49 → 0.43 |
-| 2022_10_01-fish2 | magneto_1 | 0.13 → 0.09 | 411 → 328 | 0.22 → 0.17 | 0.65 → 0.61 |
-| 2022_10_01-fish2 | magneto_2 | 0.11 → 0.08 | 411 → 328 | 0.17 → 0.14 | 0.58 → 0.57 |
-| 2022_10_01-fish2 | no_magneto_0 | 0.09 → 0.05 | 411 → 328 | 0.06 → 0.06 | 0.48 → 0.48 |
-| 2022_10_01-fish2 | no_magneto_1 | 0.16 → 0.13 | 411 → 328 | 0.44 → 0.61 | 0.71 → 0.80 |
-| 2022_10_01-fish2 | no_magneto_2 | 0.15 → 0.11 | 411 → 328 | 0.33 → 0.50 | 0.66 → 0.73 |
-| 2022_10_02-fish1 | each of magneto_1–3, no-magneto_1–3 | 0.87–0.88 → 0.86–0.88 | 485 → 486 | 1.00 → 1.00 | 1.00 → 1.00 |
-| 2022_10_02-fish2 | magneto_0 | 0.13 → 0.10 | 510 → 642 | 0.06 → 0.06 | 0.46 → 0.39 |
-| 2022_10_02-fish2 | magneto_1 | 0.26 → 0.23 | 510 → 642 | 0.61 → 0.44 | 0.77 → 0.72 |
-| 2022_10_02-fish2 | magneto_2 | 0.23 → 0.19 | 510 → 642 | 0.56 → 0.39 | 0.75 → 0.68 |
-| 2022_10_02-fish2 | no_magneto_0 | 0.15 → 0.12 | 510 → 642 | 0.11 → 0.06 | 0.53 → 0.44 |
-| 2022_10_02-fish2 | no_magneto_1 | 0.29 → 0.24 | 510 → 642 | 0.67 → 0.50 | 0.84 → 0.82 |
-| 2022_10_02-fish2 | no_magneto_2 | 0.26 → 0.21 | 510 → 642 | 0.56 → 0.39 | 0.79 → 0.73 |
-| fish3_8dpf (medaka) | magneto_0 | 0.20 → 0.16 | 289 → 83 | 0.61 → 0.67 | 0.82 → 0.96 |
-| fish3_8dpf (medaka) | magneto_1 | 0.26 → 0.21 | 336 → 211 | 0.67 → 0.67 | 0.85 → 0.97 |
-| fish3_8dpf (medaka) | magneto_2 | 0.24 → 0.21 | 350 → 176 | 0.72 → 0.78 | 0.81 → 0.97 |
-| fish3_8dpf (medaka) | no_magneto_0 | 0.18 → 0.15 | 238 → 96 | 0.61 → 0.69 | 0.79 → 0.93 |
-| fish3_8dpf (medaka) | no_magneto_1 | 0.20 → 0.18 | 221 → 126 | 0.72 → 0.64 | 0.93 → 0.97 |
-| fish3_8dpf (medaka) | no_magneto_2 | 0.19 → 0.16 | 213 → 93 | 0.72 → 0.72 | 0.92 → 0.96 |
-
-<sub>Table 2. Per recording, original → v1. A zebrafish session's recordings share one set of ROIs, so "passing: n" repeats within a session. The recordings of each 2022 Q1 session, and of 2022_10_02-fish1 (whose tiffs are ×256 and whose trials 2–3 are copies of trial 1), give identical rows, because almost every passing trace is above its floor in every window.</sub>
-
-- **All ROIs: v1's coverage is the same or slightly lower** (Figure 2, 4th panel, rings): the
-  share with coverage ≥ 0.1 changes by −0.05 to +0.03 per recording; it is lower in 36 of 54
-  recordings (higher only in 2022_02_21, 2022_03_01 and 2022_09_15-fish1).
-- **Passing ROIs, medaka: v1's are more often covered.** The share with coverage ≥ 0.1 goes
-  from 0.79–0.93 to 0.93–0.97 (Figure 2, triangles; Figure 3, bottom), because v1 keeps fewer,
-  mostly well-covered ROIs. The median coverage barely moves (0.61–0.72 → 0.64–0.78).
-- **Passing ROIs, zebrafish: mixed.** Up in the 0.3 Hz sessions (by 0.04–0.15 in 10 of 12
-  recordings) and in 2022_10_01-fish2's no_magneto_1/2; down by 0.02–0.09 in all six recordings
-  of 2022_10_01-fish1 and of 2022_10_02-fish2. The ranking of recordings is preserved: magneto_0/no_magneto_0 are the
+- **All ROIs: v1's coverage is the same or slightly lower** (Figure 2, 4th panel, rings). It is
+  lower in 36 of 54 recordings, and higher only in 2022_02_21, 2022_03_01 and 2022_09_15-fish1.
+- **Passing ROIs, medaka: v1's are more often covered** (Figure 2, triangles; Figure 3, bottom),
+  because v1 keeps fewer, mostly well-covered ROIs. The median coverage barely moves.
+- **Passing ROIs, zebrafish: mixed.** Up in the 0.3 Hz sessions (10 of 12 recordings) and in
+  2022_10_01-fish2's no_magneto_1/2; down in all six recordings of 2022_10_01-fish1 and of
+  2022_10_02-fish2. The ranking of recordings is preserved: magneto_0/no_magneto_0 are the
   least covered in both versions.
-- **2022 Q1 sessions: full coverage in both** (0.98–1.00 → 1.00 of passing ROIs). The
-  original's zero-coverage ROIs (8 in 2022_02_21, 23 in 2022_03_01) have an all-zero F; v1 has
-  none.
+- **2022 Q1 sessions: full coverage in both.** The original's zero-coverage ROIs (8 in
+  2022_02_21, 23 in 2022_03_01) have an all-zero F; v1 has none.
+
+The per-recording values (original → v1: share of all ROIs with coverage ≥ 0.1; passing ROIs'
+n, median coverage and share with coverage ≥ 0.1) are in
+[`suite2p_v1/results/coverage_per_recording.csv`](suite2p_v1/results/coverage_per_recording.csv),
+rounded to two decimals; the unrounded values are in `results/recordings.csv`. A zebrafish
+session's recordings share one set of ROIs, so the passing n repeats within a session. The
+recordings of each 2022 Q1 session, and of 2022_10_02-fish1 (whose tiffs are ×256 and whose
+trials 2–3 are copies of trial 1), are collapsed into one row there because they give identical
+values: almost every passing trace is above its floor in every window.
 
 ## 5. Does v1 still halve uint16 tiffs and floor the traces?
 
@@ -267,20 +219,18 @@ in every session?
 | medaka no_magneto_1 | 93.5% (100) | 42 | 0.4994 | 99.3% (50) | 99.7% (50) | 89.9% → 92.2% (at 50) |
 | medaka no_magneto_2 | 93.7% (100) | 34 | 0.4994 | 99.3% (50) | 99.8% (50) | 88.9% → 92.0% (at 50) |
 
-<sub>Table 3. First 100 frames of the first tiff of each session: raw uint16 tiff, v1's registered `data.bin` and the original's (both int16). Last column: all frames of F for passing ROIs. From `results/halving.csv`.</sub>
+<sub>Table 2. First 100 frames of the first tiff of each session: raw uint16 tiff, v1's registered `data.bin` and the original's (both int16). Last column: all frames of F for passing ROIs. From `results/halving.csv`.</sub>
 
-- **Yes, in every session.** v1's `data.bin` has 0.4993–0.5000 times the raw mean, the same
-  ratio as the original's. v1 also still stores the registered movie as int16, so the second
-  lossy step (truncation after the bilinear nonrigid shift) is there too.
-- **In the floor-clipped sessions the floor survives unchanged:** the raw tiffs sit at 100 for
-  93–99% of pixels; after halving and registration 99.2–99.5% of pixels are at 50 in v1
-  (99.6–100% in the original). Passing ROIs' F is at exactly 50.0 for 89–97% of samples in v1,
-  against 89–94% in the original, and nearly every trace is clipped in both versions (share of
+- **Yes, in every session.** v1's `data.bin` has half the raw mean, the same ratio as the
+  original's (Table 2). v1 also still stores the registered movie as int16, so the second lossy
+  step (truncation after the bilinear nonrigid shift) is there too.
+- **In the floor-clipped sessions the floor survives unchanged:** the raw floor at 100 becomes
+  50 after halving and registration in both versions, and passing ROIs' F sits at exactly 50.0
+  in most samples in both (Table 2). Nearly every trace is clipped in both versions (share of
   clipped traces 0.999–1.0, all ROIs).
-- **The 2022 Q1 sessions are halved but not floored.** Their raw values are around 10 000
-  with 4086–4220 distinct values in 100 frames, so dropping the last bit loses nothing that
-  matters, and no trace is clipped in v1 (0.5% and 1.6% in the original, the all-zero ROIs
-  above).
+- **The 2022 Q1 sessions are halved but not floored.** Their raw values are around 10 000 with
+  thousands of distinct values, so dropping the last bit loses nothing that matters, and no
+  trace is clipped in v1 (the original's clipped samples are the all-zero ROIs of section 4).
 - **2022_10_02-fish1 is halved losslessly.** Its tiffs are stored ×256 (offset 25 600), so
   `// 2` only drops a bit that is always 0. Its traces still sit at the offset in many frames
   (photon-free frames, as in the other photon-starved sessions), but the faint signal between

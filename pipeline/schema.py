@@ -83,6 +83,10 @@ class AnalysisConfig:
     # frequency" meaning in both cases, just applied to a different paradigm.
     mag_Q_frac: float = -1.0
     visual_Q_frac: float = -1.0
+    # openephys_multistim: override of the 8-bin minimum (MIN_FOURIER_BINS)
+    # for the visual fits only; -1 = default. Exception granted 2026-11-11
+    # for 20220916's per-direction bars (see fit_fourier_sig's min_bins).
+    visual_min_bins: int = -1
     WN_Q_frac: float = -1.0
     # oddball's long_on/long_off/long_both recs (see multistim.py) are split
     # out of visual_mask entirely and never run through fit_fourier_sig --

@@ -26,37 +26,30 @@ Page 3  Canonical quadrants again, but buckets are EQUAL-SIZED: rows are dealt
         rebalanced -- its occurrence waves shrink from thousands of units to a
         few hundred, which makes the
         later buckets' apparent deviation mostly small-n noise.
-Page 4  Page 3 with one more constraint: bucket size roughly EQUAL ACROSS
-        the two halves too, not just within each (see
-        `matched_round_robin`). Magnetic may drop up to ~2% of its rows to
-        enlarge its buckets toward A/V's page-3 size; where that isn't
-        enough, A/V takes more (smaller) buckets to meet it.
-Page 5  Page 3's equal-sized buckets, the sorted-p-value panel replaced by a
+Page 4  Page 3's equal-sized buckets, the sorted-p-value panel replaced by a
         stack of per-bucket ECDF-deviation mini-axes in the style of Fig 1's
         inset: ECDF(p) - p over the null's 95% binomial band, uniform null at
         0. Equal sizes give every row the same band. The sorted-q-value
         panel below is unchanged.
-Page 6  The full cross-tabulation: one quadrant per (species, brain area) pair
-        -- 13 of them under the current annotations, on a 3-wide grid, all
-        seven species included -- x magnetic vs. A/V x frequency buckets. A
-        pair that never got a given stimulus gets an axes labelled "not
-        presented" rather than a silent blank; Owl, which has units but no
-        Fourier p-value at all, gets "no p-values" (see `_blank_reason`).
+Page 5  The full cross-tabulation: one panel per (species, brain area) pair
+        with magnetic units, on a 3-wide grid, x frequency buckets. Owl,
+        which has units but no Fourier p-value at all, gets "no p-values"
+        (see `_blank_reason`).
 
-Pages 7-10 are two readings of one question -- does brain area matter -- kept
+Pages 6-9 are two readings of one question -- does brain area matter -- kept
 side by side because which one answers it depends on whether you want each
 region judged on its own or the regions judged against each other:
 
-Page 7  Pigeon, one panel per brain area, that area's units pooled into a
+Page 6  Pigeon, one panel per brain area, that area's units pooled into a
         single bucket. Regions compared ACROSS panels, each on its own axes.
-Page 8 The same for every (species, area) pair -- i.e. page 6's panels with
+Page 7  The same for every (species, area) pair -- i.e. page 5's panels with
         the frequency split collapsed.
-Page 9 Pigeon, ONE panel, brain areas as buckets overplotted on shared axes.
+Page 8  Pigeon, ONE panel, brain areas as buckets overplotted on shared axes.
         Regions directly comparable.
-Page 10 The same for all species, bucketed by (species, area) rather than by
+Page 9  The same for all species, bucketed by (species, area) rather than by
         bare area -- see `bucket_by_species_area` for why the pair matters.
-Page 11 One panel, one bucket per species, each unit counted exactly once.
-Page 12 Canonical quadrants, ONE bucket per half holding every observation,
+Page 10 One panel, one bucket per species, each unit counted exactly once.
+Page 11 Canonical quadrants, ONE bucket holding every observation,
         drawn with an occurrence bootstrap: each draw keeps every
         neuron once but picks WHICH of its recordings at random
         (`statistics.iter_occurrence_draws`), so repeat recordings are used
@@ -64,10 +57,12 @@ Page 12 Canonical quadrants, ONE bucket per half holding every observation,
         and 95% band over draws (what Fig 2 C/D drew until 2026-10-19). Bottom row: sorted
         q-values from the same draws, median and 95% band per rank.
 
-Every page keeps Fig 3's own left/right split: the left (blue) half of each
-quadrant is the negative-result magnetic population, the right (orange) half
-is the positive-control A/V population. Bucket colour is a shade within that
-population's colormap, so shade never crosses the two halves.
+Every page shows only the magnetic (negative-result) population. Until
+2026-11-12 each quadrant also had a right-hand half for the visual/auditory
+positive controls, and a page matching the magnetic bucket size to the A/V
+one; both were dropped as irrelevant to the question these splits ask
+(could a subset of the magnetic data hide responders?). Bucket colour is a
+shade of Fig 3's magnetic colormap.
 
 Requires:
   data/manuscript/all_fourier_df.parquet  (run python pipeline/aggregate.py first)
@@ -111,9 +106,8 @@ NEURON_KEY = list(statistics.UNIQUE_NEURON_KEY)
 # Fig 3's 2x2 quadrant grid positions, in fig3_conditions() order.
 QUADRANT_SLOTS = [(0, 0), (0, 1), (1, 0), (1, 1)]
 
-# The four species carried by both populations. Owl / Quail / mouse are
-# magnetic-only under the current annotations, so a species panel for them
-# would have an empty A/V half.
+# Page 1's four species panels (the four with both magnetic and A/V data,
+# from when the A/V half was still drawn).
 SPECIES_PANELS = ["Pigeon", "zebra finch", "zebrafish", "medaka"]
 
 # Frequencies are grouped on a 2-decimal key rather than their raw float
@@ -134,7 +128,7 @@ N_BOOT = 1000
 NARROW_SHADES_MAX_N = 5
 NARROW_SHADES_RANGE = (0.3, 0.65)
 
-# Colormap position used for EVERY bucket in an ECDF-deviation stack (page 5),
+# Colormap position used for EVERY bucket in an ECDF-deviation stack (page 4),
 # instead of the shade ramp the sorted-p/q panels use. Those panels
 # overplot all buckets on one axes, where varying shade is the only thing
 # separating them; a stack gives each bucket its own axes, so there the ramp
@@ -148,13 +142,7 @@ ECDF_SHADE = 0.9
 # artifact of parquet row order (same reasoning as fig3s3_reproducibility's RANDOM_SEED).
 RR_SEED = 0
 
-# Page 4's budget for magnetic rows dropped to enlarge its buckets toward the
-# A/V bucket size -- see `matched_round_robin`. ~2% admits the 9-bucket split
-# in every canonical quadrant (1.2-1.5% dropped: only units with a 10th
-# recording lose a row) but not 8 buckets (3.8-5.6%).
-RR_MAX_DROP_FRAC = 0.02
-
-# Columns for page 6's species x area grid. 3 gives a roughly portrait page for
+# Columns for page 5's species x area grid. 3 gives a roughly portrait page for
 # the current 13 (species, area) pairs; the row count follows from the pair
 # count, so this is the only knob that needs touching if the annotations grow.
 SPECIES_AREA_NCOLS = 3
@@ -275,55 +263,6 @@ def bucket_round_robin(df, n_buckets=None, seed=RR_SEED):
     return [(f"#{b + 1}", g) for b, g in df.groupby("_rr", sort=True)]
 
 
-def matched_round_robin(neg, pos, seed=RR_SEED, max_drop_frac=RR_MAX_DROP_FRAC):
-    """Page 4: `bucket_round_robin` for both halves, with bucket COUNTS
-    re-chosen so the magnetic and A/V bucket sizes match.
-
-    Rows kept at B buckets are sum over units of min(rows, B): a unit with more
-    than B recordings can sit in at most B buckets, so fewer buckets means
-    bigger buckets but some rows dropped (`bucket_round_robin` prints how
-    many). More buckets is free, but dilutes. The two halves trade off as:
-
-    1. A/V starts as on page 3 (bucket count = its busiest unit's row count):
-       the largest A/V bucket size available without dropping any A/V rows.
-    2. Magnetic may use any bucket count that drops at most `max_drop_frac` of
-       its rows, and takes whichever of those lands closest to A/V's size.
-    3. If magnetic's buckets are still smaller than A/V's even at its fewest
-       allowed buckets, A/V gets more buckets instead, to meet magnetic.
-
-    So neither side gives up much: magnetic loses at most ~2% of rows, and A/V
-    is diluted only when step 2 couldn't close the gap (by ~10% on the pigeon
-    HP quadrants, under the current data). Exact equality is not guaranteed;
-    the column titles report each half's actual sizes.
-    """
-    if len(neg) == 0 or len(pos) == 0:
-        return bucket_round_robin(neg, seed=seed), bucket_round_robin(pos, seed=seed)
-
-    mult_neg = neg.groupby(NEURON_KEY, dropna=False).size().values
-    mult_pos = pos.groupby(NEURON_KEY, dropna=False).size().values
-    size_neg = lambda b: np.minimum(mult_neg, b).sum() / b
-
-    b_pos = int(mult_pos.max())
-    target = len(pos) / b_pos
-    # Fewest magnetic buckets whose drop stays within budget. Dropped rows only
-    # fall as B grows, so the first B that fits is the minimum.
-    b_min = next(b for b in range(1, int(mult_neg.max()) + 1)
-                 if len(neg) - np.minimum(mult_neg, b).sum() <= max_drop_frac * len(neg))
-    if size_neg(b_min) >= target:
-        # Past B = N / target the size is below target and only falls further.
-        b_neg = min(range(b_min, max(b_min, int(np.ceil(len(neg) / target))) + 2),
-                    key=lambda b: (abs(size_neg(b) - target), -b))
-    else:
-        b_neg = b_min
-        mag_size = size_neg(b_neg)
-        b_pos = min(range(b_pos, int(np.ceil(len(pos) / mag_size)) + 2),
-                    key=lambda b: abs(len(pos) / b - mag_size))
-    print(f"    matched round-robin: A/V {b_pos} buckets of ~{len(pos) / b_pos:.0f}; "
-          f"magnetic {b_neg} buckets of ~{size_neg(b_neg):.0f}")
-    return (bucket_round_robin(neg, n_buckets=b_neg, seed=seed),
-            bucket_round_robin(pos, n_buckets=b_pos, seed=seed))
-
-
 def _dedup_units(df, extra_key=()):
     """One row per unit (per `extra_key` group, if given), first occurrence
     kept. Later rows are DROPPED, not re-bucketed -- see `bucket_by_frequency`
@@ -361,9 +300,11 @@ def bucket_by_species_area(df):
     return groups
 
 
-def _population_frames(all_fourier_df):
-    neg, pos, _ = statistics.get_poscontrols_negresults(all_fourier_df)
-    return neg, pos
+def _magnetic_frame(all_fourier_df):
+    """The magnetic (negative-result) population -- the only one these pages
+    draw."""
+    neg, _, _ = statistics.get_poscontrols_negresults(all_fourier_df)
+    return neg
 
 
 def _shades(cmap_name, n):
@@ -410,7 +351,11 @@ def _quadrant_header(fig, cell, title, letter, dy=0.04):
     pos = cell.get_position(fig)
     fig.text((pos.x0 + pos.x1) / 2, pos.y1 + dy, title, ha="center", va="bottom",
              fontsize=FP.FS_BODY + 1, fontweight="bold")
-    fig.text(pos.x0, pos.y1 + dy, letter, ha="left", va="bottom",
+    # Letter out over the y-axis label, 0.45in left of the panel: a single
+    # magnetic column is narrower than a long title, which reached the
+    # panel's own left edge.
+    letter_x = pos.x0 - 0.45 / fig.get_size_inches()[0]
+    fig.text(letter_x, pos.y1 + dy, letter, ha="left", va="bottom",
              fontfamily="arial", fontsize=12)
 
 
@@ -441,126 +386,77 @@ def _condition_subset(pop, cond_filter, percentile, sens_col):
 
 
 def _blank_reason(buckets, pval_col):
-    """Why a quadrant half has nothing to draw, or None if it does.
-
-    Two genuinely different cases, which page 6 puts side by side:
-    "not presented" is a species/area that never got that stimulus (every
-    magnetic-only species' A/V half), while "no p-values" is a population that
-    exists but has no Fourier p-value at all -- Owl, whose 972 rows come from
-    the precomputed Bayesian-coefficient pickle and were never run through
-    `fit_fourier_sig` (see CLAUDE.md on aggregate.py's species coverage). Both
-    render blank; only one of them means the experiment wasn't done.
+    """Why a panel has nothing to draw, or None if it does: "no units", or
+    "no p-values" for a population that exists but has no Fourier p-value at
+    all -- Owl, whose 972 rows come from the precomputed Bayesian-coefficient
+    pickle and were never run through `fit_fourier_sig` (see CLAUDE.md on
+    aggregate.py's species coverage).
     """
     if not buckets:
-        return "not presented"
+        return "no units"
     if not any(np.isfinite(g[pval_col].values).any() for _, g in buckets):
         n = sum(len(g) for _, g in buckets)
         return f"no p-values\n({n} units)"
     return None
 
 
-def _av_column_label(pos_buckets, neg_buckets):
-    """What the positive-control column of this quadrant should be called.
-
-    The fish (zebrafish, medaka) only ever got a visual grating, so labelling
-    their column "Visual/Audio" overstates what was presented. Every other
-    species' positive control genuinely mixes modalities -- visual gratings,
-    auditory white noise, oddball tones -- and keeps the compound name.
-
-    Decided from the panel's own species rather than from a hardcoded list of
-    panel titles, using the same fish test `get_poscontrols_negresults` uses,
-    so it stays right for any bucketing or panel split. Falls back to the
-    magnetic population's species when the A/V half is empty, so a "not
-    presented" fish panel would still be headed "Visual".
-    """
-    species = set()
-    for buckets in (pos_buckets, neg_buckets):
-        for _, g in buckets:
-            species |= set(g["species"].astype(str))
-        if species:
-            break
-    if species and all(("fish" in s) or (s == "medaka") for s in species):
-        return "Visual"
-    return "Visual/Audio"
-
-
-def _plot_bucket_quadrant(fig, cell, neg_buckets, pos_buckets, title, letter,
+def _plot_bucket_quadrant(fig, cell, buckets, title, letter,
                           pval_col="p_value", sens_col="sens", legend=True,
                           header_dy=0.04):
-    """Draw one 2x2 quadrant (p-row / q-row x magnetic / A/V) for an arbitrary
-    bucketing, reusing `fig3.plot_uniform_p` unchanged so the per-bucket Storey
-    correction, axis scaling and FDR threshold line are identical to the
-    canonical figure's.
+    """Draw one panel (sorted p-values above, sorted q-values below) of the
+    magnetic population for an arbitrary bucketing, reusing
+    `fig3.plot_uniform_p` unchanged so the per-bucket Storey correction, axis
+    scaling and FDR threshold line are identical to the canonical figure's.
 
     `legend=False` swaps the per-bucket key for a one-line size summary in the
-    column title -- for bucketings whose buckets are interchangeable and whose
-    labels therefore identify nothing.
+    title -- for bucketings whose buckets are interchangeable and whose labels
+    therefore identify nothing.
     """
-    inner = cell.subgridspec(2, 2, wspace=0.08, hspace=0.12)
-    ax_p_neg = fig.add_subplot(inner[0, 0])
-    ax_p_pos = fig.add_subplot(inner[0, 1])
-    ax_q_neg = fig.add_subplot(inner[1, 0])
-    ax_q_pos = fig.add_subplot(inner[1, 1])
+    inner = cell.subgridspec(2, 1, hspace=0.12)
+    ax_p = fig.add_subplot(inner[0])
+    ax_q = fig.add_subplot(inner[1], sharex=ax_p)
+    ax_p.tick_params(labelbottom=False)
 
-    ax_p_neg.sharey(ax_p_pos)
-    ax_q_neg.sharey(ax_q_pos)
-    ax_p_neg.sharex(ax_q_neg)
-    ax_p_pos.sharex(ax_q_pos)
-    ax_p_neg.tick_params(labelbottom=False)
-    ax_p_pos.tick_params(labelbottom=False, labelleft=False)
-    ax_q_pos.tick_params(labelleft=False)
-
-    col_titles = {}
-    for pop, buckets, cmap, axes_pair in (
-            ("Magnetic", neg_buckets, "Blues", [ax_p_neg, ax_q_neg]),
-            (_av_column_label(pos_buckets, neg_buckets), pos_buckets, "Oranges",
-             [ax_p_pos, ax_q_pos])):
-        buckets = _drop_empty(buckets)
-        blank = _blank_reason(buckets, pval_col)
-        if blank is not None:
-            # Say WHY the axes is empty. A silently blank panel is ambiguous
-            # between "this condition was never run" and "it was run and
-            # produced nothing", which are opposite readings.
-            for ax in axes_pair:
-                ax.text(0.5, 0.5, blank, transform=ax.transAxes, ha="center",
-                        va="center", fontsize=FP.FS_LEGEND, color=FP.COLOR_NULL)
-                ax.set_xticks([])
-                ax.set_yticks([])
-            col_titles[cmap] = pop
-            continue
+    buckets = _drop_empty(buckets)
+    blank = _blank_reason(buckets, pval_col)
+    note = ""
+    if blank is not None:
+        for ax in (ax_p, ax_q):
+            ax.text(0.5, 0.5, blank, transform=ax.transAxes, ha="center",
+                    va="center", fontsize=FP.FS_LEGEND, color=FP.COLOR_NULL)
+            ax.set_xticks([])
+            ax.set_yticks([])
+    else:
         # A bucket with rows but no finite p-value would send an all-NaN array
         # into storey_qvalues; nothing to draw from it either way.
         buckets = [(lab, g) for lab, g in buckets
                    if np.isfinite(g[pval_col].values).any()]
         labels = [f"{lab} ({len(g)})" for lab, g in buckets]
-        colors = _shades(cmap, len(buckets))
-        fig3.plot_uniform_p([g for _, g in buckets], axes_pair, colors=colors,
+        colors = _shades("Blues", len(buckets))
+        fig3.plot_uniform_p([g for _, g in buckets], [ax_p, ax_q], colors=colors,
                             pval_col=pval_col, sens_col=sens_col)
         if legend:
-            _bucket_legend(axes_pair[0], labels, colors)
-            col_titles[cmap] = pop
+            _bucket_legend(ax_p, labels, colors)
         else:
-            col_titles[cmap] = f"{pop}\n{_bucket_note(buckets)}"
+            note = _bucket_note(buckets)
 
-    # Keyed on the colormap, not the column name: the A/V column's name now
-    # varies with what that panel's species actually received.
-    ax_p_neg.set_title(col_titles["Blues"], fontsize=FP.FS_TITLE)
-    ax_p_pos.set_title(col_titles["Oranges"], fontsize=FP.FS_TITLE)
-    ax_p_neg.set_ylabel("Sorted p-values")
-    ax_q_neg.set_ylabel("Sorted q-values")
-    ax_q_neg.set_xlabel("Unit")
-    ax_q_pos.set_xlabel("Unit")
+    if note:
+        ax_p.set_title(note, fontsize=FP.FS_TITLE)
+    ax_p.set_ylabel("Sorted p-values")
+    ax_q.set_ylabel("Sorted q-values")
+    ax_q.set_xlabel("Unit")
 
     _quadrant_header(fig, cell, title, letter, dy=header_dy)
 
 
 # Per-quadrant geometry in INCHES, plus the page margins around the grid.
 # Absolute rather than figure-fraction because these pages range from a 2x2
-# (pages 1/2/3/4) to a 3x5 (page 6): a fraction that leaves the right gap on an
-# 11x7in page leaves a 2.5in canyon on a 17x17in one. Values reproduce page
-# 2's original proportions, which were tuned by eye on the 2x2.
-QUAD_W_IN, QUAD_H_IN = 4.1, 2.48      # one quadrant's own 2x2 block
-QUAD_GAP_W_IN, QUAD_GAP_H_IN = 1.7, 0.87   # gaps between quadrants
+# (pages 1/2) to a 3x5 (page 5): a fraction that leaves the right gap on an
+# 11x7in page leaves a 2.5in canyon on a 17x17in one. Height and gaps
+# reproduce page 2's original proportions, which were tuned by eye on the
+# 2x2; the width is one column of the old magnetic | A/V pair.
+QUAD_W_IN, QUAD_H_IN = 2.6, 2.48      # one panel's p-over-q block
+QUAD_GAP_W_IN, QUAD_GAP_H_IN = 1.1, 0.87   # gaps between panels
 # `top` has to clear BOTH the suptitle and the top row's own quadrant headers,
 # which sit 0.29in above their quadrant -- at 0.85in the two collided (the
 # suptitle is centred, and on an odd-column grid so is the middle quadrant's
@@ -592,7 +488,7 @@ def _grid_figure(n_panels, ncols, scale=1.0):
 
 
 def _panel_letters(n):
-    """A..Z then AA, AB, ... -- page 6 needs 13, and a future cut could need
+    """A..Z then AA, AB, ... -- page 5 needs ~13, and a future cut could need
     more than 26.
     """
     from string import ascii_uppercase as AZ
@@ -605,29 +501,28 @@ def _panel_letters(n):
 def build_grid_bucket_page(all_fourier_df, panels, bucket_fn, suptitle,
                            ncols=2, pval_col="p_value", sens_col="sens",
                            legend=True, scale=1.0):
-    """A page of arbitrarily many quadrants laid out on a `ncols`-wide grid.
+    """A page of arbitrarily many panels laid out on a `ncols`-wide grid.
 
     `panels` is a list of `(title, row_filter)`; `row_filter` is applied to the
-    magnetic and A/V populations separately (or None for "everything"), and
-    `bucket_fn` then buckets each half.
+    magnetic population (or None for "everything"), and `bucket_fn` then
+    buckets it.
     """
-    neg, pos = _population_frames(all_fourier_df)
+    neg = _magnetic_frame(all_fourier_df)
     fig, outer, slots = _grid_figure(len(panels), ncols, scale=scale)
     figh = fig.get_size_inches()[1]
 
     for (title, row_filter), (orow, ocol), letter in zip(
             panels, slots, _panel_letters(len(panels))):
         neg_s = neg if row_filter is None else neg.loc[row_filter(neg)]
-        pos_s = pos if row_filter is None else pos.loc[row_filter(pos)]
-        _plot_bucket_quadrant(fig, outer[orow, ocol],
-                              bucket_fn(neg_s), bucket_fn(pos_s),
+        _plot_bucket_quadrant(fig, outer[orow, ocol], bucket_fn(neg_s),
                               title, letter,
                               pval_col=pval_col, sens_col=sens_col,
                               legend=legend,
                               # Header offset in inches for the same reason the
-                              # grid geometry is: 0.29in above the quadrant,
-                              # whatever the page height.
-                              header_dy=0.29 / figh)
+                              # grid geometry is: above the panel (and its
+                              # bucket-size note, if any), whatever the page
+                              # height.
+                              header_dy=(0.29 if legend else 0.42) / figh)
 
     fig.suptitle(suptitle, fontsize=FP.FS_BODY + 2, fontweight="bold",
                  y=1 - 0.28 / figh)
@@ -636,9 +531,9 @@ def build_grid_bucket_page(all_fourier_df, panels, bucket_fn, suptitle,
 
 def build_bucket_page(all_fourier_df, bucket_fn, suptitle, pval_col="p_value",
                       sens_col="sens"):
-    """A page whose four quadrants are the four species of SPECIES_PANELS and
-    whose buckets come from `bucket_fn`, applied separately to each species'
-    magnetic and A/V population.
+    """A page whose four panels are the four species of SPECIES_PANELS and
+    whose buckets come from `bucket_fn`, applied to each species' magnetic
+    population.
     """
     panels = [(sp, lambda d, sp=sp: d.species == sp) for sp in SPECIES_PANELS]
     return build_grid_bucket_page(all_fourier_df, panels, bucket_fn, suptitle,
@@ -646,18 +541,12 @@ def build_bucket_page(all_fourier_df, bucket_fn, suptitle, pval_col="p_value",
 
 
 def species_area_panels(all_fourier_df):
-    """Every (species, brain area) pair present in either population, species
-    ordered by total magnetic-population size and areas likewise within a
-    species, so the densest quadrants come first.
-
-    Pairs are taken from the UNION of the two populations, not the magnetic one
-    alone -- otherwise an area that only ever got A/V stimulation would vanish
-    from a figure whose whole point is showing which cells of this grid were
-    and were not filled.
+    """Every (species, brain area) pair in the magnetic population, species
+    ordered by size and areas likewise within a species, so the densest
+    panels come first.
     """
-    neg, pos = _population_frames(all_fourier_df)
-    pairs = set(map(tuple, neg[["species", "area"]].dropna().values)) | \
-        set(map(tuple, pos[["species", "area"]].dropna().values))
+    neg = _magnetic_frame(all_fourier_df)
+    pairs = set(map(tuple, neg[["species", "area"]].dropna().values))
 
     def _n(species, area=None):
         m = neg.species == species
@@ -677,9 +566,8 @@ def area_panels(all_fourier_df, species):
 
 
 def build_condition_bucket_page(all_fourier_df, bucket_fn, suptitle,
-                                pval_col="p_value", sens_col="sens", legend=True,
-                                paired_bucket_fn=None):
-    """Like `build_bucket_page`, but the four quadrants are the CANONICAL
+                                pval_col="p_value", sens_col="sens", legend=True):
+    """Like `build_bucket_page`, but the four panels are the CANONICAL
     conditions (`fig3_conditions`) rather than four species -- so the page is
     directly comparable to the canonical figure, differing only in how the same population
     is cut into buckets.
@@ -690,32 +578,22 @@ def build_condition_bucket_page(all_fourier_df, bucket_fn, suptitle,
     exist yet at that point. The two come to the same total count, but this
     version uses one global sensitivity threshold instead of B different ones,
     which is also the more defensible of the two.
-
-    `paired_bucket_fn(neg, pos) -> (neg_buckets, pos_buckets)`, if given,
-    replaces `bucket_fn` for bucketings where one half's buckets depend on the
-    other's (page 4's `matched_round_robin`).
     """
-    neg, pos = _population_frames(all_fourier_df)
+    neg = _magnetic_frame(all_fourier_df)
 
-    fig = plt.figure(figsize=(FP.FIGSIZE_FIG3[0] * 1.4, FP.FIGSIZE_FIG3[1] * 1.8))
-    # legend=False puts a second line (the bucket-size note) in each column
-    # title, so the quadrant header has to sit higher to clear it -- and the
-    # grid lower, so the raised top-row headers still clear the suptitle.
-    header_dy = 0.04 if legend else 0.06
+    fig = plt.figure(figsize=(FP.FIGSIZE_FIG3[0] * 1.0, FP.FIGSIZE_FIG3[1] * 1.8))
+    # legend=False puts the bucket-size note above each panel, so the panel
+    # header has to sit higher to clear it -- and the grid lower, so the
+    # raised top-row headers still clear the suptitle.
+    header_dy = 0.02 if legend else 0.055
     outer = fig.add_gridspec(2, 2, wspace=0.45, hspace=0.42,
-                             left=0.08, right=0.98, top=0.87 if legend else 0.85,
+                             left=0.12, right=0.98, top=0.85 if legend else 0.82,
                              bottom=0.07)
 
     for (title, cond_filter, percentile), (orow, ocol), letter in zip(
             fig3_conditions(), QUADRANT_SLOTS, "ABCD"):
-        subs = [_condition_subset(pop, cond_filter, percentile, sens_col)
-                for pop in (neg, pos)]
-
-        if paired_bucket_fn is not None:
-            neg_buckets, pos_buckets = paired_bucket_fn(subs[0], subs[1])
-        else:
-            neg_buckets, pos_buckets = bucket_fn(subs[0]), bucket_fn(subs[1])
-        _plot_bucket_quadrant(fig, outer[orow, ocol], neg_buckets, pos_buckets,
+        sub = _condition_subset(neg, cond_filter, percentile, sens_col)
+        _plot_bucket_quadrant(fig, outer[orow, ocol], bucket_fn(sub),
                               title, letter, pval_col=pval_col, sens_col=sens_col,
                               legend=legend, header_dy=header_dy)
 
@@ -723,7 +601,7 @@ def build_condition_bucket_page(all_fourier_df, bucket_fn, suptitle,
     return fig
 
 
-# -- ECDF-deviation stack (page 5) --------------------------------------------
+# -- ECDF-deviation stack (page 4) --------------------------------------------
 
 def _ecdf_deviation(pvals):
     """ECDF(p) - p at each sorted p-value, plus the number of finite p-values.
@@ -784,26 +662,12 @@ def _y_scale_bar(ax, step, fontsize):
 def _add_stack_scale_bar(axs):
     """The stack's single y scale bar, on its middle row (see `_y_scale_bar`).
     Separate from `_plot_ecdf_dev_stack` so a caller that re-scales the stack
-    afterwards (see `_share_stack_ylims`) can draw the bar once the y range is
-    final."""
+    afterwards can draw the bar once the y range is final."""
     if not axs:
         return
     step = _nice_step(float(np.diff(axs[0].get_ylim())[0]))
     if step is not None:
         _y_scale_bar(axs[len(axs) // 2], step, FP.FS_LEGEND * 0.7)
-
-
-def _share_stack_ylims(*stacks):
-    """Put several ECDF-deviation stacks on one y range: the union of their
-    own ranges. Used for a quadrant's magnetic and A/V stacks, so a deviation
-    of the same size looks the same size in both columns (within a stack the
-    rows already share y). Empty stacks are skipped."""
-    stacks = [axs for axs in stacks if axs]
-    if not stacks:
-        return
-    lims = np.array([axs[0].get_ylim() for axs in stacks])
-    for axs in stacks:
-        axs[0].set_ylim(lims[:, 0].min(), lims[:, 1].max())
 
 
 def _plot_ecdf_dev_stack(fig, cell, buckets, cmap, xlabel=True, ylabel=None,
@@ -864,7 +728,7 @@ def _plot_ecdf_dev_stack(fig, cell, buckets, cmap, xlabel=True, ylabel=None,
         axs[-1].set_xlabel("p-value", fontsize=FP.FS_LEGEND, labelpad=1)
 
     # No scale bar here: the caller draws it (`_add_stack_scale_bar`) once
-    # the y range is final, after `_share_stack_ylims`.
+    # the y range is final.
     if ylabel:
         # Sits outboard of the scale bar, and is the only y annotation on the
         # stack besides the bar's own two numbers. Anchored to one mini-axes
@@ -872,7 +736,7 @@ def _plot_ecdf_dev_stack(fig, cell, buckets, cmap, xlabel=True, ylabel=None,
         # a 10-to-18-row stack has plenty even though any single row is ~0.3in,
         # so the label can spell the quantity out in full rather than
         # abbreviate to fit one row's height.
-        axs[bar_row].set_ylabel(ylabel, fontsize=FP.FS_LEGEND, labelpad=14)
+        axs[bar_row].set_ylabel(ylabel, fontsize=FP.FS_LEGEND, labelpad=24)
     return axs
 
 
@@ -898,48 +762,31 @@ def _apply_percentile(buckets, percentile, sens_col):
     return out
 
 
-def _plot_ecdf_quadrant(fig, cell, neg_buckets, pos_buckets, title, letter,
+def _plot_ecdf_quadrant(fig, cell, buckets, title, letter,
                         pval_col="p_value", sens_col="sens"):
-    """Same quadrant geometry as the canonical figure -- magnetic left, A/V
-    right, p-row on top, q-row below -- with the p-row replaced by the
-    per-bucket ECDF-deviation stack. Height ratio favours the top row because
-    it holds up to 18 stacked mini-axes against the q-row's single axes.
+    """Per-bucket ECDF-deviation stack on top, the sorted-q-value panel below.
+    Height ratio favours the top row because it holds up to ~10 stacked
+    mini-axes against the q-row's single axes.
 
     Buckets arrive final: every filter, including the sensitivity percentile,
     has already been applied by `build_ecdf_page` (where the ordering of
     filtering vs. bucketing depends on the bucketing). The stack and the
     q-value panel below it therefore always show the same units.
     """
-    inner = cell.subgridspec(2, 2, wspace=0.45, hspace=0.12, height_ratios=[3.6, 1])
+    inner = cell.subgridspec(2, 1, hspace=0.12, height_ratios=[3.6, 1])
 
-    neg_axs = _plot_ecdf_dev_stack(fig, inner[0, 0], neg_buckets, "Blues",
-                                   ylabel="ECDF deviation from uniform null",
-                                   pval_col=pval_col)
-    pos_axs = _plot_ecdf_dev_stack(fig, inner[0, 1], pos_buckets, "Oranges",
-                                   pval_col=pval_col)
-    # Magnetic and A/V on one y range, so their deviations compare directly;
-    # scale bars only once that range is final (they'd be identical anyway).
-    _share_stack_ylims(neg_axs, pos_axs)
-    _add_stack_scale_bar(neg_axs)
-    _add_stack_scale_bar(pos_axs)
+    axs = _plot_ecdf_dev_stack(fig, inner[0], buckets, "Blues",
+                               ylabel="ECDF deviation from uniform null",
+                               pval_col=pval_col)
+    _add_stack_scale_bar(axs)
 
-    ax_q_neg = fig.add_subplot(inner[1, 0])
-    ax_q_pos = fig.add_subplot(inner[1, 1])
-    ax_q_neg.sharey(ax_q_pos)
-    ax_q_pos.tick_params(labelleft=False)
-
-    neg_list = [g for _, g in _drop_empty(neg_buckets)]
-    pos_list = [g for _, g in _drop_empty(pos_buckets)]
-    fig3.plot_uniform_p(neg_list, [None, ax_q_neg],
-                        colors=_shades("Blues", len(neg_list)),
+    ax_q = fig.add_subplot(inner[1])
+    groups = [g for _, g in _drop_empty(buckets)]
+    fig3.plot_uniform_p(groups, [None, ax_q],
+                        colors=_shades("Blues", len(groups)),
                         pval_col=pval_col, sens_col=sens_col)
-    fig3.plot_uniform_p(pos_list, [None, ax_q_pos],
-                        colors=_shades("Oranges", len(pos_list)),
-                        pval_col=pval_col, sens_col=sens_col)
-
-    ax_q_neg.set_ylabel("Sorted q-values")
-    ax_q_neg.set_xlabel("Unit")
-    ax_q_pos.set_xlabel("Unit")
+    ax_q.set_ylabel("Sorted q-values")
+    ax_q.set_xlabel("Unit")
 
     _quadrant_header(fig, cell, title, letter, dy=0.012)
 
@@ -960,11 +807,11 @@ def fig3_conditions():
 def build_ecdf_page(all_fourier_df, bucket_fn=None, suptitle=None,
                     pval_col="p_value", sens_col="sens"):
     """The canonical figure's quadrants, drawn as per-bucket ECDF-deviation
-    mini-axes. The page is taller than the others because the A/V population
-    has 18 buckets, i.e. 18 stacked mini-axes per quadrant half.
+    mini-axes. The page is taller than the others because each quadrant
+    stacks one mini-axes per bucket.
 
     `bucket_fn=None` buckets by occurrence wave (no current page). Any other bucketing
-    is passed as a callable (page 5 passes `bucket_round_robin`).
+    is passed as a callable (page 4 passes `bucket_round_robin`).
 
     The two differ in where the sensitivity percentile has to be applied,
     which is why this isn't one code path:
@@ -982,18 +829,17 @@ def build_ecdf_page(all_fourier_df, bucket_fn=None, suptitle=None,
     separate sensitivity thresholds, the latter one global threshold.
     """
     if bucket_fn is None:
-        waves, _, pos_waves = fig3.split_into_occurrence_waves(
+        waves, _, _ = fig3.split_into_occurrence_waves(
             all_fourier_df, pval_col=pval_col)
-        neg_base = [(f"#{i + 1}", w) for i, w in enumerate(waves)]
-        pos_base = [(f"#{i + 1}", w) for i, w in enumerate(pos_waves)]
+        base = [(f"#{i + 1}", w) for i, w in enumerate(waves)]
     else:
-        neg_base, pos_base = _population_frames(all_fourier_df)
+        base = _magnetic_frame(all_fourier_df)
 
-    fig = plt.figure(figsize=(FP.FIGSIZE_FIG3[0] * 1.4, FP.FIGSIZE_FIG3[1] * 3.4))
+    fig = plt.figure(figsize=(FP.FIGSIZE_FIG3[0] * 1.15, FP.FIGSIZE_FIG3[1] * 2.6))
     # `right` stops short of the page edge to leave room for the outside
     # bucket labels on each stack's right-hand side.
-    outer = fig.add_gridspec(2, 2, wspace=0.34, hspace=0.16,
-                             left=0.07, right=0.93, top=0.94, bottom=0.04)
+    outer = fig.add_gridspec(2, 2, wspace=0.5, hspace=0.16,
+                             left=0.1, right=0.88, top=0.92, bottom=0.05)
 
     def _quadrant_buckets(base, cond_filter, percentile):
         if bucket_fn is None:
@@ -1005,8 +851,7 @@ def build_ecdf_page(all_fourier_df, bucket_fn=None, suptitle=None,
     for (title, cond_filter, percentile), (orow, ocol), letter in zip(
             fig3_conditions(), QUADRANT_SLOTS, "ABCD"):
         _plot_ecdf_quadrant(fig, outer[orow, ocol],
-                            _quadrant_buckets(neg_base, cond_filter, percentile),
-                            _quadrant_buckets(pos_base, cond_filter, percentile),
+                            _quadrant_buckets(base, cond_filter, percentile),
                             title, letter, pval_col=pval_col, sens_col=sens_col)
 
     if suptitle is None:
@@ -1016,7 +861,7 @@ def build_ecdf_page(all_fourier_df, bucket_fn=None, suptitle=None,
     return fig
 
 
-# -- Occurrence bootstrap, single bucket (page 12) ---------------------------
+# -- Occurrence bootstrap, single bucket (page 11) ---------------------------
 
 def _occurrence_bootstrap_curves(df, pval_col="p_value", n_boot=N_BOOT, seed=0,
                                  alpha=0.05):
@@ -1056,34 +901,22 @@ def _occurrence_bootstrap_curves(df, pval_col="p_value", n_boot=N_BOOT, seed=0,
                 n_recordings=n_rec)
 
 
-def _plot_occurrence_quadrant(fig, cell, neg_df, pos_df, title, letter,
+def _plot_occurrence_quadrant(fig, cell, df, title, letter,
                               pval_col="p_value", n_boot=N_BOOT):
-    """Canonical quadrant geometry (magnetic left, A/V right; p-row on top,
-    q-row below) for one all-observations bucket per half, drawn from
-    `_occurrence_bootstrap_curves`. Both rows share y across the two halves,
-    so the magnetic and A/V deviations are directly comparable."""
-    inner = cell.subgridspec(2, 2, wspace=0.16, hspace=0.3)
-    ax_e_neg = fig.add_subplot(inner[0, 0])
-    ax_e_pos = fig.add_subplot(inner[0, 1], sharey=ax_e_neg)
-    ax_q_neg = fig.add_subplot(inner[1, 0])
-    ax_q_pos = fig.add_subplot(inner[1, 1], sharey=ax_q_neg)
-    ax_e_pos.tick_params(labelleft=False)
-    ax_q_pos.tick_params(labelleft=False)
+    """ECDF deviation on top, sorted q-values below, for one all-observations
+    bucket, drawn from `_occurrence_bootstrap_curves`."""
+    inner = cell.subgridspec(2, 1, hspace=0.75)
+    ax_e = fig.add_subplot(inner[0])
+    ax_q = fig.add_subplot(inner[1])
+    color = FP.COLOR_MAG
 
-    halves = (
-        ("Magnetic", neg_df, FP.COLOR_MAG, ax_e_neg, ax_q_neg),
-        (_av_column_label([("all", pos_df)], [("all", neg_df)]), pos_df,
-         FP.COLOR_VIS, ax_e_pos, ax_q_pos),
-    )
-    for pop, df, color, ax_e, ax_q in halves:
-        curves = _occurrence_bootstrap_curves(df, pval_col=pval_col, n_boot=n_boot)
-        if curves is None:
-            for ax in (ax_e, ax_q):
-                ax.text(0.5, 0.5, "not presented", transform=ax.transAxes,
-                        ha="center", va="center", fontsize=FP.FS_LEGEND,
-                        color=FP.COLOR_NULL)
-            ax_e.set_title(pop, fontsize=FP.FS_TITLE)
-            continue
+    curves = _occurrence_bootstrap_curves(df, pval_col=pval_col, n_boot=n_boot)
+    if curves is None:
+        for ax in (ax_e, ax_q):
+            ax.text(0.5, 0.5, "no units", transform=ax.transAxes,
+                    ha="center", va="center", fontsize=FP.FS_LEGEND,
+                    color=FP.COLOR_NULL)
+    else:
         x = curves["x"]
         ax_e.fill_between(x, curves["dev_lo"], curves["dev_hi"], color=color,
                           alpha=FP.ALPHA_CONFIDENCE, linewidth=0)
@@ -1091,8 +924,6 @@ def _plot_occurrence_quadrant(fig, cell, neg_df, pos_df, title, letter,
         ax_e.axhline(0, color=FP.COLOR_NULL, linestyle="--",
                      linewidth=FP.LW_REFERENCE, alpha=0.6)
         ax_e.set_xlim(0, 1)
-        # Three ticks (and wspace 0.16): at five, the magnetic axis's "1.00"
-        # ran into the A/V axis's "0.00" across the gap between them.
         ax_e.set_xticks([0, 0.5, 1])
         ax_e.set_xlabel("p-value")
 
@@ -1110,36 +941,35 @@ def _plot_occurrence_quadrant(fig, cell, neg_df, pos_df, title, letter,
         # q-value panel.
         fig3.draw_fdr_threshold(ax_q, curves["q_med"], color)
 
-        ax_e.set_title(f"{pop}\n{n} neurons, {curves['n_recordings']} recordings",
+        ax_e.set_title(f"{n} neurons, {curves['n_recordings']} recordings",
                        fontsize=FP.FS_TITLE)
 
-    ax_e_neg.set_ylabel("ECDF - uniform")
-    ax_q_neg.set_ylabel("Sorted q-values")
-    _quadrant_header(fig, cell, title, letter, dy=0.06)
+    ax_e.set_ylabel("ECDF - uniform")
+    ax_q.set_ylabel("Sorted q-values")
+    _quadrant_header(fig, cell, title, letter, dy=0.05)
 
 
 def build_occurrence_bootstrap_page(all_fourier_df, pval_col="p_value",
                                     sens_col="sens", n_boot=N_BOOT):
-    """Page 12: canonical quadrants, one bucket per half, an
-    occurrence bootstrap (see `_occurrence_bootstrap_curves`).
+    """Page 11: canonical quadrants, one bucket each, an occurrence bootstrap
+    (see `_occurrence_bootstrap_curves`).
 
     Every observation stays in (no dedup) -- the bootstrap is what keeps each
     neuron counted once per draw. The top-10% quadrant therefore takes one
     global sensitivity threshold over all its rows, as page 3 does.
     """
-    neg, pos = _population_frames(all_fourier_df)
+    neg = _magnetic_frame(all_fourier_df)
 
-    fig = plt.figure(figsize=(FP.FIGSIZE_FIG3[0] * 1.4, FP.FIGSIZE_FIG3[1] * 1.9))
+    fig = plt.figure(figsize=(FP.FIGSIZE_FIG3[0] * 1.0, FP.FIGSIZE_FIG3[1] * 1.9))
     outer = fig.add_gridspec(2, 2, wspace=0.45, hspace=0.55,
-                             left=0.08, right=0.98, top=0.84, bottom=0.07)
+                             left=0.12, right=0.98, top=0.82, bottom=0.07)
     for (title, cond_filter, percentile), (orow, ocol), letter in zip(
             fig3_conditions(), QUADRANT_SLOTS, "ABCD"):
-        subs = [_condition_subset(pop, cond_filter, percentile, sens_col)
-                for pop in (neg, pos)]
-        _plot_occurrence_quadrant(fig, outer[orow, ocol], subs[0], subs[1],
+        sub = _condition_subset(neg, cond_filter, percentile, sens_col)
+        _plot_occurrence_quadrant(fig, outer[orow, ocol], sub,
                                   title, letter, pval_col=pval_col, n_boot=n_boot)
 
-    fig.suptitle("Canonical quadrants, one bucket of every recording, "
+    fig.suptitle("Canonical quadrants, one bucket of every recording,\n"
                  "occurrence bootstrap (one random recording per neuron per draw; "
                  "median and 95% band)",
                  fontsize=FP.FS_BODY + 2, fontweight="bold", y=0.975)
@@ -1173,27 +1003,19 @@ def build_pages(all_fourier_df, pages, out_path: Path, n_boot=N_BOOT):
                     "(units dealt round-robin, one recording per unit per bucket)",
                     legend=False)
             elif page == 4:
-                fig = build_condition_bucket_page(
-                    all_fourier_df, None,
-                    "Canonical quadrants, equal-sized buckets matched across "
-                    "magnetic and A/V (magnetic drops <= 2% of rows; A/V "
-                    "buckets added where needed to match)",
-                    legend=False, paired_bucket_fn=matched_round_robin)
-            elif page == 5:
                 fig = build_ecdf_page(
                     all_fourier_df, bucket_fn=bucket_round_robin,
                     suptitle="Equal-sized buckets, drawn as per-bucket ECDF "
                              "deviation (gray: null 95% binomial band; dashed "
                              "line = uniform null)")
-            elif page == 6:
+            elif page == 5:
                 fig = build_grid_bucket_page(
                     all_fourier_df, species_area_panels(all_fourier_df),
                     bucket_by_frequency,
-                    "Species x brain area x stimulus x frequency -- every "
-                    "(species, area) pair, magnetic vs. A/V, bucketed by "
-                    "frequency",
+                    "Species x brain area x frequency -- every "
+                    "(species, area) pair, bucketed by frequency",
                     ncols=SPECIES_AREA_NCOLS)
-            elif page == 7:
+            elif page == 6:
                 fig = build_grid_bucket_page(
                     all_fourier_df, area_panels(all_fourier_df, "Pigeon"),
                     bucket_by_area,
@@ -1202,35 +1024,35 @@ def build_pages(all_fourier_df, pages, out_path: Path, n_boot=N_BOOT):
                     # 2-wide, not 3: pigeon has exactly 3 areas, and one row of
                     # 3 makes a 16x4in strip rather than a page.
                     ncols=2, legend=False)
-            elif page == 8:
+            elif page == 7:
                 fig = build_grid_bucket_page(
                     all_fourier_df, species_area_panels(all_fourier_df),
                     bucket_by_area,
                     "All species, one panel per brain area "
                     "(each area pooled into a single bucket)",
                     ncols=SPECIES_AREA_NCOLS, legend=False)
-            elif page == 9:
+            elif page == 8:
                 fig = build_grid_bucket_page(
                     all_fourier_df,
                     [("Pigeon", lambda d: d.species == "Pigeon")],
                     bucket_by_area,
                     "Pigeon, brain areas as buckets on shared axes",
                     ncols=1, scale=2.2)
-            elif page == 10:
+            elif page == 9:
                 fig = build_grid_bucket_page(
                     all_fourier_df, [("All species", None)],
                     bucket_by_species_area,
                     "All species, (species, brain area) pairs as buckets "
                     "on shared axes",
                     ncols=1, scale=2.2)
-            elif page == 11:
+            elif page == 10:
                 fig = build_grid_bucket_page(
                     all_fourier_df, [("All species", None)],
                     bucket_by_species,
                     "Species as buckets on shared axes "
                     "(units appearing more than once dropped after the first)",
                     ncols=1, scale=2.2)
-            elif page == 12:
+            elif page == 11:
                 fig = build_occurrence_bootstrap_page(all_fourier_df, n_boot=n_boot)
             else:
                 raise ValueError(f"unknown page {page}")
@@ -1255,10 +1077,10 @@ def main():
     parser.add_argument("--parquet", default=FP.PARQUET_PATH,
                         help=f"Path to all_fourier_df.parquet (default: {FP.PARQUET_PATH})")
     parser.add_argument("--pages", type=int, nargs="+",
-                        default=list(range(1, 13)),
-                        help="Which pages to render, in order (default: 1-12)")
+                        default=list(range(1, 12)),
+                        help="Which pages to render, in order (default: 1-11)")
     parser.add_argument("--n-boot", type=int, default=N_BOOT,
-                        help="Bootstrap replicates for the ECDF CI bands (page 12)")
+                        help="Bootstrap replicates for the ECDF CI bands (page 11)")
     args = parser.parse_args([] if in_notebook else None)
 
     out_dir = Path(args.out_dir)

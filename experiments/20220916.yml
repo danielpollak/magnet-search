@@ -13,7 +13,8 @@ aggregated_path: '\\datanas\family\data_aggregated\20220916'
 metadata_csv: '\\datanas\family\data_aggregated\20220916metadata.csv'
 analysis:
   mag_Q_frac: 0.15
-  visual_Q_frac: 0.15
+  visual_Q_frac: 0.78  # bars: 0.2 Hz sits at bin 9 (bin 8 for 225 deg, 9 sweeps) -> M = 7 (6) per side = bins 2-16 (2-14): excludes the steep bins 0 and 1
+  visual_min_bins: 6   # exception to the 8-bin minimum (user, 2026-11-11)
   WN_Q_frac: 0.15
   mag_rec_substring: "mag"
   visual_rec_substring: "bars"
@@ -43,7 +44,7 @@ auxiliary_stimuli:
     deststream: "Neuropix-PXI-102.0"
     sourcestream: "NI-DAQmx-100.0"
     sourcebarcode: "A2"
-    frequency: 0.25
+    frequency: 0.2  # 5 s window per sweep (~4.44 s sweep + ~0.28 s pad each side)
     orientation_csv: '\\datanas\family\data_raw\20220916\16-09-2022_15-39-25.csv'
   - recname: 'WN_2022-09-16_14-58-30'
     kind: "white_noise"

@@ -21,13 +21,13 @@ keeps every frame, so it is slightly more sensitive, and it is now the default.
 
 | | finding |
 |---|---|
-| **Established** | 20 of the 104 (recording, frequency) tests, all in the 12 recordings of 2022_02_21, 02_23 and 03_01, are off the grid. In 14 of them (every 0.4 Hz test, and the grating tests of the 1194-frame recordings) the miss costs 22–35% of a sinusoid's power; the other 6 lose at most 1% (Table 1). Every other test is on the grid to within 0.0004 bins. |
-| **Established** | Both fixes leave the null intact. On white noise, 0.95–1.19% of p-values fall below 0.01 under all three grids (Table 3). |
-| **Established** | The shift recovers the full power (99.5–100.5%) on all N frames. Trimming recovers 99.2–99.8% but uses up to 1.5% fewer frames, which costs up to 2% sensitivity (Table 4). |
-| **Established** | On the grating recordings, where a real response is expected at 1/60 Hz and 1/30 Hz, the shift raises the number of ROIs with p < 0.01 from 594 to 762 (02_21) and from 414 to 494 (02_23) at 1/60 Hz, and from 64 to 208 and from 20 to 46 at 1/30 Hz. Trimming gains a little less: 753, 476, 182 and 38 (Table 5). |
+| **Established** | 20 of the 104 (recording, frequency) tests, all in the 12 recordings of 2022_02_21, 02_23 and 03_01, are off the grid. In 14 of them (every 0.4 Hz test, and the grating tests of the 1194-frame recordings) the miss costs a quarter to a third of a sinusoid's power; the other 6 lose almost nothing (Table 1). Every other test is on the grid. |
+| **Established** | Both fixes leave the null intact: on white noise, the share of p-values below 0.01 is the same under all three grids (Table 3). |
+| **Established** | The shift recovers the full power on all N frames. Trimming recovers nearly all of it but uses up to 1.5% fewer frames, which costs up to 2% sensitivity (Table 4). |
+| **Established** | On the grating recordings, where a real response is expected at 1/60 Hz and 1/30 Hz, the shift raises the number of ROIs with p < 0.01 more than trimming does, almost all of it in the 1194-frame recordings (Table 5). |
 | **Established** | The magnetic 0.4 Hz test changes by a few suspects either way, and no recording changes flag status in Fig 2A or 2B. |
 | **Ruled out** | Zero-padding as a third fix: its extra bins are correlated (power correlation 0.81 between neighbours at 4× padding), so they can't serve as the null. |
-| **Open** | `remove_flatlines`' √2 test drops 1.50% of ROIs, which is exactly the rate expected by chance for ordinary traces (506 dropped of 33,845 vs 498 expected). It isn't catching delta-spike traces any more. Not changed here (section 6). |
+| **Open** | `remove_flatlines`' √2 test drops ROIs at exactly the rate expected by chance for ordinary traces. It isn't catching delta-spike traces any more. Not changed here (section 6). |
 
 ## 1. Which recordings are off the grid
 
@@ -58,8 +58,8 @@ is reduced by the Dirichlet kernel. The share of its power that remains in the b
 $$\rho(\delta) = \frac{|D_N(\delta)|^2}{N^2} = \left(\frac{\sin \pi\delta}{N \sin(\pi\delta/N)}\right)^2 \approx \left(\frac{\sin \pi\delta}{\pi\delta}\right)^2 .$$
 
 $\rho = 1$ at $\delta = 0$, and $\rho = 4/\pi^2 = 0.41$ at $\delta = \tfrac12$. The lost power doesn't
-disappear: it leaks into the neighbouring bins, which the test uses as its noise estimate
-(Figure 1a).
+disappear: it leaks into the neighbouring bins, which the test uses as its noise estimate. In
+Figure 1a the bin just below the tested one holds much of what the tested bin lost.
 
 **Table 1.** The tests that are off the grid ($|\delta| \ge 0.01$). The frame period is $T = 1.0212$ s
 in all of them. 0.4 Hz has no 2F test because 0.8 Hz is above Nyquist (0.49 Hz).
@@ -97,10 +97,10 @@ so exact alignment is usually impossible, and a tolerance is needed. `whole_cycl
 
 $$N' = \max\{\, N' \le N : |f N' T - \operatorname{round}(f N' T)| \le 0.05 \,\},$$
 
-which keeps $\rho \ge 0.992$. This drops 9 frames at 0.4 Hz and 16 at 1/60 Hz in the 1194-frame
-recordings. In the 2936-frame recordings it drops 8 frames at 0.4 Hz, 27 at 1/30 Hz and none at
-1/60 Hz ($|\delta| = 0.028$ is already within tolerance). A recording tested at two frequencies is
-trimmed differently for each, so its two tests don't use the same frames.
+which keeps $\rho \ge 0.992$. Table 4 lists the frames kept per test; the 2936-frame recordings'
+1/60 Hz test is not trimmed at all ($|\delta| = 0.028$ is already within tolerance). A recording
+tested at two frequencies is trimmed differently for each, so its two tests don't use the same
+frames.
 
 Trimming costs frames. For a weak response in white noise of variance $\sigma^2$, the expected
 statistic is
@@ -158,7 +158,7 @@ $1/(NT)$ unchanged.)
 
 ![Pure 0.4 Hz sinusoid on the three grids](fourier_grid_shift/fig_grids.png)
 
-<sub>**Figure 1. A pure 0.4 Hz sinusoid on the three grids.** N = 1194 frames, T = 1.0212 s (the 2022_02_21 and 02_23 recordings). Grey: the magnitude of the transform at every frequency. Filled dot: the coefficient tested at the stimulus. Open dots: the off-frequency coefficients used to estimate the noise. Dotted line: 0.4 Hz. The x axis is in bins of 1/(N·T), for that panel's N. **a**, the standard grid. The tested bin is 0.275 bins above the stimulus and holds 77% of the power; the bin below holds much of the rest. **b**, trimmed to 1185 frames. **c**, the shifted grid.</sub>
+<sub>**Figure 1. A pure 0.4 Hz sinusoid on the three grids.** N = 1194 frames, T = 1.0212 s (the 2022_02_21 and 02_23 recordings). Grey: the magnitude of the transform at every frequency. Filled dot: the coefficient tested at the stimulus. Open dots: the off-frequency coefficients used to estimate the noise. Dotted line: 0.4 Hz. The x axis is in bins of 1/(N·T), for that panel's N. **a**, the standard grid. **b**, trimmed to 1185 frames. **c**, the shifted grid.</sub>
 
 ## 3. Does the null survive?
 
@@ -261,13 +261,14 @@ grid divided by their NFC² on the standard grid.
   $1/\rho$ = 1.42 (1/60 Hz) and 1.54 (1/30 Hz) that the lost power predicts. Two effects pull in
   opposite directions: the median includes weak responders whose NFC² is partly noise (toward 1),
   and on the standard grid the leaked response also inflates the noise estimate (away from 1,
-  Figure 1a).
+  Figure 1a). Figure 2b shows this for one real ROI: the bin above the tested one picks up much
+  of the response, which then counts as noise.
 - **The shift beats trimming in 5 of the 6 tests that move,** and has the larger NFC² ratio in all 6,
   as Table 4 predicts.
 - **In 03_01, nothing moves.** Its grating tests were only 0.03–0.06 bins off.
 - **At 0.4 Hz the counts move by a few, in both directions, and none crosses its bound.** The shift
   moves the test frequency by 0.27–0.30 bins, so the counts partly reflect a fresh draw of noise.
-  The one flagged test, 03_01 visual+magnet b, goes from 24 to 22 (bound 21). Since PR #64, that
+  The one flagged test, 03_01 visual+magnet b, stays above its bound. Since PR #64, that
   recording is a visual positive control and is no longer part of Fig 2A's magnetic population.
 - **Fig 2 is unchanged.** No recording changes flag status in Fig 2A (magnetic) or Fig 2B (visual).
   This was checked with `fig2.flag_sessions_with_excess_suspects` on the aggregated parquet before
@@ -275,7 +276,7 @@ grid divided by their NFC² on the standard grid.
 
 ![One grating-responsive ROI on the three grids](fourier_grid_shift/fig_example.png)
 
-<sub>**Figure 2. One grating-responsive ROI.** 2022_02_21 visual, ROI 1437, the strongest 1/60 Hz responder under the shifted grid. **a**, its full-resolution fluorescence trace (1194 frames, T = 1.0212 s). **b–d**, the magnitude of its transform around 1/60 Hz (grey), and the coefficients each grid reads (filled: tested; open: noise estimate), as in Figure 1. On the standard grid (**b**) the tested bin is 0.32 bins below the peak, and the bin above it picks up much of the response, which then counts as noise.</sub>
+<sub>**Figure 2. One grating-responsive ROI.** 2022_02_21 visual, ROI 1437, the strongest 1/60 Hz responder under the shifted grid. **a**, its full-resolution fluorescence trace (1194 frames, T = 1.0212 s). **b–d**, the magnitude of its transform around 1/60 Hz (grey), and the coefficients each grid reads (filled: tested; open: noise estimate), as in Figure 1.</sub>
 
 ## 6. A side finding: the √2 test in `remove_flatlines`
 

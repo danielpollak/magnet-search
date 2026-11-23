@@ -13,8 +13,7 @@ report reads them.
 - **The frame period is 1.0212 s in all twelve recordings.** The scan waveform played for every
   frame is 510,599 samples long at 500,000 samples/s, so each frame takes 1.021198 s by
   construction. The logged timestamps average 1.02121–1.02122 s.
-- **Individual intervals jitter by a few milliseconds** (SD 3–6 ms; 0.3–5% of frames are more than
-  10 ms off; the extremes are 0.937 s and 1.106 s). The jitter is in the logging, not in the
+- **Individual intervals jitter by a few milliseconds.** The jitter is in the logging, not in the
   frames: a long interval is followed by a short one, and the timestamps never drift away from
   a perfect clock.
 - **That jitter doesn't limit how well the period is known.** Where a frequency lands in the
@@ -69,12 +68,11 @@ does that depart from the average?
 | 03-01 visual (13:59) | 2936 | 1.021219 | 3.9 | 54% | 17% | 1.9% | 0.994 / 1.045 |
 | 03-01 visual+magnet (15:08) | 2936 | 1.021218 | 3.8 | 56% | 17% | 1.6% | 1.001 / 1.046 |
 
-- **Every recording has the same average interval, 1.02121–1.02122 s** (Figure 1, table). That is
-  0.002% above the hardware period. The difference is probably between the computer's clock and
-  the scanner's; it is far too small to matter (section 3).
-- **Most intervals are within a few milliseconds:** about half are more than 2 ms off, about one in
-  six more than 5 ms, and 0.3–4.9% more than 10 ms. Outliers are scattered through each
-  recording, with no runs or steps (Figure 1).
+- **Every recording has the same average interval** (table), 0.002% above the hardware period.
+  The difference is probably between the computer's clock and the scanner's; it is far too small
+  to matter (section 3).
+- **Most intervals are within a few milliseconds of the mean** (table). Outliers are scattered
+  through each recording, with no runs or steps (Figure 1).
 - **The largest deviations,** 0.937 s and 1.106 s, are one pair of consecutive frames 30 s into
   02-21 visual: one frame logged 84 ms late.
 
@@ -95,8 +93,8 @@ late. Which is it?
   recording, −0.44 pooled). If the frames came on a regular clock and only the logging was late
   now and then, the correlation would be −0.5: a late timestamp lengthens one interval and
   shortens the next by the same amount.
-- **The timestamps never wander away from a perfect clock** (Figure 3): typically within ±5 ms
-  (SD 2.7–6.4 ms per recording), at most 12–81 ms, and the error does not grow over 20 or 50
+- **The timestamps never wander away from a perfect clock** (Figure 3): typically within ±5 ms,
+  and the error does not grow over 20 or 50
   minutes. Jitter in the frames themselves would accumulate.
 - **So the frames are regular and the jitter is in the logging,** as expected when every frame is
   the same hardware-timed scan waveform. Treating the frames as equally spaced, as the analysis
@@ -150,9 +148,9 @@ a different answer?
 
 - **The 2022_02_21 and 2022_02_23 tests now look at the stimulus frequency.** At 1.0 s they were
   10 bins off it. They stay unflagged.
-- **2022_03_01's visual+magnet counts drop:** 23 → 18 (12:55, no longer flagged) and 46 → 24
-  (15:08, still just above its bound). At 1.02 s their test was 1.4 bins off the stimulus, so
-  most of the 46 were ROIs with power at a neighbouring frequency.
+- **2022_03_01's visual+magnet counts drop,** enough to unflag 12:55 and to leave 15:08 just
+  above its bound. At 1.02 s their test was 1.4 bins off the stimulus, so most of the old
+  suspects were ROIs with power at a neighbouring frequency.
 - **Fig 2A:** 5 of 104 magnetic recordings are flagged at the stimulus frequency, against 6
   before. The visual rows in Fig 2B (1/60 Hz) are unchanged.
 
@@ -160,10 +158,10 @@ a different answer?
 
 | | finding |
 |---|---|
-| **Established** | The 2022 Q1 frame period is 1.0212 s: 1.021198 s by the scan waveform, 1.02121–1.02122 s by the timestamps, the same in all twelve recordings. |
+| **Established** | The 2022 Q1 frame period is 1.0212 s, by the scan waveform and by the timestamps, the same in all twelve recordings. |
 | **Established** | Single intervals jitter by a few ms, but the jitter is in the logging; the frames are regularly spaced and the average period is known to microseconds. |
-| **Established** | `sample_period` needs four decimals here: 1.0 put the 0.4 Hz test 10–25 bins off, 1.02 puts it 0.6–1.4 bins off, 1.0212 puts it within 0.002 bins. |
-| **Established** | At 1.0212 s, none of the 2022_02_21/02_23 magnetic recordings is flagged, and 2022_03_01's 15:08 visual+magnet recording has 24 suspects against a bound of 21 (46 at 1.02 s). |
+| **Established** | `sample_period` needs four decimals here: 1.0 and 1.02 put the 0.4 Hz test bins off the stimulus, 1.0212 puts it on it. |
+| **Established** | At 1.0212 s, none of the 2022_02_21/02_23 magnetic recordings is flagged, and of 2022_03_01's only the 15:08 visual+magnet recording stays (just) above its bound. |
 | **Not covered** | The 0.3 Hz and 0.1 Hz zebrafish and medaka (another setup, no timestamp file). Their grating harmonics put them at 0.998–1.002 s, consistent with the 1.0 s used. |
 
 ## Reproducing

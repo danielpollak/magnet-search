@@ -572,8 +572,11 @@ def _handle_visual_bars(cfg, aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, n
     """20220916-style visual bars.
 
     Orientation CSV has 'trial' and 'deg' columns.
-    First stimulus stamp is lost (decrement trial index by 1).
-    Uses get_concat_spks_consistent_period with a fixed 4-second period.
+    Log trials map to photodiode pulses by count (see below).
+    Uses get_concat_spks_consistent_period with a fixed period of
+    1 / aux_cfg.frequency (5 s since 2026-11-11), each window centred on
+    its sweep. Photodiode pulses that aren't a single sweep (merged pulses)
+    are dropped.
     """
     recname = aux_cfg.recname
     st_d = contingency_d[recname]
@@ -601,35 +604,64 @@ def _handle_visual_bars(cfg, aux_cfg, contingency_d, aux_d, udf, cat_df, df_l, n
     df_csv.columns = ["trial", "deg"]
     degs = df_csv.deg.unique()
 
+    # Sweep on-durations from the photodiode. In 20220916 bars4 every sweep
+    # lasts 4.43-4.45 s whatever its direction, except the first pulse
+    # (8.96 s, no dip). A pulse whose duration is off the median by > 10%
+    # can't be one clean sweep, so it is dropped.
+    on_dur = np.asarray(t_down, dtype=np.float64) - np.asarray(t_up, dtype=np.float64)
+    med_dur = np.median(on_dur)
+    bad_pulse = np.abs(on_dur - med_dur) > 0.1 * med_dur
+    if bad_pulse.any():
+        print(f"  visual_bars {recname}: dropping {bad_pulse.sum()} photodiode pulse(s) "
+              f"of duration {np.round(on_dur[bad_pulse] / ap_sr, 3)} s "
+              f"(median sweep {med_dur / ap_sr:.3f} s)")
+
+    # Window period from the YAML's `frequency` (2026-11-11: 0.2 Hz, i.e. a
+    # 5 s window = the ~4.44 s sweep padded by ~0.28 s on each side, less
+    # than the shortest inter-sweep gap, 0.78 s). Was a hard-coded 4 s,
+    # which cut 0.22 s off both ends of every sweep, onset response included.
+    freq = float(aux_cfg.frequency)
+    period_samples = int(round(ap_sr / freq))
+    if period_samples < np.max(on_dur[~bad_pulse]):
+        raise ValueError(f"{recname}: visual_bars period {1 / freq:.3f} s is shorter "
+                         f"than the longest sweep {np.max(on_dur[~bad_pulse]) / ap_sr:.3f} s")
+
+    # Log trial -> photodiode pulse. Missing stamps are assumed to be at the
+    # start, so pulse = trial - (n_trials - n_pulses). bars4 has 80 log rows
+    # and 80 pulses -> identity (as the legacy notebook used: "first one is
+    # too long so skip it"). The old blanket `trial - 1` ("first stamp
+    # lost") came from bars2 (120 rows, 119 pulses) and, on bars4, shifted
+    # every direction label by one sweep and wrapped trial 0 onto the last
+    # pulse.
+    n_missing = len(df_csv) - len(t_up)
+    if n_missing not in (0, 1):
+        raise ValueError(f"{recname}: {len(df_csv)} log trials vs {len(t_up)} photodiode "
+                         f"pulses; can't map orientations to sweeps")
+
     for deg in tqdm.tqdm(degs):
         deg_df = df_csv.loc[df_csv.deg == deg, :].copy()
-        deg_df.trial = deg_df.trial - 1   # first stamp lost
+        pulse = deg_df.trial.values - n_missing
+        # drop out-of-range indices (no numpy wrap) and the dropped pulses
+        keep = (pulse >= 0) & (pulse < len(t_up))
+        keep[keep] = ~bad_pulse[pulse[keep]]
+        pulse = pulse[keep]
 
-        ons = t_up[deg_df.trial]
-        offs = t_down[deg_df.trial]
+        ons = t_up[pulse]
+        offs = t_down[pulse]
 
-        period_samples = int(4 * ap_sr)
-
-        freq = 1 / 4  # fixed 4-second period
-
-        # Reproduce get_concat_spks_consistent_period's own windowing
-        # exactly. Its `last_off` is NOT a simple i*period_samples running
-        # offset (confirmed wrong on real data -- every window past the
-        # first landed at the wrong synthetic position): each window's
-        # shift is the RAW absolute `off + BL` of the *previous* window
-        # (0 for the first window), i.e. window i's shift is
-        # `offs[i-1] + BL[i-1]` for i>=1, NOT `i * period_samples`. Each
-        # window's own span still has length == period_samples (by
-        # construction of BL), so this only differs from i*period_samples
-        # when consecutive windows aren't perfectly back-to-back in real
-        # time -- which is the normal case.
+        # Windows are stitched back to back: window i occupies
+        # [i * period, (i + 1) * period) on the synthetic timeline, so every
+        # sweep starts at the same phase of `freq`. Mirrors
+        # get_concat_spks_consistent_period. Until 2026-11-11 both placed
+        # window i at the previous window's ABSOLUTE end time (`offs[i-1] +
+        # BL[i-1]`), which gave each sweep an essentially random phase and
+        # cancelled any stimulus-locked response in the Fourier sum.
         ons_arr = np.asarray(ons, dtype=np.float64)
         offs_arr = np.asarray(offs, dtype=np.float64)
         BL = (period_samples - (offs_arr - ons_arr)) / 2
         window_starts = ons_arr - BL + offset
         window_stops = offs_arr + BL + offset
-        window_offsets = np.zeros(len(ons_arr))
-        window_offsets[1:] = offs_arr[:-1] + BL[:-1]
+        window_offsets = np.arange(len(ons_arr), dtype=np.float64) * period_samples
         nwb_epochs.append({
             "rec": recname + "_" + str(deg),
             "stim_type": "visual_bars",

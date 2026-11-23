@@ -17,24 +17,19 @@ distribution of the same spread, then computes the p-value under that.
 
 ## Summary
 
-- **A ROI's CV² predicts its miscalibration** (Figure 1B). In the floor-clipped recordings
-  the quarter of ROIs with the lowest CV² sits at +0.10 to +0.15, the highest quarter at 0.
-- **For most ROIs the matched null is close to production** (Figure 2C). 81% of 2022 Q1 ROIs
-  have CV² between 0.85 and 1.15, and their p-values move by a median of 0.006. In the
-  floor-clipped recordings the median ROI's p moves by 0.02–0.03, and 9–16% move by more than
-  0.1.
-- **At p = 0.5 it nearly removes the excess** where nothing was presented: 0.1 Hz +0.035 →
-  +0.008, 0.3 Hz +0.048 → −0.019, 2022 Q1 −0.013 → −0.007 (Figure 3).
-- **But the shape is wrong in the other direction** (Figure 3): the hump turns into an S, with
-  slightly too many small p-values and a pile near p = 1. It overshoots in the simulations
-  too.
-- **Split by CV², the good average is errors cancelling** (Figure 4). Every group below
-  CV² 0.85 gets the S, and the ROIs above 1.15, which production had calibrated, get a hump
-  of +0.05 to +0.12.
-- **Power** rises 21–66% in simulation, with the false-positive rate at 0.033–0.059 instead of
-  production's 0.020–0.038 (Figure 5).
-- **At the stimulus frequency** the 0.3 Hz excess goes from +0.063 to +0.004 and the 0.1 Hz
-  from +0.044 to +0.013 (Figure 6).
+- **A ROI's CV² predicts its miscalibration.** In the floor-clipped recordings the low-CV²
+  ROIs carry the excess and the high-CV² ROIs are calibrated.
+- **For most ROIs the matched null is close to production.** It moves p appreciably only for
+  the low-CV² ROIs of the floor-clipped recordings.
+- **At p = 0.5 it nearly removes the excess** where nothing was presented.
+- **But the shape is wrong in the other direction:** the hump turns into an S, with slightly
+  too many small p-values and a pile near p = 1. It overshoots in the simulations too.
+- **Split by CV², the good average is errors cancelling.** Every group below CV² 0.85 gets the
+  S, and the ROIs above 1.15, which production had calibrated, get a hump.
+- **Power** rises in simulation, with the false-positive rate brought up from production's
+  conservative level to about 0.05.
+- **At the stimulus frequency** the 0.3 Hz and 0.1 Hz excess largely goes, with the same
+  S-shape.
 - **Verdict:** right direction, wrong shape. The Gamma family matches a ROI's spread but not
   the bounded, U-shaped distribution of power that a few events actually produce.
 
@@ -74,9 +69,8 @@ report.
 
 - **The miscalibration rises steadily as CV² falls below 1** (Figure 1B). The relation runs
   both ways: in 2022 Q1, ROIs with CV² above 1 are miscalibrated in the opposite direction.
-- **Low CV² is common in the floor-clipped recordings** (Figure 1A): 27% of 0.3 Hz ROIs and
-  11% of 0.1 Hz ROIs have CV² < 0.5, against none in 2022 Q1. Median CV² is 0.69, 0.82 and
-  0.99.
+- **Low CV² is common in the floor-clipped recordings and absent in 2022 Q1** (Figure 1A): a
+  quarter of 0.3 Hz ROIs have CV² < 0.5, against none in 2022 Q1.
 - **Why.** A floor-clipped trace is zero between events, so each Fourier coefficient is a sum
   of one contribution per event. With K events of similar size CV² ≈ 1 − 1/K: one event gives
   the same power at every frequency (CV² = 0), and only many events give the exponential
@@ -179,11 +173,11 @@ known to be there?
 | 0.3 Hz config, SD 2: production / matched | 0.038 / 0.059 | 0.209 / 0.253 |
 | 0.3 Hz config, SD 3: production / matched | 0.034 / 0.058 | 0.116 / 0.182 |
 
-- **Production is conservative in the tail.** With no response it calls only 2.0–3.8% of
+- **Production is conservative in the tail** (Figure 5). With no response it calls well under 5% of
   traces significant at 0.05, because few-event traces rarely produce small p-values.
 - **The matched null brings the false-positive rate near 0.05 and detects 21–66% more
-  responses** at m = 0.3. In the 0.3 Hz configuration it slightly overshoots 0.05 (0.058–0.059),
-  the same overshoot as in Figures 3–4.
+  responses** at m = 0.3. In the 0.3 Hz configuration it slightly overshoots 0.05, the same
+  overshoot as in Figures 3–4.
 
 ## 5. At the stimulus frequency
 
@@ -200,9 +194,9 @@ stimulus frequency under the matched null?
 | 0.1 Hz zebrafish | +0.044 | +0.013 | 3.4% | 4.3% |
 | 2022 Q1 zebrafish | +0.024 | +0.033 | 6.2% | 6.1% |
 
-- **0.3 Hz and 0.1 Hz zebrafish:** the excess largely goes, with the same S-shape as at the
-  test frequencies. The share below 0.05 rises to about the 5% expected (6.8% at 0.3 Hz, in
-  line with the overshoot in Figures 3–5). Nothing stimulus-specific stands out.
+- **0.3 Hz and 0.1 Hz zebrafish:** the excess largely goes (Figure 6), with the same S-shape as at the
+  test frequencies. The share below 0.05 rises to about the 5% expected, a little above it
+  at 0.3 Hz, in line with the overshoot in Figures 3–5. Nothing stimulus-specific stands out.
 - **2022 Q1:** the excess stays. Its stimulus bin carries a known local stimulus-locked
   component in `20220301` (background report, Figure 12), which a different null would not
   remove.
@@ -212,8 +206,8 @@ stimulus frequency under the matched null?
 | | finding |
 |---|---|
 | **Established** | A ROI's miscalibration under the production null is predicted by the spread of its periodogram (CV²), in both directions: CV² < 1 (few-event, floor-clipped traces) piles p-values in the middle; CV² > 1 does the opposite. |
-| **Established** | For most ROIs with CV² near 1, including 81% of 2022 Q1, the matched null is practically production's. It matters for the low-CV² ROIs of the floor-clipped recordings. |
-| **Established** | Matching the spread with a Gamma distribution removes most of the excess at p = 0.5, brings the false-positive rate near 0.05 and gains 21–66% power in simulation, but overshoots into an S-shape below CV² 0.85 and creates a hump above 1.15 (Figure 4); its overall calibration is errors cancelling. |
+| **Established** | For most ROIs with CV² near 1, including most of 2022 Q1, the matched null is practically production's. It matters for the low-CV² ROIs of the floor-clipped recordings. |
+| **Established** | Matching the spread with a Gamma distribution removes most of the excess at p = 0.5, brings the false-positive rate near 0.05 and gains power in simulation, but overshoots into an S-shape below CV² 0.85 and creates a hump above 1.15 (Figure 4); its overall calibration is errors cancelling. |
 | **Not adopted** | The Gamma shape is wrong for few-event traces (bounded, piling up near 0). Fixing it would mean an even more constructed, per-ROI null. |
 | **Alternative** | Keep only ROIs whose CV² shows the production null applies: those with CV² ≥ 0.85 are calibrated under it (dev@0.5 +0.004 at 0.1 Hz, −0.005 at 0.3 Hz), but they are 43% of the 0.1 Hz ROIs and 24% of the 0.3 Hz ROIs. |
 | **Since found** | The low CV² is not a property of the cells: suite2p's integer halving and truncation of these photon-starved movies created the floor. Re-extracted at full resolution, CV² is about 1 and the production null is calibrated without any change to the null ([`cv2.md`](cv2.md), section 4). |

@@ -29,7 +29,7 @@ from magpyneto2 import statistics
 
 import format_parameters as FP
 import tex_numbers
-from fig3 import one_recording_per_neuron
+from fig3 import one_recording_per_neuron, POS_CONTROL_TIE_SEED
 
 
 
@@ -52,7 +52,9 @@ def _fix_excess_legend(ax, ncol=3, loc=None, bbox_to_anchor=None):
         except ValueError:
             new_lbl = lbl
         deduped.setdefault(new_lbl, h)
-    legend_kw = dict(title="freq (Hz)", ncol=ncol,
+    # Frameless (2026-11-09): the frame's opaque patch hid the bars behind it.
+    # handlelength 1 (default 2): short line markers (2026-11-09).
+    legend_kw = dict(title="freq (Hz)", ncol=ncol, frameon=False, handlelength=1.0,
                      fontsize=FP.FS_LEGEND, title_fontsize=FP.FS_LEGEND)
     if loc is not None:
         legend_kw["loc"] = loc
@@ -145,28 +147,34 @@ def plot_fig2(all_fourier_df, out_dir: Path):
     print(f"DEBUG - Frequencies in all_pos_control: {sorted(all_pos_control['freq'].unique())}")
 
     # One recording per neuron for C/D, chosen exactly as in Fig 3: the one
-    # closest to 3 Hz, ties to the first. Its neuron key includes "ID"
+    # closest to 3 Hz, ties to the first (positive control: to a pseudo-random
+    # one, e.g. a random grating orientation, as in Fig 3). Its neuron key includes "ID"
     # (subject), not just "date" -- see get_poscontrols_negresults's own
     # dedup for why "date"+"id" alone collides different animals recorded on
     # the same calendar date.
     all_fourier_df_unique_neg_res = one_recording_per_neuron([all_neg_res])
-    all_unique_pos_control = one_recording_per_neuron([all_pos_control])
+    all_unique_pos_control = one_recording_per_neuron([all_pos_control], tie_seed=POS_CONTROL_TIE_SEED)
 
     font = {"family": FP.FONT_FAMILY, "size": FP.FS_BODY_LG}
     matplotlib.rc("font", **font)
 
     fig = plt.figure(figsize=FP.FIGSIZE_FIG2, tight_layout=True)
-    gs = gridspec.GridSpec(3, 4, left=0, bottom=0, right=1, top=1, wspace=FP.WSPACE_DEFAULT, hspace=FP.HSPACE_DEFAULT)
+    # Rows 1 and 3 are empty spacers (2026-11-09): row 3 separates B's
+    # species labels from C/D's titles; row 1 keeps A's labels clear of B's
+    # title, which tight_layout's single hspace no longer did once row 3 was
+    # added.
+    gs = gridspec.GridSpec(5, 4, left=0, bottom=0, right=1, top=1, wspace=FP.WSPACE_DEFAULT, hspace=FP.HSPACE_DEFAULT,
+                           height_ratios=[1, 0.155, 1, 0.15, 1])
 
     ax_A = fig.add_subplot(gs[0, :])
-    ax_B = fig.add_subplot(gs[1, :])
-    ax_C = fig.add_subplot(gs[2, :2])
+    ax_B = fig.add_subplot(gs[2, :])
+    ax_C = fig.add_subplot(gs[4, :2])
     # Shared y with C: the two deviation curves are the same statistic on the
     # same scale, and the whole comparison is how far each departs from zero.
     # On independent axes C's few-thousandths wiggle would be magnified to
     # look like D's, which is exactly the wrong impression -- shared, C reads
     # as the flat line it is against D's excursion.
-    ax_D = fig.add_subplot(gs[2, 2:], sharey=ax_C)
+    ax_D = fig.add_subplot(gs[4, 2:], sharey=ax_C)
     ax_D.tick_params(labelleft=False)
 
     # One palette shared by A and B, defined over the union of both panels'
@@ -175,7 +183,8 @@ def plot_fig2(all_fourier_df, out_dir: Path):
     freq_levels = np.concatenate([all_neg_res.freq.unique(), all_pos_control.freq.unique()])
 
     statistics.plot_excess_counts(ax_A, all_neg_res, ylim=(-15, 25), freq_levels=freq_levels)
-    _fix_excess_legend(ax_A, ncol=7, loc="upper left")
+    # Right-justified (2026-11-09): right edge just left of the zebrafish bars.
+    _fix_excess_legend(ax_A, ncol=9, loc="upper right", bbox_to_anchor=(0.89, 1))
     num_exp_A = all_neg_res.groupby(["species", "area", "rec"]).ngroups
     print(f"Subfig A (magnetic): {num_exp_A} experiments")
 
@@ -184,9 +193,10 @@ def plot_fig2(all_fourier_df, out_dir: Path):
     # into zebrafish's.
     # Overflow counts (arrow + number) run above the panel, beside its
     # title, so ylim only has to fit the bars themselves.
+    # Every B area label below the line (2026-11-10).
     statistics.plot_excess_counts(ax_B, all_pos_control, ylim=(-15, 30),
-                                  freq_levels=freq_levels)
-    _fix_excess_legend(ax_B, ncol=2, loc="upper center", bbox_to_anchor=(0.7, 1))
+                                  freq_levels=freq_levels, stagger_area_labels=False)
+    # B's legend is placed after the titles, beside B's title (see below).
     num_exp_B = all_pos_control.groupby(["species", "area", "rec"]).ngroups
     print(f"Subfig B (visual & auditory): {num_exp_B} experiments")
 
@@ -196,11 +206,27 @@ def plot_fig2(all_fourier_df, out_dir: Path):
     n_D = _plot_pvalue_ecdf_deviation(ax_D, all_unique_pos_control, FP.COLOR_VIS)
     # D shares C's y-axis, so it carries neither the tick labels nor the label.
     ax_D.set_ylabel("")
+    # Round upper bound (2026-11-09; was autoscaled, 0.44). D shares the axis.
+    ax_C.set_ylim(top=0.5)
 
     ax_A.set_title("Magnetic stimulation", fontsize=FP.FS_TITLE)
     ax_B.set_title("Visual & auditory stimulation", fontsize=FP.FS_TITLE)
-    ax_C.set_title(f"Magnetic (N={n_C})", fontsize=FP.FS_TITLE)
-    ax_D.set_title(f"Visual & auditory (N={n_D})", fontsize=FP.FS_TITLE)
+    ax_C.set_title(f"Magnetic\n(N={n_C})", fontsize=FP.FS_TITLE, pad=2)
+    ax_D.set_title(f"Visual & auditory\n(N={n_D})", fontsize=FP.FS_TITLE, pad=2)
+
+    # B's legend: top level with B's title's top, right edge just left of
+    # the first zebrafish bar (2026-11-10), so it covers none of the
+    # zebrafish bars or their overflow counts. Bar i spans i+0.25..i+0.75
+    # and the x-limits are (-0.25, n_bars + 0.25), see plot_excess_counts.
+    fig.canvas.draw()
+    _title_bb = ax_B.title.get_window_extent(fig.canvas.get_renderer()).transformed(
+        ax_B.transAxes.inverted())
+    _n_bars_B = all_pos_control.groupby(["species", "area", "rec"]).ngroups
+    _n_before_zfish = all_pos_control.loc[
+        ~all_pos_control.species.isin(["zebrafish", "medaka"])].groupby(["species", "area", "rec"]).ngroups
+    _zfish_x0 = (_n_before_zfish + 0.25 + 0.25) / (_n_bars_B + 0.5)
+    _fix_excess_legend(ax_B, ncol=2, loc="upper right",
+                       bbox_to_anchor=(_zfish_x0 - 0.01, _title_bb.y1))
 
     ax_A.annotate("A", xy=(-0.05, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
     ax_B.annotate("B", xy=(-0.05, 1.05), xycoords="axes fraction", fontfamily="arial", fontsize=12)
@@ -217,7 +243,7 @@ def plot_fig2(all_fourier_df, out_dir: Path):
     statistics.boundarize_and_nestle(ax_D, x_offset=-0.07, y_offset=-0.03, xprec=1, yprec=3)
 
     out_path = out_dir / "Fig2.pdf"
-    fig.savefig(out_path, bbox_inches="tight", dpi=FP.DPI)
+    FP.save_main_figure(fig, out_path)
     print(f"Saved {out_path}")
     if not in_notebook:
         plt.close(fig)

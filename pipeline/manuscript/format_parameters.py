@@ -14,7 +14,7 @@ FS_PANEL    = 11     # subfigure label (A, B, C…)
 # up far smaller than titles with no numeric relationship between the two.
 # FS_LEGEND is now capped at 90% of FS_TITLE, and both are set explicitly
 # (never left to fall back on rcParams defaults) everywhere they're used.
-FS_TITLE    = 9       # axis title (was 10)
+FS_TITLE    = 11      # axis title (was 9; 10 before that)
 FS_LEGEND   = 8       # legend text, all figures (~89% of FS_TITLE; was 5-7pt in various places)
 
 # ── Figure dimensions (figsize) ────────────────────────────────────────────────
@@ -40,10 +40,36 @@ FIGSIZE_FIG1 = (8.5, 6)       # composite NPIX + GCaMP + ECDF
 # \textfloatsep to fit, so between those two limits a float silently defers
 # to the back of the document with nothing in the log. 7.30 gives 350pt,
 # ~10pt of margin, so a later caption edit doesn't quietly re-break it.
-FIGSIZE_FIG1_COMPOSITE = (7.0, 7.30)
-FIGSIZE_FIG2 = (8.5, 6.5)   # excess counts + distributions
-FIGSIZE_FIG3 = (8, 4)       # p/q-value uniformity
-FIGSIZE_FIG4 = (7, 6)     # modulation sensitivity (A left / B right in a squished top band, C+D side-by-side below)
+#
+# 2026-11-09: every MAIN figure (1-4) is now drawn at the same width,
+# MAIN_FIG_WIDTH. The manuscript includes each at width=	extwidth, so a
+# shared drawn width means a shared scale factor, and a given point size
+# prints at the same size in every figure (previously Fig 1 was 7.0 in,
+# Fig 2 8.5 in and Fig 3 11.2 in, so their 9pt titles printed at ~6.2, ~5.1
+# and ~3.9 pt). Each height was rescaled with its width (aspect preserved),
+# so every figure keeps its printed height on the page -- in particular
+# Fig 1 stays at ~350pt, under the float-placement threshold above. (Figs 3
+# and 4 are exceptions, see FIGSIZE_FIG3_MAIN / FIGSIZE_FIG4.)
+#
+# MAIN_FIG_WIDTH is the width of the SAVED PDF, not just the figsize: the
+# main figures are saved with bbox_inches="tight", and their axis labels and
+# panel letters hang outside the figure canvas, so a 7.5 in canvas saved
+# 7.5-8.4 in wide depending on the figure. save_main_figure() below resizes
+# the canvas (aspect kept) until the saved width is MAIN_FIG_WIDTH, so the
+# FIGSIZE_* values below set each figure's aspect and starting point, and
+# the PDF comes out exactly MAIN_FIG_WIDTH wide.
+MAIN_FIG_WIDTH = 7.5
+FIGSIZE_FIG1_COMPOSITE = (MAIN_FIG_WIDTH, 7.82)  # was (7.0, 7.30)
+FIGSIZE_FIG2 = (MAIN_FIG_WIDTH, 6.6)   # excess counts + distributions; was (8.5, 6.5)
+# Fig 3 itself (fig3.py) used FIGSIZE_FIG3 * (1.4, 1.8) = (11.2, 7.2); that
+# product is now its own constant. FIGSIZE_FIG3 is kept unchanged as the base
+# that its supplements (fig3s4_bucketings, fig3_modulation_depth) and
+# oddball_stimulus still scale from.
+FIGSIZE_FIG3 = (8, 4)       # base for Fig 3 supplements
+# Taller than its old aspect (which would give 4.82): 16 axes at 2/3 the old
+# width needed the extra height for titles and tick labels to clear.
+FIGSIZE_FIG3_MAIN = (MAIN_FIG_WIDTH, 6.0)  # p/q-value uniformity; was (11.2, 7.2)
+FIGSIZE_FIG4 = (MAIN_FIG_WIDTH, 10.0)  # 2026-11-12: was 7.2; bottom band is now 2x2 (C-F).    # modulation sensitivity (A left / B right in a squished top band, C+D side-by-side below); was (7, 6). Taller than its old aspect (6.43) for more vertical space between rows
 
 # ── File paths ────────────────────────────────────────────────────────────────────
 # Anchored to this file's own location (repo_root/pipeline/manuscript/
@@ -92,6 +118,8 @@ ALPHA_CELL_OTHER = 0.6      # other cell masks (fig 1)
 # ── Colors ─────────────────────────────────────────────────────────────────────
 COLOR_MAG     = "steelblue"  # magnetic stimulation
 COLOR_VIS     = "coral"      # visual stimulation
+COLOR_AUD     = "mediumpurple"  # auditory stimulation (white noise)
+COLOR_ODDBALL = "seagreen"   # oddball light flashes
 COLOR_CELL_EX = "red"        # exemplar cell (filled)
 COLOR_CELL_BG = "cyan"       # background cells (outline)
 COLOR_NULL    = "gray"       # null hypothesis line
@@ -101,3 +129,25 @@ WSPACE_DEFAULT = 0.3    # default column spacing
 HSPACE_DEFAULT = 0.3    # default row spacing
 WSPACE_TIGHT   = 0.25   # tighter spacing
 HSPACE_TIGHT   = 0.25   # tighter spacing
+
+
+def save_main_figure(fig, out_path, width=MAIN_FIG_WIDTH, tol=0.005, max_iter=6, **savefig_kw):
+    """Save a main manuscript figure with bbox_inches="tight" so the PDF is
+    exactly `width` inches wide (see MAIN_FIG_WIDTH).
+
+    Whatever hangs outside the canvas (y labels, panel letters) is roughly
+    fixed in inches, so each pass scales the canvas, aspect kept, by
+    (width - overhang) / canvas width; it converges in two or three passes.
+    """
+    import matplotlib as _mpl
+    pad = _mpl.rcParams["savefig.pad_inches"]
+    for _ in range(max_iter):
+        fig.canvas.draw()
+        saved_w = fig.get_tightbbox(fig.canvas.get_renderer()).width + 2 * pad
+        if abs(saved_w - width) < tol:
+            break
+        w, h = fig.get_size_inches()
+        k = (width - (saved_w - w)) / w
+        fig.set_size_inches(w * k, h * k)
+    savefig_kw.setdefault("dpi", DPI)
+    fig.savefig(out_path, bbox_inches="tight", **savefig_kw)

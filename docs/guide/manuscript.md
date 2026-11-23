@@ -1,19 +1,19 @@
 # Manuscript figures and numbers
 
-Run `python pipeline/aggregate.py` first; every script below reads `data/manuscript/all_fourier_df.parquet` (Figs 1 and 4 also read individual NWB files). Outputs go to `figs/paper/`.
+Run `python pipeline/aggregate.py` first; every script below reads `data/manuscript/all_fourier_df.parquet` (Figs 1 and 4 also read individual NWB files). Outputs go to `figs/paper/`; supplementary figures (`Fig3S1_second_harmonic.pdf`, `Fig3S2_all_recordings.pdf`) to `figs/paper/supplement/`; diagnostic figures (the scripts not in the manuscript, plus `fig4.py --rec-boundaries`/`--panel-a-unit`) go to `figs/paper/diagnostic/`.
 
 ## Figures
 
 | Script | Output | Content |
 |---|---|---|
 | `fig1.py` | `Fig1.pdf` | Analysis pipeline on one pigeon unit under magnetic and visual stimulation; NFC distributions with p-value ECDF insets |
-| `fig2.py` | `Fig2.pdf` | Suspect counts per experiment against the null (A magnetic, B visual & auditory); p-value ECDF minus uniform, one recording per neuron (C, D) |
-| `fig3.py` | `Fig3.pdf`, `Fig3_supp_buckets.pdf` | Sorted p- and q-values for four populations. `Fig3.pdf` uses each neuron's first recording; the supplement shows every recording, split by occurrence (page 1) and pooled (page 2) |
-| `fig3_supp.py` | `Fig3_supp.pdf` | Fig 3 at twice the stimulus frequency |
-| `fig3_variants.py` | `Fig3_variants.pdf` | Other ways of bucketing Fig 3's populations (species, frequency, brain area, equal-sized buckets); page numbers printed on each page, list in the script's docstring |
+| `fig2.py` | `Fig2.pdf` | Suspect counts per experiment against the null (A magnetic, B visual & auditory); p-value ECDF minus uniform, one recording per neuron, the one closest to 3 Hz as in Fig 3 (C, D) |
+| `fig3.py` | `Fig3.pdf`, `Fig3_by_modality.pdf`, `Fig3S2_all_recordings.pdf` | Sorted p- and q-values for four populations. `Fig3.pdf` uses one recording per neuron, the one closest to 3 Hz (positive-control ties, e.g. grating orientations, to a pseudo-random one); `Fig3_by_modality.pdf` splits the positive control into white noise and every visual stimulus, spikes and imaging alike (gratings, bars, oddball flashes, fish gratings; `Fig3_by_modality_CB.pdf`: cerebellum in C/D; `Fig3_WN_oddball.pdf`: white noise and oddball, HP and CB pages); the supplement shows every recording, split by occurrence (page 1) and pooled, by modality (page 2) |
+| `fig3s1_second_harmonic.py` | `Fig3S1_second_harmonic.pdf` | Fig 3 at twice the stimulus frequency |
+| `fig3s4_bucketings.py` | `Fig3S4_bucketings.pdf` | Other ways of bucketing Fig 3's populations (species, frequency, brain area, equal-sized buckets); page numbers printed on each page, list in the script's docstring |
 | `fig4.py --recompute` | `Fig4.pdf` | Modulation-detectability simulation (`--recompute` forces re-simulation, `--workers N` parallelizes the sweep) |
 
-Further supplementary and diagnostic scripts (`fig3_supp2.py`, `fig3_modulation_depth.py`, `fig2_variants.py`, `fig2A_imaging_annotated.py`, `fig4B_diagnostics.py`, `fig1E_qfrac_diagnostic.py`, `fig1_auditory.py`) describe themselves in their docstrings. `fig1_extract_raw_snippets.py` is a one-time NAS extraction that caches Fig 1's raw-voltage snippets locally.
+Further supplementary and diagnostic scripts (`fig3s3_reproducibility.py`, `fig3_modulation_depth.py`, `fig2_variants.py`, `fig2A_imaging_annotated.py`, `fig4B_diagnostics.py`, `fig1E_qfrac_diagnostic.py`, `fig1_auditory.py`) describe themselves in their docstrings. `fig1_extract_raw_snippets.py` is a one-time NAS extraction that caches Fig 1's raw-voltage snippets locally. `oddball_stimulus.py` draws the oddball flash train (`supplement/oddball_stimulus_strip.pdf`) and a real-time video of it per session (`supplement/oddball_stimulus_{session}.mp4`) from the photodiode times that `oddball_extract_ttl.py` caches once from the NAS.
 
 Plot styling (fonts, colours, figure sizes) is shared through `format_parameters.py`.
 

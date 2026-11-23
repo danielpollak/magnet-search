@@ -1,0 +1,22 @@
+column,meaning
+recording,"experiment name: experiments/<name>.yml, data/<name>.nwb"
+batch,2022 Q1: a separate 20 or 50 min recording per condition. 0.3/0.1 Hz zebrafish and medaka: one run of 61 interleaved 60 s chunks split into conditions
+condition,"2022 Q1: magnet / visual / visual+magnet / nostim. Others: magneto_k or no_magneto_k, k = the condition index in the raw chunk names"
+condition index,"k above: a stimulus condition, not a repeat number (1 and 2 carry the grating)"
+coil,"magnetic stimulus on or off, by recording name"
+visual grating,"60 s grating present (2022 Q1 by condition; others from population spectra, docs/full_resolution_rerun.md section 3)"
+stitched from interleaved 60 s chunks,"the trial tiff concatenates this condition's chunks, so it has a seam every 60 frames"
+Fig 2 panel,population the rows fall in (statistics.get_poscontrols_negresults)
+frame period T (s),sample_period: 1.0212 measured for 2022 Q1 (docs/frame_timing.md); 1.0 elsewhere (not measured)
+frames analysed N,"fit_Fourier analyses min(120*(frames//60), frames) frames"
+frequency resolution (Hz),"FFT bin spacing, 1/(N*T)"
+primary f (Hz),"analysis.f: the magnetic frequency, or 1/60 Hz for 2022 Q1 visual-only"
+primary f in bins,"f*N*T; the analysis uses the nearest bin, so a non-integer is off-bin"
+Q_frac,half-width of the reference window as a fraction of f
+half-window (Hz),Q_frac * f
+Q (bins per side),off-frequency bins on each side of f that normalise NFC (2Q in all)
+Q_2f (bins per side),"same for the second harmonic (engert, below Nyquist only)"
+visual f / visual Q,independent 1/60 Hz fit (visual positive control)
+ROIs segmented,all suite2p ROIs in the segmentation (shared by a session's trials)
+ROIs analysed,"after P(iscell) > 0.5, npix > 9, fish outline and flatline removal"
+suspects,ROIs with p < 0.01 at that frequency

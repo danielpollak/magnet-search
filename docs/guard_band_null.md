@@ -18,13 +18,11 @@ p-values, a guard band as wide as the correlation should restore calibration.
 
 - **Neighbouring bins are correlated out to about 8–10 bins** in the floor-clipped recordings
   (Figure 1A), so G ≈ 10 should be enough to cut the analysis bin loose.
-- **The guard band reduces the excess but does not remove it.** At the test frequencies the
-  0.3 Hz recordings go from +0.048 to +0.035 at G = 10 and +0.024 at G = 20; the 0.1 Hz
-  recordings from +0.035 to +0.030 and +0.026 (Figure 2). Most of the drop comes past G = 10,
-  where the correlation has already died out.
-- **It biases calibrated recordings downward.** 2022 Q1 drifts from −0.013 to −0.025 at
-  G = 20, as do the stationary simulations: once the noise bins move away from the analysis
-  bin, the spectrum's curvature biases the noise estimate (Figure 2).
+- **The guard band reduces the excess but does not remove it** (Figure 2). Most of the drop
+  comes past G = 10, where the correlation has already died out.
+- **It biases calibrated recordings downward.** 2022 Q1 drifts further below zero as G grows,
+  as do the stationary simulations: once the noise bins move away from the analysis bin, the
+  spectrum's curvature biases the noise estimate (Figure 2).
 - **Correcting for correlated noise bins (effective M) changes almost nothing** (Figure 2,
   gray dotted).
 - **Power** rises at G = 10–20 (Figure 4), partly because the downward drift pushes p-values
@@ -74,11 +72,10 @@ independent?
 <sub>**Figure 1. Correlation between bins.** *A:* correlation between a ROI's ordinates L bins apart (each divided by the running median of its 51 neighbours, so a sloping spectrum does not count), mean over ROIs, measured over its whole spectrum away from the stimulus. *B:* distribution over ROI traces of M_eff / M, the share of the noise bins that count as independent once that correlation is accounted for.</sub>
 
 - **Neighbouring bins are correlated out to about 8–10 bins** in the floor-clipped recordings
-  (Figure 1A): lag-1 correlation 0.37 (0.3 Hz) and 0.29 (0.1 Hz), against 0.06 in 2022 Q1.
-  That sets the guard band: G ≈ 10 should cut the analysis bin loose from its noise bins.
-- **The correlation reduces the effective number of noise bins only modestly** (Figure 1B):
-  median M_eff is 36 of M = 57 (0.3 Hz) and 23 of 32 (0.1 Hz). In 2022 Q1 the median ROI is
-  unaffected.
+  (Figure 1A), and barely at all in 2022 Q1. That sets the guard band: G ≈ 10 should cut the
+  analysis bin loose from its noise bins.
+- **The correlation reduces the effective number of noise bins only modestly** (Figure 1B). In
+  2022 Q1 the median ROI is unaffected.
 
 ## 2. Does the guard band restore calibration?
 
@@ -102,7 +99,7 @@ p-values at the test frequencies should become uniform once G is past the correl
   being cut.
 - **The guard band costs calibration where there was none to fix.** 2022 Q1 drifts further
   below zero as G grows, and the stationary simulations drift down too. In the simulated
-  0.3 Hz configuration the excess is not reduced but overshot, to −0.019 at G = 20. Moving
+  0.3 Hz configuration the excess is not reduced but overshot. Moving
   the noise bins away from the analysis bin lets the spectrum's curvature bias the noise
   estimate. Part of the drop in the floor-clipped recordings is probably this same downward
   drift, not a fix.
@@ -136,7 +133,7 @@ known to be there?
 | 0.3 Hz config: G = 10 | 0.046 | 0.235 |
 | 0.3 Hz config: G = 20 | 0.050 | 0.248 |
 
-- **Production is conservative in the tail.** With no response it calls only 2.8–3.8% of
+- **Production is conservative in the tail.** With no response it calls well under 5% of
   traces significant at 0.05, because few-event traces rarely produce small p-values.
 - **A guard band detects more** (+12–30% at m = 0.3) and brings the false-positive rate up
   toward 0.05. Given the downward drift in Figure 2, this gain cannot be separated from a
@@ -158,9 +155,9 @@ stimulus frequency with a guard band?
 | 0.1 Hz zebrafish | +0.044 | +0.032 | +0.025 |
 | 2022 Q1 zebrafish | +0.024 | +0.025 | +0.024 |
 
-- **The floor-clipped recordings keep most of their excess** at the stimulus frequency, as at
+- **The floor-clipped recordings keep most of their excess** at the stimulus frequency (Figure 5), as at
   the test frequencies. Nothing stimulus-specific appears.
-- **2022 Q1's +0.024** is the known local stimulus-locked component in `20220301` (background
+- **2022 Q1's excess** is the known local stimulus-locked component in `20220301` (background
   report, Figure 12) and does not change with G.
 
 ## What this establishes

@@ -1189,7 +1189,7 @@ def sanity_check_raw_data(θ, period_crossings, sts, n_representative_units=7, s
     return fig, axes
 
 
-def fit_fourier_sig(df, Q_frac, sr=30_000, diagnostics=True):
+def fit_fourier_sig(df, Q_frac, sr=30_000, diagnostics=True, min_bins=None):
     """Runs fourier_analysis on a dataframe of spiking data
 
     Parameters
@@ -1202,6 +1202,12 @@ def fit_fourier_sig(df, Q_frac, sr=30_000, diagnostics=True):
         function's docstring for the exact formula and error conditions.
     sr: (int) sampling rate
     diagnostics: (bool) whether to output diagnostic plots
+    min_bins: (int, optional) per-call override of bins_for_fraction's
+        minimum off-frequency bin count (MIN_FOURIER_BINS when None).
+        Added 2026-11-11 with user sign-off (exception to the 8-bin floor)
+        for 20220916's per-direction moving bars: 9-10 back-to-back 5 s
+        windows put 0.2 Hz at bin 8-9, so 8 bins per side would reach the
+        steep lowest-frequency bins (0 and 1) of the spectrum.
 
     Returns
     -------
@@ -1230,8 +1236,9 @@ def fit_fourier_sig(df, Q_frac, sr=30_000, diagnostics=True):
         # (frq, then frq*2), not shared.
         group_T = (1/frq) * np.max(subdf.period)
         resolution = 1 / group_T
-        M_1f = bins_for_fraction(frq, Q_frac, resolution, context=f"[{rec} 1F @ {frq}Hz] ")
-        M_2f = bins_for_fraction(frq * 2, Q_frac, resolution, context=f"[{rec} 2F @ {frq*2}Hz] ")
+        mb = {} if min_bins is None else {"min_bins": min_bins}
+        M_1f = bins_for_fraction(frq, Q_frac, resolution, context=f"[{rec} 1F @ {frq}Hz] ", **mb)
+        M_2f = bins_for_fraction(frq * 2, Q_frac, resolution, context=f"[{rec} 2F @ {frq*2}Hz] ", **mb)
 
         # Run Fourier 1F
         (C, T, nn, fff,
@@ -1602,6 +1609,27 @@ def freq_color_map(freqs, levels=None):
     return {f: slot[canonical_freq(f)] for f in freqs}
 
 
+def _separate_area_labels(ax, labels, pad_em=0.5):
+    """Push apart adjacent area labels in the same row (raised or lowered)
+    whose rendered extents overlap, left to right: each label that starts
+    less than pad_em (in units of its font size) after its left neighbour
+    ends is shifted right by the shortfall. Measured on the axes' final
+    x-limits, so it holds at whatever width the figure is drawn."""
+    fig = ax.figure
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    for row in (True, False):
+        texts = sorted((t for t, raised in labels if raised == row),
+                       key=lambda t: t.get_position()[0])
+        for left, right in zip(texts, texts[1:]):
+            pad = pad_em * right.get_fontsize() * fig.dpi / 72
+            shortfall = (left.get_window_extent(renderer).x1 + pad
+                         - right.get_window_extent(renderer).x0)
+            if shortfall > 0:
+                x_disp, y_disp = ax.transData.transform(right.get_position())
+                right.set_x(ax.transData.inverted().transform((x_disp + shortfall, y_disp))[0])
+
+
 def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_level=-13,
                         label_recs=False, ylim=(-15, 20), stagger_area_labels=True,
                         freq_levels=None):
@@ -1639,6 +1667,7 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
 
     counter, counter_last, species_counter, species_counter_last = 0, 0, 0, 0
     xticks, xticklabels = [], []
+    area_labels = []  # (Text, raised?) -- de-overlapped after the loop
 
     color_d = freq_color_map(bigfig_df.freq.unique(), levels=freq_levels)
     
@@ -1648,8 +1677,10 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
     # both lowered-position labels, and collided ("nidopalliumpallium");
     # spreading quail and mouse out among the other species leaves fewer
     # narrow same-row labels immediately adjacent to each other.
+    # Mouse and quail swapped (2026-11-09, user's call): quail now sits
+    # between zebra finch and Pigeon, mouse between Pigeon and zebrafish.
     desired_order = [
-        'Owl', 'zebra finch', 'mouse', 'Pigeon', 'Quail', 'zebrafish', 'medaka']
+        'Owl', 'zebra finch', 'Quail', 'Pigeon', 'mouse', 'zebrafish', 'medaka']
 
     for species in desired_order:
         species_df = bigfig_df.loc[bigfig_df.species == species, :]
@@ -1794,14 +1825,11 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
             if area in ("wholebrain", "whole brain"):
                 area = "WB"
             
+            # Only arcopallium, thalamus and SC go above the line (2026-11-10,
+            # user's call); CB, WB and pigeon pallium, previously raised, now
+            # sit below it with the rest.
             raise_area = stagger_area_labels and (
-                ('arcopallium' in area) or (("WB" in area) and (species=='zebrafish'))
-                or ("thalamus" in area) or ("CB" in area) or ("SC" in area)
-                # Pigeon's plain "pallium" (2026-08-28) -- distinct from
-                # "arcopallium" (a different area, and already raised above)
-                # -- raised so it doesn't sit in the same lowered row as its
-                # neighbors.
-                or (area == "pallium" and species == "Pigeon")
+                ('arcopallium' in area) or ("thalamus" in area) or (area == "SC")
             )
             # Raised and lowered labels clear the area line by the SAME gap
             # (2026-09-02). Previously the lowered row sat
@@ -1815,15 +1843,12 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
             # "arcopallium"/"hippocampus" eat into the gap.
             label_gap = abs(area_line_level) * 0.2
 
-            # Two adjacent same-row (both raised) labels across a species
-            # boundary would otherwise collide (2026-08-28) -- e.g. pigeon's
-            # now-raised "pallium" right before quail's raised "thalamus",
-            # once quail was moved to sit next to pigeon. Nudge the second
-            # of any such pair right for clearance; a raised label following
-            # a lowered (or absent) one needs no nudge.
+            # Adjacent same-row labels that still collide are pushed apart
+            # after the loop, by their measured extents (see
+            # _separate_area_labels below; replaced a fixed +1.5-bar nudge on
+            # raised-after-raised labels, 2026-11-09, which stopped clearing
+            # "thal" | "whole brain" once Fig 2 was drawn narrower).
             text_x = (counter + counter_last) / 2
-            if raise_area and prev_raised:
-                text_x += 1.5
             prev_raised = raise_area
 
             # Display-only renames (2026-08-28) -- don't affect the raise_area
@@ -1832,15 +1857,19 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
             if area == "thalamus":
                 display_area = "thal"
             elif area == "WB":
-                display_area = "whole brain"
+                display_area = "WB"  # was "whole brain" (2026-11-10)
             elif area == "HP":
                 display_area = "hippocampus"
+            elif area == "arcopallium":  # 2026-11-09: short forms
+                display_area = "arco"
+            elif area == "nidopallium":
+                display_area = "nido"
 
-            conf_ax.text(text_x,
+            area_labels.append((conf_ax.text(text_x,
                          area_line_level + label_gap if raise_area else area_line_level - label_gap,
                          display_area, ha="center", rotation=0,
                          va="bottom" if raise_area else "top",
-                         color=_AREA_TIER_COLOR)
+                         color=_AREA_TIER_COLOR), raise_area))
         
         # Update species counter
         species_counter = counter
@@ -1863,17 +1892,24 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
 
     # A species with only a recording or two (e.g. medaka in panel A since the
     # grating trials left it, 2026-10-07) puts its label on top of its
-    # neighbour's: move such a label down a line.
+    # neighbour's: move such a label down a line. Medaka always goes down a
+    # line (2026-11-09), so it sits below zebrafish the same way in both
+    # panels, whether or not the labels happen to touch.
     conf_ax.figure.canvas.draw()
     _ticks = conf_ax.get_xticklabels()
     _boxes = [t.get_window_extent() for t in _ticks]
     for i in range(1, len(_ticks)):
-        if _boxes[i].x0 < _boxes[i - 1].x1 and not xticklabels[i - 1].startswith("\n"):
+        if ((_boxes[i].x0 < _boxes[i - 1].x1 or xticklabels[i] == "medaka")
+                and not xticklabels[i - 1].startswith("\n")):
             xticklabels[i] = "\n" + xticklabels[i]
     conf_ax.set_xticklabels(xticklabels, rotation=0)
 
-    # Get xlimit before adding data for the legend so you can reset it later
-    xlim_conf = conf_ax.get_xlim()
+    # x-limits hug the bars (2026-11-09): bar i spans i+0.25..i+0.75, so
+    # neighbouring bars are 0.5 apart, and these limits leave that same 0.5
+    # gap before the first bar and after the last. Previously the autoscaled
+    # limits added matplotlib's default 5% margin, ~4-5 empty bar widths on
+    # each side.
+    xlim_conf = (-0.25, counter + 0.25)
 
     # Plant labels away from data
     freqs = bigfig_df.freq.unique()
@@ -1889,6 +1925,7 @@ def plot_excess_counts(conf_ax, bigfig_df, area_line_level=-6, species_line_leve
     conf_ax.set_xlim(xlim_conf)
     conf_ax.set_ylim(ylim)
     conf_ax.set_ylabel("# Suspects");
+    _separate_area_labels(conf_ax, area_labels)
 
     # Keep only the ticks inside [0, ylim[1]] -- the locator also returns
     # one above ylim[1], and set_yticks would widen ylim to include it,
@@ -2061,8 +2098,9 @@ def get_poscontrols_negresults(all_fourier_df:pd.DataFrame):
         Dataframe of unique positive controls
     """
 
-    # high spike count, permit lower for owl recordings
-    nn_filter = ((all_fourier_df.spk_count.values > 50) | (all_fourier_df.species.values == "Owl"))
+    # at least 50 spikes in the analysed window (the floor build_modulation_frame
+    # applies to every NPIX paradigm); owl exempt
+    nn_filter = ((all_fourier_df.spk_count.values >= 50) | (all_fourier_df.species.values == "Owl"))
     include_fish = np.array([("fish" in elem) or (elem == "medaka") for elem in all_fourier_df.species.values])
 
 
@@ -2107,7 +2145,7 @@ def get_poscontrols_negresults(all_fourier_df:pd.DataFrame):
     # magnetic population too (fish_visual_recs below).
     _coil_on_re = re.compile(r"visualmagnet|(^|_)(?<!no_)magneto_\d+")
     fish_pos_control = fish_visual.loc[
-        ~np.array([bool(_coil_on_re.search(rec)) for rec in fish_visual.rec.values]), :]
+        ~np.array([bool(_coil_on_re.search(rec)) for rec in fish_visual.rec.values], dtype=bool), :]
 
     # Combine fish and not fish
     all_pos_control = pd.concat([
@@ -2156,7 +2194,7 @@ def get_poscontrols_negresults(all_fourier_df:pd.DataFrame):
     # suite2p ROI extraction across all of a fish's trials (same
     # `session_path`, only `tiff_name` differs -- see the engert YAMLs), so
     # `id` really is a stable per-neuron key across them and they belong in
-    # the occurrence-wave analysis (fig3_supp2.py) same as any other repeat
+    # the occurrence-wave analysis (fig3s3_reproducibility.py) same as any other repeat
     # magnet recording.
     #
     # Optional "visual" prefix (+ optional "_a"/"_b" suffix) also matches the

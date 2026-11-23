@@ -17,11 +17,11 @@
 
 ## Summary
 
-Production segments these sessions on the unscaled tiffs. suite2p halves them, which leaves only a few grey levels, so most of its ROIs are small fragments (median 14–16 px).
+Production segments these sessions on the unscaled tiffs. suite2p halves them, which leaves only a few grey levels, so most of its ROIs are small fragments of cells.
 
 Re-running suite2p on tiffs ×64, with its registration off, gives larger ROIs that cover more of each cell:
-- **Size:** median 28–39 px.
-- **Count:** 1.5–2.1× as many ROIs pass production's selection.
+- **Size:** about twice production's, in every session.
+- **Count:** more ROIs pass production's selection; how many more depends on the session.
 - **Same cells, better traces:** on the same cells, a re-segmented ROI collects about twice the photons per frame of the production fragments inside it. It responds to the grating at least as often.
 
 The conclusions don't change:
@@ -29,15 +29,15 @@ The conclusions don't change:
 - the 0.1 Hz excess is the same as in production, with the coil on and off alike;
 - nonstationarity drops by a few points.
 
-**Recommendation:** the most conservative version is ×64 with the drift corrected in whole pixels. It finds 3,488 selected ROIs against production's 2,309; this is the variant shown in the videos. A bilinear (sub-pixel) correction finds more (4,866), but part of that gain probably comes from the interpolation smoothing the noise, not from more real cells (section 2).
+**Recommendation:** the most conservative version is ×64 with the drift corrected in whole pixels; this is the variant shown in the videos. A bilinear (sub-pixel) correction finds more ROIs, but part of that gain probably comes from the interpolation smoothing the noise, not from more real cells (section 2).
 
 | | finding |
 |---|---|
-| **Established** | ×64 tiffs give selected ROIs twice production's size (median 28–39 vs 14–16 px) in all five sessions (Table 1, Figures 1–2). |
-| **Established** | The same cells give better traces. A re-segmented ROI collects 7.5 photons per frame (median) against 4.2 for the production fragments inside it. It responds to the grating as often (67% vs 66%), with a slightly stronger p (Table 2). |
-| **Established** | The magnetic results are unchanged in every variant (Table 3). The 0.3 Hz suspects are at chance (0.7–1.1%). The 0.1 Hz suspects are 1.0–1.7% in every segmentation, production's included, with the coil on and off alike. |
+| **Established** | ×64 tiffs give selected ROIs about twice production's size in all five sessions (Table 1, Figures 1–2). |
+| **Established** | The same cells give better traces: a re-segmented ROI collects more photons than the production fragments inside it and responds to the grating as often, with a slightly stronger p (Table 2). |
+| **Established** | The magnetic results are unchanged in every variant (Table 3, Figure 4). The 0.3 Hz suspects are at chance. The 0.1 Hz excess is the same in every segmentation, production's included, with the coil on and off alike. |
 | **Established** | suite2p's detection never stops by itself in these movies. Every run, production's included, stops at production's limit of 5,000 ROIs (section 4). |
-| **Leading hypothesis, untested** | The bilinear variant's extra ROIs come from the interpolation smoothing the photon noise. It also puts 29–64% of its ROIs on the dark background (Table 1). |
+| **Leading hypothesis, untested** | The bilinear variant's extra ROIs come from the interpolation smoothing the photon noise. It also puts the most ROIs on the dark background (Table 1). |
 | **Done** | The whole-pixel re-segmentation is in production since 2026-10-12. Every check passed: the NWB round trip on all 30 recordings, ROI counts and suspect counts identical to this report's, and Fig 2's flagged recordings unchanged. |
 
 ## What was compared
@@ -99,24 +99,21 @@ How do the ROIs differ in number, size and classifier score?
 - P(iscell), selected ROIs;
 - brightness of the analysed ROIs: the mean of the trace above the offset, in photons per pixel per frame, weighted by suite2p's pixel weights.</sub>
 
-- **Every re-segmentation doubles the ROI size.** The median of the selected ROIs goes from 14–16 px to 28–39 px in every session. Across all ROIs, the share below 10 px falls from 78–94% to 32–76%.
-- **The count gain is session-dependent and modest for the conservative variants.**
-  - With the whole-pixel correction: 0.9–1.4× production's count in four sessions, and 2.9× in 20220915_fish1, the session with the 20 px drift.
-  - The bilinear correction adds the most: 1.3–2.2× in field, and 3.5× in 20220915_fish1.
-- **The classifier likes the new ROIs at least as much.** Median P(iscell) is 0.86–0.94, against 0.81–0.91.
+- **Every re-segmentation doubles the ROI size, in every session,** and far fewer ROIs fall below the 10 px minimum (Figure 3). The classifier scores the new ROIs at least as high.
+- **The count gain depends on the session.** It is modest for the conservative variants and largest in 20220915_fish1, the session with the 20 px drift. The bilinear correction adds the most (section 2).
 - **The new ROIs are dimmer per pixel** (Figure 3, right). They take in the cell's dimmer surround, while production's fragments are the brightest pixels. That is the halving at work: only pixels that collect ≥ 2 photons survive it.
 
 ### 2. The bilinear correction's extra ROIs probably come from smoothing the noise, not from better alignment
 
 Why does the sub-pixel (bilinear) correction find more ROIs than the whole-pixel one, when both remove the same drift?
 
-- **Aligning the frames alone barely changes the count.** The whole-pixel run finds about as many selected ROIs as the uncorrected one: 3,488 vs 3,672.
-- **The bilinear run finds 4,866.** It also puts 29–64% of all its ROIs on the dark background, against 14–31% for the raw run.
+- **Aligning the frames alone barely changes the count.** The whole-pixel run finds about as many selected ROIs as the uncorrected one (Table 1, bottom row).
+- **The bilinear run finds the most, and puts the most of them on the dark background** (Table 1).
 - **Leading hypothesis, untested:**
   - Bilinear interpolation averages each pixel with its neighbours, with weights that change from frame to frame as the shift changes.
   - That smooths the photon noise, so dimmer regions cross suite2p's detection threshold.
   - It also gives the empty background a texture that changes with the drift, which suite2p picks up.
-  - Whole-pixel shifts keep exact photon counts, and their background share returns to the raw run's level (16–39%).
+  - Whole-pixel shifts keep exact photon counts, and their background share returns to the raw run's level.
 - **Whether the extra ROIs are real cells is open.** Matched cells respond more strongly in the bilinear run (Table 2), but smoothing would raise that too. Under a conservative reading, the whole-pixel variant is the one to trust.
 
 ### 3. On the same cells, the re-segmented ROI gives the better trace
@@ -135,8 +132,8 @@ Is a bigger ROI a better measurement of the same cell, or just more pixels?
 | x64, whole pixels | 4,907 | 36 vs 19 | 7.5 vs 4.2 | 67% vs 66% | −4.2 vs −4.1 |
 
 - **A drift-corrected re-segmented ROI collects about twice the photons** of all production's fragments of the same cell put together. It finds the grating response as often, with a p-value as strong or stronger.
-- **Without drift correction the bigger ROI is slightly worse** (−3.8 vs −4.0). Pixels that drift in and out of a larger mask add noise.
-- **The ROIs with no production counterpart are the dimmer cells production missed.** In the grating trials, the whole-pixel run has 10,429 (ROI, recording) pairs of ROIs holding no analysed production ROI. They collect 2.9 photons per frame (median), and 49% respond to the grating, against 67% for matched ROIs.
+- **Without drift correction the bigger ROI is slightly worse.** Pixels that drift in and out of a larger mask add noise, so a larger mask needs aligned frames.
+- **The ROIs with no production counterpart are the dimmer cells production missed.** In the grating trials, the whole-pixel run has 10,429 (ROI, recording) pairs of ROIs holding no analysed production ROI. They collect 2.9 photons per frame (median), and 49% respond to the grating, fewer than matched ROIs.
 
 **The videos** show four examples side by side. These are the four `*_corrected_int.mp4` files in `docs/resegmentation/`, about 6 MB each.
 - **Rule:** the examples follow a fixed rule (`examples.py`, `results_examples.csv`).
@@ -173,46 +170,33 @@ Is the number of ROIs set by the data or by a setting?
 
 Do the better ROIs change what the analyses find?
 
-**Table 3.** Pooled over the recordings of each batch and coil condition (9 per 0.1 Hz cell, 6 per 0.3 Hz cell); segmentations in the order production / x64 raw / x64 bilinear / x64 whole pixels.
-- **Suspects:** p < 0.01 at the analysis frequency (0.1 or 0.3 Hz). In brackets: the binomial p of the pooled count against 1%, which approximates the eps-corrected null.
-- **Nonstationarity:** median share of ROIs with block-shuffle p < 0.05, K = 10.
+**Table 3.** Suspects (p < 0.01 at the analysis frequency, 0.1 or 0.3 Hz), as a share of the ROIs pooled over the recordings of each batch and coil condition (9 per 0.1 Hz row, 6 per 0.3 Hz row). In brackets: the binomial p of the pooled count against 1%, which approximates the eps-corrected null. The pooled ROI counts, nonstationarity and grating responders per batch are in `results_pooled.csv` and `results_responders.csv`.
 
-| batch, coil | ROIs | suspects | RMS nonstationary | reference-window power nonstationary |
+| batch, coil | production | x64 raw | x64 bilinear | x64 whole pixels |
 |---|---|---|---|---|
-| 0.3 Hz, on | 1,978 / 4,470 / 4,578 / 4,301 | 0.7% (0.96) / 0.8% (0.92) / 1.1% (0.20) / 0.8% (0.95) | 78 / 74 / 74 / 70% | 53 / 51 / 51 / 49% |
-| 0.3 Hz, off | 1,978 / 4,442 / 4,393 / 4,229 | 0.8% (0.83) / 0.8% (0.94) / 1.0% (0.40) / 0.8% (0.94) | 71 / 69 / 73 / 67% | 42 / 42 / 43 / 39% |
-| 0.1 Hz, on | 4,830 / 6,368 / 9,726 / 6,018 | 1.6% (< 0.001) / 1.4% (0.001) / 1.6% (< 0.001) / 1.7% (< 0.001) | 77 / 67 / 64 / 68% | 37 / 33 / 27 / 32% |
-| 0.1 Hz, off | 4,853 / 6,389 / 9,755 / 6,007 | 1.4% (0.007) / 1.0% (0.61) / 1.4% (< 0.001) / 1.4% (0.003) | 67 / 56 / 52 / 54% | 22 / 22 / 17 / 21% |
-
-**Grating responders** (p < 0.01 at 1/60 Hz, the recordings with the grating):
-
-| batch | production | x64 raw | x64 bilinear | x64 whole pixels |
-|---|---|---|---|---|
-| 0.1 Hz | 4,780 of 6,463 (74%) | 5,155 of 8,503 (61%) | 8,181 of 12,993 (63%) | 4,895 of 8,008 (61%) |
-| 0.3 Hz | 1,806 of 2,635 (69%) | 2,493 of 5,942 (42%) | 2,611 of 5,982 (44%) | 2,349 of 5,692 (41%) |
+| 0.3 Hz, on | 0.7% (0.96) | 0.8% (0.92) | 1.1% (0.20) | 0.8% (0.95) |
+| 0.3 Hz, off | 0.8% (0.83) | 0.8% (0.94) | 1.0% (0.40) | 0.8% (0.94) |
+| 0.1 Hz, on | 1.6% (< 0.001) | 1.4% (0.001) | 1.6% (< 0.001) | 1.7% (< 0.001) |
+| 0.1 Hz, off | 1.4% (0.007) | 1.0% (0.61) | 1.4% (< 0.001) | 1.4% (0.003) |
 
 ![Effect](resegmentation/fig_effect.png)
 
-<sub>**Figure 4. Per recording.** From top: share of ROIs nonstationary by RMS, and by reference-window power; share of suspects at the analysis frequency (dotted line: the 1% chance level); share of grating responders (only recordings with the grating). Vertical lines separate sessions.</sub>
+<sub>**Figure 4. Per recording.** From top: share of ROIs nonstationary by RMS, and by reference-window power (block-shuffle p < 0.05, K = 10); share of suspects at the analysis frequency (dotted line: the 1% chance level); share of grating responders, p < 0.01 at 1/60 Hz (only recordings with the grating). Vertical lines separate sessions.</sub>
 
 - **0.3 Hz: the suspects stay at chance in every segmentation.**
-- **0.1 Hz: the same excess in every segmentation.**
-  - The share is 1.4–1.7% in production and in both drift-corrected runs, with the coil on and off alike.
+- **0.1 Hz: the same excess in every segmentation,** production's and both drift-corrected runs', with the coil on and off alike.
   - So it isn't magnetic. It is the already-known excess of these sessions: the grating's 6th harmonic, and 20221002_fish2's unexplained excess (`.claude/CLAUDE.md`).
-  - The raw run's coil-off share (1.0%) is the one exception.
+  - The raw run's coil-off share is the one exception.
   - More ROIs give the binomial test more power, so p falls without the share changing.
-- **Nonstationarity drops by up to 15 points in the 0.1 Hz sessions** (RMS 77 → 64–68% with the coil on). It drops by up to 8 points in the 0.3 Hz sessions. Most ROIs remain nonstationary.
-- **The grating responders go up in number, but their share goes down** (61–63% vs 74%, 41–44% vs 69%).
-  - The new ROIs include the dimmer cells production never had (section 3).
-  - For the same cells, the response is found as often (Table 2).
+- **Nonstationarity drops by up to 15 points in the 0.1 Hz sessions and up to 8 points in the 0.3 Hz sessions.** Most ROIs remain nonstationary.
+- **The grating responders go up in number, but their share goes down.** That is not because matched cells respond less: for the same cells, the response is found as often (Table 2). The new ROIs include the dimmer cells production never had, fewer of which respond (section 3).
 
 ## Implications
 
 1. **Done 2026-10-12: the re-segmentation is in production for these five sessions,** with ×64 tiffs, suite2p's registration off, and the drift corrected in whole pixels.
-   - It gives cell-sized ROIs that collect twice the photons, without changing any magnetic conclusion.
-   - Its count is 0.9–1.4× the previous production's in four sessions; 20220915_fish1, with its 20 px drift, gains 2.9×.
+   - It gives cell-sized ROIs that collect more photons, without changing any magnetic conclusion.
 2. **It changes the imaging numbers.**
-   - Different ROI identities and counts for these 30 recordings in Fig 2 and the neuron-count tables (about +1,200 selected ROIs). Zebrafish neurons in the magnetic population go from 5,533 to 6,709.
+   - Different ROI identities and counts for these 30 recordings in Fig 2 and the neuron-count tables (Table 1). Zebrafish neurons in the magnetic population go from 5,533 to 6,709.
    - Fig 2's flagged recordings are unchanged ([`photon_starved_imaging.md`](photon_starved_imaging.md)).
    - `pipeline/ophys_extraction.py` now also extracts runs without registration: no warp, and the lossy path is the halving alone, still checked against `F.npy`.
 3. **Keep `max_ROIs` at 5,000.** Raising it adds ROIs with no evidence that they are cells (section 4).
@@ -244,7 +228,7 @@ python docs/resegmentation/seg_video.py --examples                   # suite2p1.
   - `results_sessions.csv`: Table 1;
   - `results_fragments.csv` / `_summary.csv`: overlaps;
   - `results_matched.csv`: Table 2;
-  - `results_experiments.csv`, `results_pooled.csv` and `results_responders.csv`: Table 3;
+  - `results_experiments.csv`: Figure 4, per recording; `results_pooled.csv` and `results_responders.csv`: Table 3 and the pooled ROI counts, nonstationarity and grating responders;
   - `results_bins_<session>.csv`: drift per 10-frame bin.
 - **Figures and videos:** `fig_*.png` and `vid_*.mp4`.
 

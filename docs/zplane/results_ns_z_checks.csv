@@ -1,0 +1,43 @@
+check,n,max_abs_diff_photons,max_rel_diff_obs,max_abs_diff_p,n_p_differ,passed
+whole trial 0: this loader's photons vs NWB traces / 64 - 100,906120,0.0,,,,True
+whole trial 0: rms K=5 vs nonstationarity.run,839,,0.0,0.0,0.0,True
+whole trial 0: rms K=10 vs nonstationarity.run,839,,0.0,0.0,0.0,True
+whole trial 0: rms K=20 vs nonstationarity.run,839,,0.0,0.0,0.0,True
+whole trial 0: band K=5 vs nonstationarity.run,839,,0.0,0.0,0.0,True
+whole trial 0: band K=10 vs nonstationarity.run,839,,0.0,0.0,0.0,True
+whole trial 0: band K=20 vs nonstationarity.run,839,,0.0,0.0,0.0,True
+whole trial 0: cv2 K=5 vs nonstationarity.run,839,,0.0,0.0,0.0,True
+whole trial 0: cv2 K=10 vs nonstationarity.run,838,,0.0,0.0,0.0,True
+whole trial 0: cv2 K=20 vs nonstationarity.run,828,,0.0,0.0,0.0,True
+whole trial 1: this loader's photons vs NWB traces / 64 - 100,900720,0.0,,,,True
+whole trial 1: rms K=5 vs nonstationarity.run,834,,0.0,0.0,0.0,True
+whole trial 1: rms K=10 vs nonstationarity.run,834,,0.0,0.0,0.0,True
+whole trial 1: rms K=20 vs nonstationarity.run,834,,0.0,0.0,0.0,True
+whole trial 1: band K=5 vs nonstationarity.run,834,,0.0,0.0,0.0,True
+whole trial 1: band K=10 vs nonstationarity.run,834,,0.0,0.0,0.0,True
+whole trial 1: band K=20 vs nonstationarity.run,834,,0.0,0.0,0.0,True
+whole trial 1: cv2 K=5 vs nonstationarity.run,834,,0.0,0.0,0.0,True
+whole trial 1: cv2 K=10 vs nonstationarity.run,833,,0.0,0.0,0.0,True
+whole trial 1: cv2 K=20 vs nonstationarity.run,825,,0.0,0.0,0.0,True
+whole trial 2: this loader's photons vs NWB traces / 64 - 100,907200,0.0,,,,True
+whole trial 2: rms K=5 vs nonstationarity.run,840,,0.0,0.0,0.0,True
+whole trial 2: rms K=10 vs nonstationarity.run,840,,0.0,0.0,0.0,True
+whole trial 2: rms K=20 vs nonstationarity.run,840,,0.0,0.0,0.0,True
+whole trial 2: band K=5 vs nonstationarity.run,840,,0.0,0.0,0.0,True
+whole trial 2: band K=10 vs nonstationarity.run,840,,0.0,0.0,0.0,True
+whole trial 2: band K=20 vs nonstationarity.run,840,,0.0,0.0,0.0,True
+whole trial 2: cv2 K=5 vs nonstationarity.run,840,,0.0,0.0,0.0,True
+whole trial 2: cv2 K=10 vs nonstationarity.run,839,,0.0,0.0,0.0,True
+whole trial 2: cv2 K=20 vs nonstationarity.run,832,,0.0,0.0,0.0,True
+trial 0: restricted band power per chunk = whole trace's chunks 4-17,11738,,0.0,,,True
+trial 1: restricted band power per chunk = whole trace's chunks 3-17,12503,,0.0,,,True
+trial 2: restricted band power per chunk = whole trace's chunks 4-17,11756,,0.0,,,True
+constant gain 1.37: rms K=7,2513,,8.952770826908818e-07,0.0009990009990009652,1.0,True
+constant gain 1.37: rms K=10,2513,,8.076029303083487e-07,0.0,0.0,True
+constant gain 1.37: rms K=14,2513,,8.442870012004278e-07,0.0009990009990010207,1.0,True
+constant gain 1.37: band K=7,2513,,1.2930440789205022e-06,0.0,0.0,True
+constant gain 1.37: band K=10,2513,,5.047548938819091e-07,0.0009990009990009652,1.0,True
+constant gain 1.37: band K=14,2513,,5.469261736834596e-07,0.0009990009990009652,1.0,True
+constant gain 1.37: cv2 K=7,2512,,3.2270570500259055e-06,0.0,0.0,True
+constant gain 1.37: cv2 K=10,2505,,1.5591837154715904e-06,0.0,0.0,True
+constant gain 1.37: cv2 K=14,2498,,1.1209904187126085e-06,0.0,0.0,True

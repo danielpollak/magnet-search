@@ -494,8 +494,7 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
                          label=1 / MAG_FREQ, trace=mag_trace, spike_sr=MAG_TRACE_SR,
                          raster_lw=RASTER_LW, phase_cmap=PHASE_CMAP, normalize=mean_subtract,
                          stem_scale=ARROW_STEM_SCALE, scalebar=False)
-    mag_raw_ax.set_title(f"Voltage trace during magnetic stimulation at {MAG_FREQ:g} Hz",
-                          fontsize=FP.FS_TITLE)
+    # No titles on B, C or D (2026-11-09): what each panel shows goes in the legend.
 
     # Visual raw NPIX (positive result) -- same unit, same primitive as the mag
     # panel. Carries the figure's only scale bar (one stimulus period, 1/freq),
@@ -505,8 +504,6 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
                          raster_lw=RASTER_LW, phase_cmap=PHASE_CMAP, normalize=mean_subtract,
                          stem_scale=ARROW_STEM_SCALE, scalebar_frac=0.5,
                          raster_color=FP.COLOR_VIS)
-    vis_raw_ax.set_title(f"Voltage trace during visual stimulation at {VIS_FREQ:g} Hz",
-                          fontsize=FP.FS_TITLE)
 
     # Phase raster: ALL spikes that actually went into this unit's Fourier
     # fit/NFC at MAG_FREQ/VIS_FREQ (the whole recording, via mag_spks/
@@ -532,7 +529,6 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     statistics.plot_phase_raster(mag_raster_ax, mag_spks, mag_full_window, MAG_FREQ,
                                   color=FP.COLOR_MAG, phase_cmap=PHASE_CMAP,
                                   pad_x=RASTER_PAD_X, pad_y=RASTER_PAD_Y)
-    mag_raster_ax.set_title("Spike phases", fontsize=FP.FS_TITLE)
     mag_raster_ax.spines["top"].set_visible(False)
     mag_raster_ax.spines["right"].set_visible(False)
     # Smoothed firing-rate PSTH overlay -- not part of the actual Fourier/NFC
@@ -545,7 +541,6 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     statistics.plot_phase_raster(vis_raster_ax, vis_spks, vis_full_window, VIS_FREQ,
                                   color=FP.COLOR_VIS, phase_cmap=PHASE_CMAP,
                                   pad_x=RASTER_PAD_X, pad_y=RASTER_PAD_Y)
-    vis_raster_ax.set_title("Spike phases", fontsize=FP.FS_TITLE)
     vis_raster_ax.spines["top"].set_visible(False)
     vis_raster_ax.spines["right"].set_visible(False)
     vis_psth_ax = statistics.plot_smoothed_phase_psth(
@@ -583,7 +578,6 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     # ── Plot Row 2: Magnetic stimulation (null) ──────────────────────────────
     statistics.plot_spectrum(mag_spectra_ax, fou_alt.flatten(), ff_alt, MAG_FREQ, fou0, legend=False,
                               dot_color=FP.COLOR_MAG, stem_color="black", sigma_color="black")
-    mag_spectra_ax.set_title("Fourier coefficients", fontsize=FP.FS_TITLE)
     mag_spectra_ax.set_ylabel("Magnitude", labelpad=1)
     mag_spectra_ax.tick_params(axis="y", pad=1)
     mag_spectra_ax.set_xlabel("Freq (Hz)")
@@ -599,7 +593,16 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     # eye, so showing both added a doubled line and a two-entry legend without
     # adding information. Q is constant within a rec, so one eps covers the
     # whole panel.
-    mag_rows = fourier_df.loc[fourier_df.rec == MAG_CONTINGENCY]
+    # E and F show the SAME neurons (2026-11-09): only units analysed in both
+    # recordings. Each recording keeps the units with >= 50 spikes in its own
+    # window (nwb_io.build_modulation_frame), so the two sets differed in 64
+    # and 62 units (184 vs 182, 120 shared). The exemplar (CLUSTER_ID) is in
+    # both, checked below.
+    shared_ids = (set(fourier_df.loc[fourier_df.rec == MAG_CONTINGENCY, "id"])
+                  & set(fourier_df.loc[fourier_df.rec == VIS_CONTINGENCY, "id"]))
+    assert CLUSTER_ID in shared_ids, "exemplar unit missing from the shared E/F population"
+    shared_df = fourier_df.loc[fourier_df.id.isin(shared_ids)]
+    mag_rows = shared_df.loc[shared_df.rec == MAG_CONTINGENCY]
     statistics.draw_hist(mag_rows["NFC"], mag_dist_ax, xlim=9,
                          inset=True, bar_color=FP.COLOR_MAG, legend_fontsize=FP.FS_LEGEND,
                          eps=statistics.eps_from_Q(mag_rows["Q"].iloc[0]),
@@ -619,7 +622,6 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     # ── Plot Row 3: Visual gratings (positive) ───────────────────────────────
     statistics.plot_spectrum(vis_spectra_ax, vis_fou_alt.flatten(), vis_ff_alt, VIS_FREQ, vis_fou0, legend=False,
                               dot_color=FP.COLOR_VIS, stem_color="black", sigma_color="black")
-    vis_spectra_ax.set_title("Fourier coefficients", fontsize=FP.FS_TITLE)
     vis_spectra_ax.set_ylabel("Magnitude", labelpad=1)
     vis_spectra_ax.tick_params(axis="y", pad=1)
     vis_spectra_ax.set_xlabel("Freq (Hz)")
@@ -645,7 +647,7 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
 
     # Same treatment as the magnetic panel above, on this rec's own eps
     # (Q=52 here vs. 27 there, so a slightly different corrected threshold).
-    vis_rows = fourier_df.loc[fourier_df.rec == VIS_CONTINGENCY]
+    vis_rows = shared_df.loc[shared_df.rec == VIS_CONTINGENCY]
     statistics.draw_hist(vis_rows["NFC"],
                          vis_dist_ax, xlim=12, inset=True, bar_color=FP.COLOR_VIS,
                          legend_fontsize=FP.FS_LEGEND,
@@ -669,8 +671,8 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     # than a separate full-width axes -- the frequency/modality info that
     # used to live in each curve's own "lonely" one-line legend now lives in
     # the panel's title instead, so no legend is needed at all.
-    mag_NFC = fourier_df.loc[fourier_df.rec == MAG_CONTINGENCY, "NFC"].values
-    vis_NFC = fourier_df.loc[fourier_df.rec == VIS_CONTINGENCY, "NFC"].values
+    mag_NFC = mag_rows["NFC"].values
+    vis_NFC = vis_rows["NFC"].values
 
     # Convert NFC to p-values
     mag_pvals = 1 - normalized_Fourier_CDF(mag_NFC)
@@ -703,8 +705,8 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     # a label growing rightwards has room in either panel.
     def _annotate_exemplar_p(ax, p):
         ax.annotate(_fmt_p(p), xy=(p, _EXEMPLAR_MARKER_Y),
-                    xycoords=("data", "axes fraction"), xytext=(6, 1),
-                    textcoords="offset points", ha="left", va="bottom",
+                    xycoords=("data", "axes fraction"), xytext=(6, 0),
+                    textcoords="offset points", ha="left", va="center",  # centred on the marker (2026-11-09)
                     fontsize=FP.FS_LEGEND, color="black")
 
     ecdf_mag_ax = mag_dist_ax.inset_axes([0.52, 0.48, 0.45, 0.44])
@@ -776,7 +778,7 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     # through their titles/tick labels. The wheel is the smaller of the two,
     # so its labels shrink to match (see waveform_ax's own inset_axes bounds
     # above for its narrower/taller sizing).
-    statistics.plot_phase_colorwheel(wheel_ax, cmap=PHASE_CMAP, angle_unit="radians", fontsize=7)
+    statistics.plot_phase_colorwheel(wheel_ax, cmap=PHASE_CMAP, label=None, angle_unit="radians", fontsize=7)
 
     n_samples = waveforms.shape[1]
     half_width_samples = n_samples // 2
@@ -827,7 +829,7 @@ def plot_fig1_composite(modulation_df, fourier_df, group_df, unit_df, out_dir: P
     _panel_label(mag_dist_ax, "E", left_x, 1.1)
     _panel_label(vis_dist_ax, "F", right_x, 1.1)
     out_path = out_dir / out_name
-    fig.savefig(out_path, bbox_inches="tight", dpi=FP.DPI)
+    FP.save_main_figure(fig, out_path)
     print(f"Saved {out_path}")
     if not in_notebook:
         plt.close(fig)

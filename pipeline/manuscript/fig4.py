@@ -94,6 +94,8 @@ import matplotlib
 if not in_notebook:
     matplotlib.use("Agg")
 import matplotlib.gridspec as gridspec
+import matplotlib.colors as mcolors
+import matplotlib.ticker as mticker
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import numpy as np
@@ -216,7 +218,14 @@ NFC_YLIM_TOP = 40
 # every NFC in every panel) can never silently reload a pickle computed for a
 # different window.
 _AMP_TAG = "A" + "-".join(f"{a:g}" for a in AMPLITUDES_FIG4B)
-FR_DF_CACHE   = _REPO_ROOT / "data" / "manuscript" / f"modulation_strength_vs_FR_pigeon_hp_pseudopop_v3_{_WINDOW_TAG}_{_AMP_TAG}.pkl"
+# Simulated modulation frequency. 4 Hz since 2026-11-10 (was 5): three of the
+# four pooled sites include real 5 Hz magnetic recordings inside the 350 s
+# window (15-35% of it), and no pigeon-HP recording used 4 Hz, so the A=0
+# baseline carries no real stimulus at the simulated frequency. Every cache
+# path is stamped with it (_FREQ_TAG) so a 5 Hz pickle can't be reloaded.
+FREQ        = 4
+_FREQ_TAG   = f"f{FREQ:g}Hz"
+FR_DF_CACHE   = _REPO_ROOT / "data" / "manuscript" / f"modulation_strength_vs_FR_pigeon_hp_pseudopop_v3_{_WINDOW_TAG}_{_AMP_TAG}_{_FREQ_TAG}.pkl"
 # "_lineargrid" suffix: AMPLITUDES_RESP/PARTICIPATION_RESP went through a
 # log-spaced detour (several different ranges) before settling back on a
 # plain linear arange -- any older qvalue_responder_df*.pkl (any "_log*"
@@ -232,12 +241,10 @@ FR_DF_CACHE   = _REPO_ROOT / "data" / "manuscript" / f"modulation_strength_vs_FR
 # reloaded as if it already had repeats or the new grid: either difference
 # would otherwise corrupt plot_fig4's pivot()/groupby() silently rather
 # than raising a loud error.
-RESP_DF_CACHE = _REPO_ROOT / "data" / "manuscript" / f"qvalue_responder_df_pigeon_hp_pseudopop_lineargrid_halfpart_10rep_{_WINDOW_TAG}.pkl"
-RESP_DF_TOP_DECILE_CACHE = _REPO_ROOT / "data" / "manuscript" / f"qvalue_responder_df_pigeon_hp_pseudopop_top_decile_lineargrid_halfpart_10rep_{_WINDOW_TAG}.pkl"
+RESP_DF_CACHE = _REPO_ROOT / "data" / "manuscript" / f"qvalue_responder_df_pigeon_hp_pseudopop_lineargrid_halfpart_10rep_{_WINDOW_TAG}_{_FREQ_TAG}.pkl"
+RESP_DF_TOP_DECILE_CACHE = _REPO_ROOT / "data" / "manuscript" / f"qvalue_responder_df_pigeon_hp_pseudopop_top_decile_lineargrid_halfpart_10rep_{_WINDOW_TAG}_{_FREQ_TAG}.pkl"
 
 SENSITIVITY_PERCENTILE = 90.0  # panel C / panel D outline: top decile by compute_sensitivity
-
-FREQ        = 5
 
 # Panel A palette. Everything in this panel is achromatic on purpose: Fig4 is
 # a SIMULATION, and the manuscript reserves blue/orange (FP.COLOR_MAG /
@@ -378,10 +385,22 @@ _SWEEP_PARALLEL_MIN_CELLS = 500_000
 N_REPEATS          = 10  # independent random-pool draws averaged per (participation, amplitude) cell
 
 # Detection criterion for panels C/D: this many responders at q < 0.05 (the
-# dashed contour), and the amplitudes at which the manuscript quotes the
+# dotted contour), and the amplitudes at which the manuscript quotes the
 # participation needed to reach it (exported to numbers.tex, see main).
 DETECTION_RESPONDERS = 10
 QUOTED_AMPLITUDES = (0.05, 0.10, 0.20)
+# Pseudopopulation-era panel B threshold (Hz); only fig4B_diagnostics.py's
+# and fig4B_nfc_vs_Sa.py's pseudopopulation views still use it.
+HIGH_RATE_HZ = 10.0
+# Panel B Results sentence (since 2026-11-22): neurons with at least this many
+# spikes in the recording Fig 3 tests them on.
+HIGH_SPIKE_COUNT = 1000
+# Panel B's data (since 2026-11-22): Fig 3's pigeon-HP neurons on Fig 3's own
+# spike trains, at each recording's stimulus frequency. "warp": time-warp
+# modulation (statistics.warp_mod, as panels A and C-F), not the random-shift
+# statistics.modulate the pseudopopulation's compute_fr_df uses.
+FIG4B_CACHE = (_REPO_ROOT / "data" / "manuscript" /
+               f"fig4b_fig3_trains_pigeon_hp_fstim_nocap_warp_{_AMP_TAG}.pkl")
 
 
 def discover_pigeon_hp_experiments(experiments_dir: Path):
@@ -944,6 +963,56 @@ def compute_sensitivity(spks, FOURIER_Q, freq=FREQ):
     return spk_count / T / 2 / sigma
 
 
+def compute_fig4b_df(recompute=False):
+    """Panel B's data (2026-11-22): every pigeon hippocampus neuron of Fig 3,
+    on the ONE spike train Fig 3 tests it on (fig3.one_recording_per_neuron,
+    full analysed length; fig4s_fig3_populations.load_groups), time-warp
+    modulated at AMPLITUDES_FIG4B at that recording's own stimulus frequency
+    and tested there with the real analysis's T and off-frequency bin count
+    -- the same trains, frequency and Q as panel C's bottom-left sub-plot. At
+    A=0 the NFC is therefore exactly Fig 3's (load_groups checks this).
+
+    Replaces the pigeon-HP pseudopopulation (350 s of concatenated recordings
+    per unit, modulated at FREQ), which overstated how much data one real
+    measurement had: Fig 3's pigeon HP recordings are 25-139 s (median 61 s).
+
+    One row per (neuron, amplitude): `row` (index into
+    fig4s_fig3_populations.fig3_populations()), spk_count, T, f, Q, NFC,
+    null99 (99th percentile of that recording's eps-corrected null) and
+    `top` (panel C bottom-right's top decile: the parquet's `sens` above the
+    90th percentile of Fig 3's pigeon HP neurons). Cached in FIG4B_CACHE and
+    recomputed if Fig 3's population has changed since."""
+    import fig4s_fig3_populations as f4s  # here, not at the top: it imports this module
+    pop = f4s.fig3_populations()
+    hp = pop.loc[(pop.species == "Pigeon") & (pop.area == "HP")]
+    ident = hp[f4s.NEURON_KEY + ["rec"]].astype(str).reset_index(drop=True)
+    if FIG4B_CACHE.exists() and not recompute:
+        df, cached_ident = pd.read_pickle(FIG4B_CACHE)
+        if cached_ident.equals(ident):
+            print(f"Loading cached panel B frame from {FIG4B_CACHE}")
+            return df
+        print(f"{FIG4B_CACHE} is stale (Fig 3 population changed); recomputing")
+    groups = f4s.cap_groups(f4s.load_groups(hp), cap_s=None, stim_freq=True)
+    frames = []
+    for g in tqdm.tqdm(groups, desc="panel B recordings"):
+        null99 = float(np.squeeze(statistics.inverse_Rayleigh_CDF(
+            0.99, eps=statistics.get_epsilon(g["Q"]))))
+        for A in AMPLITUDES_FIG4B:
+            warped = [statistics.warp_mod(s, A, 1 / g["f"], 0) for s in g["spks"]]
+            NFC = statistics.fourier_analysis(warped, g["f"], Q=g["Q"], T=g["T"])[-1]
+            frames.append(pd.DataFrame({
+                "mod": A, "row": g["rows"], "spk_count": [len(s) for s in g["spks"]],
+                "T": g["T"], "f": g["f"], "Q": g["Q"], "NFC": np.atleast_1d(NFC),
+                "null99": null99}))
+    df = pd.concat(frames, ignore_index=True)
+    top = f4s.fig3_quadrant_members(pop, np.sort(hp.index.to_numpy()))[3][1]
+    df["top"] = df["row"].isin(top)
+    FIG4B_CACHE.parent.mkdir(parents=True, exist_ok=True)
+    pd.to_pickle((df, ident), FIG4B_CACHE)
+    print(f"Cached -> {FIG4B_CACHE}")
+    return df
+
+
 def _responder_cell(task):
     """Composes one grid cell's NFC vector from compute_responder_df's
     precomputed lookup table (_worker_state["nfc_table"]/["baseline_NFC"])
@@ -983,7 +1052,7 @@ def _responder_cell(task):
 def detection_participation(resp_df, amplitude, level=DETECTION_RESPONDERS):
     """Fraction of the population that must be modulated at `amplitude` for
     the repeat-averaged responder count to reach `level` -- where panel C/D's
-    dashed contour crosses that amplitude's column. Linear interpolation
+    dotted contour crosses that amplitude's column. Linear interpolation
     between the two participation grid points around the first crossing, as
     matplotlib's contour does. NaN if the column never reaches `level`.
 
@@ -1006,22 +1075,51 @@ def detection_participation(resp_df, amplitude, level=DETECTION_RESPONDERS):
     return float(p[i - 1] + (level - n[i - 1]) / (n[i] - n[i - 1]) * (p[i] - p[i - 1]))
 
 
-def detection_numbers(resp_df, resp_df_top, n_units, n_top):
-    """The panel C/D numbers quoted in the Results, for numbers.tex:
-    population sizes, and at each QUOTED_AMPLITUDES amplitude the percentage
-    (whole percent) and number of units that must be modulated to reach
-    DETECTION_RESPONDERS responders. Keys look like `pct_detect_all_A05`
-    (A = 0.05) and `n_detect_top_A20`. Also the top decile's floor:
-    DETECTION_RESPONDERS as a percentage of it."""
-    numbers = {"n_units_fig4_all": n_units, "n_units_fig4_top": n_top,
-               "pct_detect_top_floor": f"{100 * DETECTION_RESPONDERS / n_top:.0f}"}
-    for pop, df, n in (("all", resp_df, n_units), ("top", resp_df_top, n_top)):
+def detection_numbers(pops):
+    """The panel C-F numbers quoted in the Results, for numbers.tex. `pops`
+    is [(name, resp_df, n_units)], names all/pigeon/hp/top (panels C-F).
+    Per population: its size (`n_units_fig4_<name>`) and, at each
+    QUOTED_AMPLITUDES amplitude, the percentage (whole percent) and number of
+    units that must be modulated to reach DETECTION_RESPONDERS responders
+    (`pct_detect_<name>_A05`, `n_detect_<name>_A20`; "never" if the column
+    never gets there). Also the top decile's floor: DETECTION_RESPONDERS as a
+    percentage of it (`pct_detect_top_floor`)."""
+    numbers = {}
+    for name, df, n in pops:
+        numbers[f"n_units_fig4_{name}"] = n
         for a in QUOTED_AMPLITUDES:
             frac = detection_participation(df, a)
             tag = f"A{round(100 * a):02d}"
-            numbers[f"pct_detect_{pop}_{tag}"] = f"{100 * frac:.0f}"
-            numbers[f"n_detect_{pop}_{tag}"] = int(round(frac * n))
+            numbers[f"pct_detect_{name}_{tag}"] = "never" if np.isnan(frac) else f"{100 * frac:.0f}"
+            numbers[f"n_detect_{name}_{tag}"] = "never" if np.isnan(frac) else int(round(frac * n))
+        if name == "top":
+            numbers["pct_detect_top_floor"] = f"{100 * DETECTION_RESPONDERS / n:.0f}"
     return numbers
+
+
+def _sig2(x):
+    """Two significant figures, plain decimal (8.7, 0.75, 12)."""
+    return f"{float(f'{x:.2g}'):g}"
+
+
+def spike_count_sensitivity_numbers(fig4b_df):
+    """The panel B numbers quoted in the Results, for numbers.tex: how many of
+    Fig 3's pigeon HP neurons have >= HIGH_SPIKE_COUNT spikes in their tested
+    recording (`n_units_fig4b_high_count`), how many of those are in the top
+    sensitivity decile (`n_units_fig4b_high_count_top`), and the median spike
+    count of the top decile and of all of them (`median_count_fig4b_top`,
+    `median_count_fig4b_all`, two significant figures), plus the N plotted."""
+    d0 = fig4b_df.loc[fig4b_df["mod"] == 0]
+    high = d0.spk_count.to_numpy() >= HIGH_SPIKE_COUNT
+    top = d0.top.to_numpy()
+    return {
+        "high_count_fig4b": f"{HIGH_SPIKE_COUNT:g}",
+        "n_units_fig4b": len(d0),
+        "n_units_fig4b_high_count": int(high.sum()),
+        "n_units_fig4b_high_count_top": int((high & top).sum()),
+        "median_count_fig4b_top": _sig2(np.median(d0.spk_count[top])),
+        "median_count_fig4b_all": _sig2(np.median(d0.spk_count)),
+    }
 
 
 def compute_responder_df(spks, FOURIER_Q, workers=1, freq=FREQ, n_repeats=N_REPEATS):
@@ -1292,7 +1390,7 @@ def draw_panel_A(spectra_axes, raster_axes, example_spk, FOURIER_Q,
     # stem's position. The "Hz" label is deliberately NOT nestled back up
     # between the ticks the way it was before the FREQ tick existed -- a
     # nestled label sits at the axis center, which is exactly where the
-    # 5 Hz tick label now lands (the window is symmetric about FREQ).
+    # FREQ tick label now lands (the window is symmetric about FREQ).
     for _ax in spectra_axes:
         statistics.boundary_ticks(_ax, y=False)
         statistics.stimulus_frequency_tick(_ax, FREQ)
@@ -1334,16 +1432,42 @@ def panel_A_page(spk, FOURIER_Q, rec_boundaries_s=None, title=None):
     return fig
 
 
-def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks, FOURIER_Q,
+# Fixed-range log scales: --color-scale name -> colour-axis ceiling (responders),
+# the same in every panel.
+LOG_COLOR_VMAX = {"log100": 100.0, "log200": 200.0}
+# Log scales start at LOG_COLOR_VMIN, not 1 (2026-11-19): the responder
+# counts are means over 10 repeats, so the smallest non-zero value is 0.1;
+# starting there gives 1 its own colour, and 0 (which a log scale cannot
+# place) gets the colormap's bottom end, reserved for it (LOG_ZERO_CMAP_FRAC).
+LOG_COLOR_VMIN = 0.1
+LOG_ZERO_CMAP_FRAC = 0.1  # share of the colormap's low end kept for exactly 0
+HEAT_HGAP_IN = 0.75      # panel C: vertical gap between its sub-plot rows (inches)
+HEAT_WSPACE_FRAC = 0.75  # panel C: column gap, as a fraction of the old C-F gap
+HEAT_WGAP_SHARED_IN = 0.2  # panel C: column gap (inches) with one shared colorbar
+HEAT_CBAR_PAD_IN = 0.12    # shared colorbar: gap from the right column (inches)
+HEAT_CBAR_W_IN = 0.15      # shared colorbar: width (inches)
+
+
+def _cell_edges(centres):
+    """[first edge, last edge] of an evenly spaced grid of cell centres."""
+    c = np.asarray(centres, dtype=float)
+    d = c[1] - c[0]
+    return [c[0] - d / 2, c[-1] + d / 2]
+
+
+HEAT_CMAP = "Spectral_r"  # C-F default (ColorBrewer), chosen 2026-11-17 with the log scale
+COLOR_SCALES = ("log", "linear", "log100", "log200")
+DEFAULT_COLOR_SCALE = "log200"  # chosen 2026-11-18: one 1-200 log scale shared by all of panel C
+
+
+def plot_fig4(fig4b_df, quads, spks, FOURIER_Q,
               out_dir: Path, rec_boundaries_s=None, out_name="Fig4.pdf", pdf=None,
-              keys=None):
+              keys=None, color_scale=DEFAULT_COLOR_SCALE, cmap_name=HEAT_CMAP):
     example_spk = spks[example_unit_index(spks, keys=keys)]
-    n_top = int(np.sum(top_decile_mask))
 
     font = {"family": FP.FONT_FAMILY, "size": FP.FS_BODY_XL}
     matplotlib.rc("font", **font)
 
-    fig = plt.figure(figsize=FP.FIGSIZE_FIG4)
     # Two row-bands, each with its own 1x2 column split, rather than one
     # 3x6 grid. The top band is panel A (three mod-condition columns, its
     # own nested gs_A below) beside panel B (the FR-vs-NFC scatter); the
@@ -1368,8 +1492,38 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
     # 3-row grid's vertical layout: that grid's top band spanned two rows
     # PLUS the gap between them, so its band-to-band proportion was
     # 1.04:1.00, not the 1.2:1.6 its raw height_ratios suggested.
-    gs = gridspec.GridSpec(2, 1, left=0, bottom=0, right=1, top=1, hspace=0.29,
-                           height_ratios=[1.04, 1.0])
+    # 2026-11-12: the bottom band is now a 2x2 block (C-F, Fig 3's four
+    # populations, see below) instead of C+D side by side, so it gets twice
+    # the top band's height (FIGSIZE_FIG4 grew to match).
+    # 2026-11-17: the top band is shortened (1.04 -> TOP_BAND) and the
+    # height handed to C-F, keeping every vertical GAP the same in inches.
+    # The outer gap is unaffected (hspace is a fraction of the MEAN band
+    # height, and the ratios' sum is unchanged); the nested grids' hspace is
+    # relative to their own band's height, so _same_gap_hspace rescales it.
+    TOP_BAND = 0.88
+    RATIO_SUM = 1.04 + 2.1
+
+    def _same_gap_hspace(hspace, old_band, new_band, n=2):
+        # gap / band height = hspace / (n + hspace * (n - 1)); hold the gap.
+        r = hspace / (n + hspace * (n - 1)) * old_band / new_band
+        return n * r / (1 - r * (n - 1))
+
+    # 2026-11-17 (later): C-F shrunk to BOTTOM_SCALE of their size in BOTH
+    # directions, centred, with A/B and every gap unchanged in inches; the
+    # figure gets shorter by the height they give up. Band heights below are
+    # in inches at FIGSIZE_FIG4's height (before save_main_figure rescales).
+    BOTTOM_SCALE = 0.8
+    OUTER_HSPACE = 0.25
+    fig_w, fig_h0 = FP.FIGSIZE_FIG4
+    ratio_in = fig_h0 / (2 + OUTER_HSPACE) / (RATIO_SUM / 2)  # inches per ratio unit
+    outer_gap = OUTER_HSPACE * fig_h0 / (2 + OUTER_HSPACE)
+    top_h = TOP_BAND * ratio_in
+    bot_h_full = (RATIO_SUM - TOP_BAND) * ratio_in
+    bot_h = BOTTOM_SCALE * bot_h_full
+    fig = plt.figure(figsize=(fig_w, top_h + bot_h + outer_gap))
+    gs = gridspec.GridSpec(2, 1, left=0, bottom=0, right=1, top=1,
+                           hspace=outer_gap / ((top_h + bot_h) / 2),
+                           height_ratios=[top_h, bot_h])
 
     # Top band. width_ratios tilt toward A; wspace is wider than the bottom
     # band's because this gap has to keep panel A's rightmost PSTH twin axis
@@ -1379,11 +1533,29 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
     # the figure, so the room has to be taken from B's width rather than
     # scaled.
     gs_top = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=gs[0],
-                                              wspace=0.32, width_ratios=[1.43, 1.0])
+                                              wspace=0.45, width_ratios=[1.43, 1.0])  # 0.32 before the letters moved left of the y-labels
     # Bottom band: even split, so C is exactly as wide as D. wspace holds
     # C's colorbar tick labels + colorbar label against D's y tick labels
     # (D's y-label itself is dropped, see below).
-    gs_bot = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=gs[1], wspace=0.2)
+    # Narrowed by BOTTOM_SCALE between two empty spacer columns; wspace and
+    # hspace rescaled so the gaps (colorbar labels, titles) keep their size.
+    gs_bot_outer = gridspec.GridSpecFromSubplotSpec(
+        1, 3, subplot_spec=gs[1], wspace=0,
+        width_ratios=[(1 - BOTTOM_SCALE) / 2, BOTTOM_SCALE, (1 - BOTTOM_SCALE) / 2])
+    # A fixed colour range (LOG_COLOR_VMAX) is the same in every sub-plot, so
+    # it gets ONE colorbar, right of the block (2026-11-19); the per-panel
+    # scales ("log", "linear") keep a colorbar per sub-plot.
+    shared_cbar = color_scale in LOG_COLOR_VMAX
+    bot_w = BOTTOM_SCALE * fig_w
+    gs_bot = gridspec.GridSpecFromSubplotSpec(
+        2, 2, subplot_spec=gs_bot_outer[1],
+        # 2026-11-17: one panel (C) of four sub-plots sharing x and y, so
+        # only the left column has y tick labels and only the bottom row x
+        # tick labels; the gaps hold just the colorbars (wspace) and the
+        # two-line titles (hspace, HEAT_HGAP_IN inches).
+        wspace=(HEAT_WGAP_SHARED_IN / ((bot_w - HEAT_WGAP_SHARED_IN) / 2) if shared_cbar
+                else HEAT_WSPACE_FRAC * _same_gap_hspace(0.2, 1.0, BOTTOM_SCALE)),
+        hspace=HEAT_HGAP_IN / ((bot_h - HEAT_HGAP_IN) / 2))
     # Panel A's raster/spectra rows get their own nested gridspec so their
     # vertical gap can be tightened independently of the outer hspace (which
     # still needs to separate this whole A/B band from C/D below).
@@ -1391,10 +1563,11 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
     # and the spectrum is what the analysis makes of it, so reading the
     # column top-to-bottom now follows that order.
     # wspace here is well below the outer grid's: panel A packs three columns
-    # into half the figure width, so at FIGSIZE_FIG4's 6 in each is under an
+    # into half the figure width, so at FIGSIZE_FIG4's 7.5 in each is about an
     # inch wide and a gap proportional to that width is mostly wasted space,
     # while the outer gaps still have to clear B's and C/D's y-axis labels.
-    gs_A = gridspec.GridSpecFromSubplotSpec(2, 3, subplot_spec=gs_top[0], hspace=0.4, wspace=0.3)
+    gs_A = gridspec.GridSpecFromSubplotSpec(2, 3, subplot_spec=gs_top[0], wspace=0.3,
+                                            hspace=_same_gap_hspace(0.5, 1.04, TOP_BAND))
 
     ax_A2 = fig.add_subplot(gs_A[0, 0])  # raster+PSTH, A=0
     ax_A4 = fig.add_subplot(gs_A[0, 1])  # raster+PSTH, A=0.5
@@ -1403,8 +1576,9 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
     ax_A3 = fig.add_subplot(gs_A[1, 1])  # spectrum,    A=0.5
     ax_A5 = fig.add_subplot(gs_A[1, 2])  # spectrum,    A=1
     ax_scatter     = fig.add_subplot(gs_top[1])  # FR-vs-NFC scatter, panel B
-    ax_heatmap     = fig.add_subplot(gs_bot[0])  # full pseudopopulation, panel C
-    ax_heatmap_top = fig.add_subplot(gs_bot[1])  # top-decile-sensitivity subset, panel D
+    heat_axes = [fig.add_subplot(gs_bot[0, 0])]  # panel C's four sub-plots, shared axes
+    heat_axes += [fig.add_subplot(gs_bot[r, c], sharex=heat_axes[0], sharey=heat_axes[0])
+                  for r, c in ((0, 1), (1, 0), (1, 1))]
 
     spectra_axes = [ax_A1, ax_A3, ax_A5]
     raster_axes  = [ax_A2, ax_A4, ax_A6]
@@ -1412,82 +1586,132 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
     psth_axes = draw_panel_A(spectra_axes, raster_axes, example_spk, FOURIER_Q,
                              rec_boundaries_s=rec_boundaries_s)
 
-    # Panel C (q-value/FDR responder-count heatmap, ported from
-    # fig4_pilot.py's plot_fig4_pilot), on this file's own full
-    # pseudopopulation.
-    #
-    # Repeat averaging (explicit on purpose): compute_responder_df returns
-    # ALL N_REPEATS raw random-pool-draw rows per (participation, amplitude)
-    # cell (see its docstring), tagged by `repeat`, NOT pre-averaged.
-    # Averaging happens HERE, as its own step, so this load -> average ->
-    # plot pipeline stays visible from the plotting code alone, without
-    # digging into compute_responder_df. Only "responders" (the plotted
-    # value) is averaged; `pi0`/`repeat` are dropped by the groupby.
-    resp_df_mean = (
-        resp_df.groupby(["participation", "amplitude"])["responders"].mean().reset_index()
-    )
-    pivot = resp_df_mean.pivot(index="participation", columns="amplitude", values="responders")
-    im = ax_heatmap.imshow(
-        pivot.values, aspect="auto", origin="lower",
-        extent=[pivot.columns.min(), pivot.columns.max(), pivot.index.min(), pivot.index.max()],
-    )
-    # No label on C's colorbar: it is the same quantity as D's, and D's
-    # colorbar -- the rightmost thing in the row -- carries the label for
-    # both. (The two colorbars' SCALES differ, C's running to the full
-    # population and D's to the top decile, which is why both keep their own
-    # tick labels.) Mirrors the same call made on D's y-axis, which C's
-    # y-label covers.
-    fig.colorbar(im, ax=ax_heatmap)
-    contour_level = DETECTION_RESPONDERS
-    ax_heatmap.contour(pivot.columns, pivot.index, pivot.values, levels=[contour_level],
-                        colors="white", linestyles="dashed")
-    ax_heatmap.set_xlabel("5 Hz modulation amplitude (A)")
-    ax_heatmap.set_ylabel("Fraction of population modulated")
-    # Titles name each panel's population, since C and D are the SAME
-    # analysis and differ only in which units it runs over. D's percentage
-    # is derived from SENSITIVITY_PERCENTILE rather than written out, so the
-    # title can't drift away from the threshold actually applied.
-    ax_heatmap.set_title("All pigeon HP units", fontsize=FP.FS_TITLE)
+    # Panels C-F (2026-11-12, replacing the pigeon-HP pseudopopulation's C/D):
+    # the q-value responder-count heatmap run on Fig 3's four populations,
+    # each neuron contributing the very spike train Fig 3 tests it on (its
+    # one recording, full analysed length; see
+    # fig4s_fig3_populations.quadrant_sweeps). Same sweep as before: a random
+    # fraction of the population is modulated at A (time warp at each
+    # recording's own stimulus frequency, since 2026-11-12), Storey
+    # q-values over the whole population, repeat-averaged responder count;
+    # dotted contour = DETECTION_RESPONDERS. With the default fixed scale
+    # (LOG_COLOR_VMAX) all four share one colorbar, with a dotted line at
+    # DETECTION_RESPONDERS; "log"/"linear" give each panel its own scale.
+    cbar_label = f"Responders (q < {QVALUE_FDR:g})"
 
-    # Panel D: the SAME analysis as panel C, restricted to the top-decile
-    # (>=90th percentile) most-sensitive units (see compute_sensitivity) --
-    # the pseudopopulation subsampling fig4_pilot.py did unconditionally,
-    # now shown here as an explicit comparison against panel C's full
-    # population rather than a replacement for it.
-    #
-    # Same repeat-averaging as panel C above.
-    resp_df_top_mean = (
-        resp_df_top.groupby(["participation", "amplitude"])["responders"].mean().reset_index()
-    )
-    pivot_top = resp_df_top_mean.pivot(index="participation", columns="amplitude", values="responders")
-    im_top = ax_heatmap_top.imshow(
-        pivot_top.values, aspect="auto", origin="lower",
-        extent=[pivot_top.columns.min(), pivot_top.columns.max(), pivot_top.index.min(), pivot_top.index.max()],
-    )
-    fig.colorbar(im_top, ax=ax_heatmap_top, label="Number of responders (q < 0.05)")
-    contour_level_top = DETECTION_RESPONDERS
-    ax_heatmap_top.contour(pivot_top.columns, pivot_top.index, pivot_top.values, levels=[contour_level_top],
-                           colors="white", linestyles="dashed")
-    ax_heatmap_top.set_xlabel("5 Hz modulation amplitude (A)")
-    ax_heatmap_top.set_title(
-        f"{100 - SENSITIVITY_PERCENTILE:.0f}% most sensitive pigeon HP units",
-        fontsize=FP.FS_TITLE)
-    # No y label: D's y axis is the same quantity as C's, on the same scale,
-    # immediately to its left -- C's label reads for both. Dropping it also
-    # clears the collision it had with C's own colorbar label.
-    ax_heatmap_top.set_ylabel("")
+    def _style_colorbar(cb, contour_color):
+        """Plain-number log ticks, "0" on the below-scale triangle, and a
+        dotted line at DETECTION_RESPONDERS matching the panels' contour."""
+        norm = cb.mappable.norm
+        if isinstance(norm, mcolors.LogNorm):
+            # Plain numbers (1, 3, 10, ...) rather than 10^0, 10^1, ...; no
+            # tick at LOG_COLOR_VMIN, whose label would collide with the "0".
+            ticks = [t for t in (1, 3, 10, 30, 100, 300, 1000, 3000)
+                     if t <= norm.vmax]
+            if color_scale in LOG_COLOR_VMAX and norm.vmax not in ticks:
+                ticks.append(norm.vmax)  # label a fixed ceiling, e.g. 200
+            cb.set_ticks(ticks)
+            cb.ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:g}"))
+            cb.ax.yaxis.set_minor_formatter(mticker.NullFormatter())
+            # The min-extension triangle is exactly 0 (see LOG_COLOR_VMIN);
+            # label it like a tick. It spans cb.extendfrac (default 0.05) of
+            # the bar's length below it.
+            pad_pt = cb.ax.yaxis.get_major_ticks()[0].get_pad() + plt.rcParams["ytick.major.size"]
+            cb.ax.annotate("0", xy=(1, -0.025), xycoords="axes fraction",
+                           xytext=(pad_pt, 0), textcoords="offset points",
+                           ha="left", va="center",
+                           fontsize=cb.ax.yaxis.get_ticklabels()[0].get_fontsize())
+        cb.ax.axhline(DETECTION_RESPONDERS, color=contour_color, linestyle="dotted",
+                      linewidth=plt.rcParams["lines.linewidth"])
 
-    # Panel B: FR vs NFC scatter. Top-decile-sensitivity units (same
-    # definition as panel D's subset) get a black outline, overlaid on the
-    # same points already drawn -- same hue/palette so the outlined points
-    # keep their mod-condition fill color.
-    sns.scatterplot(data=NFC_modulation_FR_df, x="FR", y="NFC", hue="mod",
+    heat_ims, heat_cbars = [], []
+    for i, (ax, (title, members, resp)) in enumerate(zip(heat_axes, quads)):
+        pivot = (resp.groupby(["participation", "amplitude"])["responders"].mean()
+                 .reset_index().pivot(index="participation", columns="amplitude", values="responders"))
+        # color_scale: "log" = logarithmic, 1 responder to the
+        # panel's own maximum, so every decade gets the same share of the
+        # colours; "log100"/"log200" = logarithmic, fixed 1-100 / 1-200 in
+        # every panel (LOG_COLOR_VMAX); "linear" = 0 to max.
+        # Log scales: cells below 1 (incl. 0, which LogNorm would mask) /
+        # above the ceiling take the colormap's end colours.
+        log_color = color_scale != "linear"
+        vals, norm, cmap = pivot.values, None, plt.get_cmap(cmap_name)
+        if log_color:
+            # 0 sits below the scale (LOG_COLOR_VMIN) and is drawn in the
+            # colormap's bottom end, which the scale itself no longer uses.
+            base = cmap
+            cmap = mcolors.ListedColormap(base(np.linspace(LOG_ZERO_CMAP_FRAC, 1, 256)))
+            vals = np.where(vals <= 0, LOG_COLOR_VMIN / 2, vals)
+            norm = mcolors.LogNorm(vmin=LOG_COLOR_VMIN,
+                                   vmax=LOG_COLOR_VMAX.get(color_scale, pivot.values.max()))
+            cmap.set_under(base(0.0))
+            cmap.set_over(base(1.0))
+        im = ax.imshow(
+            vals, aspect="auto", origin="lower", norm=norm, cmap=cmap,
+            # Cell-centred: each grid value is the middle of its cell.
+            extent=_cell_edges(pivot.columns) + _cell_edges(pivot.index),
+        )
+        heat_ims.append(im)
+        # Dotted contour in black or white, whichever contrasts with the
+        # colour the map gives the contour's own level (Spectral_r's pale
+        # green-yellow at 10 responders hides a white line).
+        level_rgb = cmap(im.norm(DETECTION_RESPONDERS))[:3]
+        luminance = 0.2126 * level_rgb[0] + 0.7152 * level_rgb[1] + 0.0722 * level_rgb[2]
+        contour_color = "black" if luminance > 0.5 else "white"
+        ax.contour(pivot.columns, pivot.index, pivot.values, levels=[DETECTION_RESPONDERS],
+                   colors=contour_color, linestyles="dotted")
+        cb_extend = ("min" if color_scale == "log" else
+                     "both" if color_scale in LOG_COLOR_VMAX else "neither")
+        if not shared_cbar:
+            # Colorbar label on the right column only (same quantity throughout).
+            heat_cbars.append(fig.colorbar(im, ax=ax, label=cbar_label if i % 2 else None,
+                                           extend=cb_extend))
+            _style_colorbar(heat_cbars[-1], contour_color)
+        # Shared axes, 0 to 1 with ticks at 1 (the grids stop at 0.99 / 0.98,
+        # so the last cell ends half a step short of 1).
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.set_xticks([0, 0.25, 0.5, 0.75, 1])
+        ax.set_yticks([0, 0.2, 0.4, 0.6, 0.8, 1])
+        ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:g}"))
+        ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:g}"))
+        ax.tick_params(labelbottom=i >= 2, labelleft=i % 2 == 0)
+        # One x-label (on the bottom-left sub-plot) and one y-label (on the
+        # top-left), each re-centred across the block further down.
+        if i == 2:
+            ax.set_xlabel("Modulation amplitude (A) at stimulus frequency")
+        if i == 0:
+            ax.set_ylabel("Fraction of population modulated")
+        # F's title is too long for one line: break after "sensitive" and
+        # keep N on the second line, so it is still two lines like C-E.
+        if "most sensitive " in title:
+            head, tail = title.split("most sensitive ", 1)
+            ax.set_title(f"{head}most sensitive\n{tail} (N = {len(members)})", fontsize=FP.FS_TITLE)
+        else:
+            ax.set_title(f"{title}\n(N = {len(members)})", fontsize=FP.FS_TITLE)
+
+    if shared_cbar:
+        # One colorbar right of the block, spanning both rows (same norm and
+        # colormap in all four sub-plots, so any of their images will do).
+        tr, br_ = heat_axes[1].get_position(), heat_axes[3].get_position()
+        fig_w_in, fig_h_in = fig.get_size_inches()
+        cax = fig.add_axes([tr.x1 + HEAT_CBAR_PAD_IN / fig_w_in, br_.y0,
+                            HEAT_CBAR_W_IN / fig_w_in, tr.y1 - br_.y0])
+        heat_cbars.append(fig.colorbar(heat_ims[0], cax=cax, label=cbar_label,
+                                       extend=cb_extend))
+        _style_colorbar(heat_cbars[-1], contour_color)
+
+    # Panel B (2026-11-22): NFC against spike count for Fig 3's pigeon HP
+    # neurons, each on the spike train Fig 3 tests it on (compute_fig4b_df).
+    # Spike count rather than firing rate on x: the recordings differ in
+    # length (25-139 s), and under modulation the NFC grows with the number
+    # of spikes, not the rate. Top-decile neurons (panel C bottom-right's)
+    # get a black outline, drawn over the same points.
+    sns.scatterplot(data=fig4b_df, x="spk_count", y="NFC", hue="mod",
                     palette=PALETTE_FIG4B, s=5, linewidth=0, alpha=FP.ALPHA_SCATTER, ax=ax_scatter)
-    top_ids = set(np.where(top_decile_mask)[0].tolist())
-    top_df = NFC_modulation_FR_df[NFC_modulation_FR_df["id"].isin(top_ids)]
-    sns.scatterplot(data=top_df, x="FR", y="NFC", hue="mod", palette=PALETTE_FIG4B,
-                    s=5, linewidth=0.6, edgecolor="black", alpha=FP.ALPHA_SCATTER,
-                    ax=ax_scatter, legend=False)
+    sns.scatterplot(data=fig4b_df[fig4b_df["top"]], x="spk_count", y="NFC", hue="mod",
+                    palette=PALETTE_FIG4B, s=5, linewidth=0.6, edgecolor="black",
+                    alpha=FP.ALPHA_SCATTER, ax=ax_scatter, legend=False)
     handles, labels = ax_scatter.get_legend_handles_labels()
     mod_vals = AMPLITUDES_FIG4B
     pairs = [(h, l) for h, l in zip(handles, labels)
@@ -1495,48 +1719,56 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
     pairs = pairs[::-1]  # high-to-low top-to-bottom, instead of seaborn's ascending hue order
     ax_scatter.legend([h for h, _ in pairs],
                 [f"A={l}" for _, l in pairs],
-                title="modulation (5 Hz)", ncol=1, markerscale=3,
+                title="modulation", ncol=1, markerscale=3,
                 fontsize=FP.FS_LEGEND, title_fontsize=FP.FS_LEGEND)
-    # eps-corrected to match NFC_modulation_FR_df, which is computed by
-    # compute_fr_df() at this same Q_frac-derived FOURIER_Q.
-    ax_scatter.hlines(statistics.inverse_Rayleigh_CDF(0.99, eps=statistics.get_epsilon(FOURIER_Q)),
-                *ax_scatter.get_xlim(), color="grey")
+    # Each recording has its own off-frequency bin count, hence its own
+    # eps-corrected null; their 99th percentiles span only ~3.05-3.12, so one
+    # line at the median stands for all of them.
+    ax_scatter.hlines(np.median(fig4b_df["null99"]), *ax_scatter.get_xlim(), color="grey")
     ax_scatter.set_ylabel("NFC")
     ax_scatter.set_xscale("log")
-    ax_scatter.set_xlabel("Firing rate (Hz)")
-    # Clip the top of the y axis rather than let the A=0.6 tail set it: 17 of
-    # 6069 plotted points exceed 40 (14 at A=0.6, 3 at A=0.3, none at A=0),
-    # and autoscaling to their max (79.6) spent half the axis on them while
-    # compressing the null line and the A=0/0.3 clouds -- the part of the
-    # panel that carries the detectability claim -- into the bottom sliver.
-    # Only the axis view is limited; nothing is dropped from the frame, and
-    # no summary drawn here (the null line, the top-decile outlines) is
-    # computed from the visible range.
+    ax_scatter.set_xlabel("Spike count")
+    # Clip the top of the y axis rather than let the A=0.6 tail set it (a few
+    # points exceed NFC_YLIM_TOP); only the view is limited, nothing is dropped.
     ax_scatter.set_ylim(top=NFC_YLIM_TOP)
 
-    # Panel letters: placed in FIGURE coordinates, offset by the same fixed
-    # pad from each panel's own top-left corner, so all four sit on a
-    # consistent rectangle (the two top-band letters share a y, the two
-    # bottom-row letters share a y, and the two left-column letters share an
-    # x). Axes-fraction offsets can't do this -- the same fraction means a
-    # different physical distance on each panel, which is why "A" (on one
-    # short spectra axes, offset far enough up to clear its "A=0" title)
-    # used to sit well outside the others. gs spans the full figure
-    # (left=0/bottom=0/right=1/top=1) and no auto-layout engine is active,
-    # so ax.get_position() is already the final figure-coordinate box.
-    PANEL_PAD_X = 0.035   # figure fraction, left of the panel's left edge
-    PANEL_PAD_Y = 0.02    # figure fraction, above the panel's top edge
+    # Panel letters sit just outside each panel's top-left corner, INCLUDING
+    # its decorations: right of the letter is the y-label/tick labels, below
+    # it the title. Earlier they were offset by a fixed figure fraction from
+    # the axes box itself, which put them above the y-labels -- i.e. over
+    # the plot -- so it was unclear which panel each one named.
+    # The offsets are measured once from the drawn decorations and applied in
+    # POINTS from the axes corner: labels and titles are fixed point sizes,
+    # so the letters stay put when save_main_figure rescales the canvas.
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    pt_per_px = 72.0 / fig.dpi
+    LETTER_GAP_PT = 7.0
 
-    def panel_letter(ax, letter):
-        bbox = ax.get_position()
-        fig.text(bbox.x0 - PANEL_PAD_X, bbox.y1 + PANEL_PAD_Y, letter,
-                 fontfamily="arial", fontsize=12,
-                 ha="left", va="bottom")
+    def panel_letter(ax, letter, top_ax=None):
+        # top_ax: take the letter's height from another panel instead, so
+        # letters in one row line up (B has no title, A does).
+        top_ax = ax if top_ax is None else top_ax
+        box = ax.get_window_extent(renderer)
+        tight = ax.get_tightbbox(renderer)
+        dx = (tight.x0 - box.x0) * pt_per_px - LETTER_GAP_PT
+        dy = (top_ax.get_tightbbox(renderer).y1
+              - top_ax.get_window_extent(renderer).y1) * pt_per_px
+        ax.annotate(letter, xy=(0, 1), xycoords=(ax.transAxes, top_ax.transAxes),
+                    xytext=(dx, dy), textcoords="offset points",
+                    fontfamily="arial", fontsize=12, fontweight="normal",
+                    ha="right", va="top", annotation_clip=False)
+
+    # Centre panel C's x-label under its bottom row and its y-label beside
+    # its left column (figure fractions scale with the canvas, so this
+    # survives save_main_figure's rescaling).
+    tl, bl, br = (heat_axes[i].get_position() for i in (0, 2, 3))
+    heat_axes[2].xaxis.label.set_x(((bl.x0 + br.x1) / 2 - bl.x0) / bl.width)
+    heat_axes[0].yaxis.label.set_y(((bl.y0 + tl.y1) / 2 - tl.y0) / tl.height)
 
     panel_letter(ax_A2, "A")
-    panel_letter(ax_scatter, "B")
-    panel_letter(ax_heatmap, "C")
-    panel_letter(ax_heatmap_top, "D")
+    panel_letter(ax_scatter, "B", top_ax=ax_A2)
+    panel_letter(heat_axes[0], "C")
 
     # The raster row's "Phase (rad)" is deliberately NOT nestled. A nestled
     # label is placed at a fixed axes FRACTION below the axis, which pinned
@@ -1551,7 +1783,7 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
     # excluded -- their data axis IS the right spine, and only the rightmost
     # of them still shows it (see the loop above); fig.axes' colorbar axes
     # are excluded for the same reason (a despined colorbar reads as broken).
-    _cbar_axes = {im.colorbar.ax for im in (im, im_top)}
+    _cbar_axes = {cb.ax for cb in heat_cbars}
     for _ax in fig.axes:
         if _ax in psth_axes or _ax in _cbar_axes:
             continue
@@ -1565,7 +1797,7 @@ def plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
         pdf.savefig(fig, dpi=FP.DPI)
     else:
         out_path = out_dir / out_name
-        fig.savefig(out_path, bbox_inches="tight", dpi=FP.DPI)
+        FP.save_main_figure(fig, out_path)
         print(f"Saved {out_path}")
     if not in_notebook:
         plt.close(fig)
@@ -1598,6 +1830,13 @@ def main():
                              "as printed by --rec-boundaries), with that unit's own site's "
                              "rec-start marks. Writes Fig4A_<experiment>_<id>.pdf. Implies "
                              "--rec-boundaries' marks but not its 11-page output")
+    parser.add_argument("--cmap", default=HEAT_CMAP,
+                        help=f"Colormap for panels C-F (default {HEAT_CMAP}); any other "
+                             "adds _<cmap> to the output name")
+    parser.add_argument("--color-scale", choices=COLOR_SCALES, default=DEFAULT_COLOR_SCALE,
+                        help="Panels C-F colour axis: log = 1 to each panel's max, "
+                             "linear = 0 to max, log100/log200 = 1-100/1-200 in every panel (default log200); anything but "
+                             "the default adds _<scale> to the output name")
     args = parser.parse_args([] if in_notebook else None)
 
     out_dir = Path(args.out_dir)
@@ -1605,7 +1844,7 @@ def main():
     # --rec-boundaries / --panel-a-unit pages are diagnostics, not Fig4.pdf.
     diag_dir = Path(FP.DIAGNOSTIC_DIR)
     diag_dir.mkdir(parents=True, exist_ok=True)
-    Path(FR_DF_CACHE).parent.mkdir(parents=True, exist_ok=True)
+    Path(FIG4B_CACHE).parent.mkdir(parents=True, exist_ok=True)
 
     experiments = args.experiments or discover_pigeon_hp_experiments(_EXPERIMENTS_DIR)
     print(f"Pooling pigeon-HP pseudopopulation from: {experiments}")
@@ -1614,57 +1853,37 @@ def main():
     FOURIER_Q = fourier_Q_from_frac(spks, FREQ, Q_frac, context=f"[fig4 sim @ {FREQ}Hz] ")
     print(f"  Q_frac={Q_frac} (shared mag_Q_frac across pooled experiments) -> FOURIER_Q={FOURIER_Q} bins at {FREQ} Hz")
 
-    if not args.recompute and Path(FR_DF_CACHE).exists():
-        print(f"Loading cached FR df from {FR_DF_CACHE}")
-        NFC_modulation_FR_df = pd.read_pickle(FR_DF_CACHE)
-    else:
-        print("Computing FR vs NFC...")
-        NFC_modulation_FR_df = compute_fr_df(spks, FOURIER_Q, workers=args.workers)
-        NFC_modulation_FR_df.to_pickle(FR_DF_CACHE)
-        print(f"Cached -> {FR_DF_CACHE}")
+    # Panel B: Fig 3's pigeon HP neurons on their own spike trains (see
+    # compute_fig4b_df); the pseudopopulation above now feeds only panel A.
+    fig4b_df = compute_fig4b_df(recompute=args.recompute)
+    d0 = fig4b_df.loc[fig4b_df["mod"] == 0]
+    print(f"  panel B: {len(d0)} pigeon HP neurons, {int(d0.top.sum())} in the top decile")
 
-    if not args.recompute and Path(RESP_DF_CACHE).exists():
-        print(f"Loading cached resp_df from {RESP_DF_CACHE}")
-        resp_df = pd.read_pickle(RESP_DF_CACHE)
-    else:
-        print("Computing modulation amplitude x participation -> responder count (slow)...")
-        resp_df = compute_responder_df(spks, FOURIER_Q, workers=args.workers)
-        resp_df.to_pickle(RESP_DF_CACHE)
-        print(f"Cached -> {RESP_DF_CACHE}")
-
-    # Top-decile-sensitivity subset for panel C/D -- see compute_sensitivity.
-    # Cheap (one un-swept Fourier pass over the full population), so always
-    # recomputed regardless of --recompute; only the responder sweep on the
-    # resulting subset is cached.
-    sens = compute_sensitivity(spks, FOURIER_Q, freq=FREQ)
-    sens_threshold = np.quantile(sens, SENSITIVITY_PERCENTILE / 100)
-    top_decile_mask = sens >= sens_threshold
-    top_decile_spks = [s for s, m in zip(spks, top_decile_mask) if m]
-    print(f"  {len(top_decile_spks)} / {len(spks)} units at/above the "
-          f"{SENSITIVITY_PERCENTILE:.0f}th percentile synthetic-baseline "
-          f"sensitivity (threshold={sens_threshold:.3f})")
-
-    if not args.recompute and Path(RESP_DF_TOP_DECILE_CACHE).exists():
-        print(f"Loading cached top-decile resp_df from {RESP_DF_TOP_DECILE_CACHE}")
-        resp_df_top = pd.read_pickle(RESP_DF_TOP_DECILE_CACHE)
-    else:
-        print("Computing modulation amplitude x participation -> responder count "
-              "(top-decile-sensitivity subset, slow)...")
-        resp_df_top = compute_responder_df(top_decile_spks, FOURIER_Q, workers=args.workers)
-        resp_df_top.to_pickle(RESP_DF_TOP_DECILE_CACHE)
-        print(f"Cached -> {RESP_DF_TOP_DECILE_CACHE}")
-
-    # --rec-boundaries: the marks belong to whichever SITE the exemplar unit
-    # came from (panel A shows one unit, and each site has its own rec
-    # tiling), so this resolves that site from the exemplar's own key rather
-    # than assuming one.
-    # Cited in the Results via \importnumber (see tex_numbers.py).
-    tex_numbers.write_numbers("fig4", detection_numbers(
-        resp_df, resp_df_top, len(spks), len(top_decile_spks)))
+    # Panels C-F (2026-11-12): Fig 3's four populations on Fig 3's own spike
+    # trains (no cap). They replace the pseudopopulation's responder sweeps
+    # (RESP_DF_CACHE / RESP_DF_TOP_DECILE_CACHE, no longer computed).
+    # Imported here, not at the top: fig4s_fig3_populations imports this module.
+    import fig4s_fig3_populations as f4s
+    # stim_freq (2026-11-12): each recording is modulated, and tested, at its
+    # own stimulus frequency (the frequency Fig 3 tests it at), not FREQ.
+    quads = f4s.quadrant_sweeps(cap_s=None, workers=args.workers, recompute=args.recompute,
+                                stim_freq=True)
+    for title, members, resp in quads:
+        print(f"  {title} (N={len(members)}): fraction modulated for {DETECTION_RESPONDERS} "
+              f"responders at " + ", ".join(f"A={a:g}: {detection_participation(resp, a):.2f}"
+                                            for a in QUOTED_AMPLITUDES))
+    # Cited in the Results via importnumber (see tex_numbers.py).
+    tex_numbers.write_numbers("fig4", {
+        **detection_numbers([(name, resp, len(members)) for name, (_, members, resp)
+                             in zip(("all", "pigeon", "hp", "top"), quads)]),
+        **spike_count_sensitivity_numbers(fig4b_df)})
 
     if not args.rec_boundaries and not args.panel_a_unit:
-        plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
-                  FOURIER_Q, out_dir, keys=keys)
+        plot_fig4(fig4b_df, quads, spks,
+                  FOURIER_Q, out_dir, keys=keys, color_scale=args.color_scale,
+                  cmap_name=args.cmap,
+                  out_name="Fig4" + ("" if args.color_scale == DEFAULT_COLOR_SCALE else f"_{args.color_scale}")
+                  + ("" if args.cmap == HEAT_CMAP else f"_{args.cmap}") + ".pdf")
         return
 
     # --rec-boundaries: the marks belong to whichever SITE the unit being
@@ -1736,7 +1955,7 @@ def main():
         print(f"  panel A exemplar is from {experiment} "
               f"({exemplar_T:.1f} s timeline); marking {len(rec_boundaries_s)} rec "
               f"starts at t = {', '.join(f'{o:.1f}' for o in rec_boundaries_s)} s")
-        plot_fig4(NFC_modulation_FR_df, resp_df, resp_df_top, top_decile_mask, spks,
+        plot_fig4(fig4b_df, quads, spks,
                   FOURIER_Q, out_dir, rec_boundaries_s=rec_boundaries_s, pdf=pdf,
                   keys=keys)
 

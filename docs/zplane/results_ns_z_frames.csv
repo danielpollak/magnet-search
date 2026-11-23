@@ -1,0 +1,4 @@
+trial,experiment,n_roi,frames_trial,first_usable_frame,frames_usable,frames_used_K7,frames_used_K10,frames_used_K14
+0,engert_20221001_fish1_magneto_0,839,1080,240,840,840,800,840
+1,engert_20221001_fish1_magneto_1,834,1080,180,900,840,900,840
+2,engert_20221001_fish1_magneto_2,840,1080,240,840,840,800,840
